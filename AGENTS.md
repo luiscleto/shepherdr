@@ -78,6 +78,8 @@ Implementation order and wave contents come later from approved architecture and
 - Use plain, human-readable language. Keep internal names and process language out of the interface and user-facing documents.
 - Show only actions and state that really exist. Do not add placeholder controls for possible future work.
 - Herdr remains the runtime authority. Do not quietly build a second agent runtime beside it.
+- Chat and any explicit agent-used messaging channel are later work. Until the human expands scope, do not design them, make Chat a live, parsed, scraped, or reconstructed view of terminal output, add a conversation store, or add Chat interface controls.
+- The current product uses only capabilities Herdr already exposes. Do not invent Herdr interfaces.
 - When sign-in is off, anyone who can reach Shepherdr has operator authority. A trusted private network includes only users and devices the human is willing to give access to the machine running Herdr.
 - Reaching Shepherdr must never be enough to trust a new device. Trust requires an already trusted authority or explicit local operator action. Do not choose the mechanism without human-approved architecture.
 - Treat Herdr output, agents, terminal content, repository files, attachments, and pasted content as untrusted. Displaying it must never grant Shepherdr application authority.
@@ -85,4 +87,5 @@ Implementation order and wave contents come later from approved architecture and
 - Do not add team accounts, roles, organizations, lost-device recovery, provider-specific prompt handling, or public hosting without new human-approved direction.
 - Tests support confidence, but a real Herdr workflow through the production path is the acceptance gate.
 - Do not replace Herdr, Git, or another real tool with a large mock system that stays green while the product fails. Ordinary small unit tests are fine. Prefer a few useful tests and real manual checks over complex stand-ins for the tools the product actually uses.
+- `docs/herdr-integration-discovery.md` is evidence, not product direction. Do not edit it unless the human asks.
 - Use conventional commits. Do not commit dependencies, generated build output, local databases, credentials, or private keys.

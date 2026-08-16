@@ -1,6 +1,6 @@
 # Shepherdr
 
-Shepherdr is a mobile-first web tool for viewing and managing Herdr. From a phone, you can see what agents are doing, talk to one in chat, and open a real terminal when needed. Shepherdr does not replace Herdr.
+Shepherdr is a mobile-first web tool for viewing and managing Herdr. From a phone, you can check on agents and open a real terminal when one needs you. Shepherdr does not replace Herdr.
 
 The project is still being designed. There is no runnable service yet.
 
@@ -36,13 +36,12 @@ Do not use `tailscale funnel`. Funnel makes the service public. Sign-in is an ex
 ## What it will do
 
 - Show workspaces and agents using Herdr's statuses: working, blocked, idle, done, and unknown.
-- Keep an attention control visible, with a working count and a clear callout when an agent is blocked.
-- Let you chat with one agent at a time or open its full terminal.
-- Accept pasted text and images in chat, with a preview before sending.
-- Send notifications for messages and when an agent needs you, with settings for each device.
-- Open the relevant agent when you tap a notification.
+- Show how many agents are working, and take you to anyone who is blocked.
+- Open the real terminal for an agent's Herdr work.
+- Send blocked-agent notifications, with settings for each device.
+- Open the blocked agent's terminal when you tap its notification.
 
-Herdr output, agent messages, terminal content, repository files, attachments, and pasted content are untrusted. Displaying them must never give them control over Shepherdr.
+Herdr output, agent content, terminal content, repository files, attachments, and pasted content are untrusted. Displaying them must never give them control over Shepherdr.
 
 ## Product documents
 

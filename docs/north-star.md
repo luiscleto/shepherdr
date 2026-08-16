@@ -2,11 +2,11 @@
 
 Status: proposed
 
-Scope: the complete product
+Scope: the current product
 
 ## The promise
 
-Shepherdr is a simple way to check on Herdr from a phone. A person can see what agents are doing, talk to one in chat, and open a real terminal when direct control is needed.
+Shepherdr is a simple way to check on Herdr from a phone. A person can see what agents are doing and open a real terminal when one needs attention or direct control.
 
 Shepherdr manages Herdr. It does not replace Herdr.
 
@@ -17,14 +17,12 @@ From a phone, a person can:
 1. Open Shepherdr in the chosen sign-in mode.
 2. Trust this device when passkeys are on and the device is new.
 3. See workspaces and agents with Herdr's real status words.
-4. See how many agents are working and which blocked agents need a reply or choice.
-5. Open one agent in chat and exchange messages.
-6. Paste text or an image, preview it, and send it in chat.
-7. Open the same Herdr work in a real terminal.
-8. Choose whether this device receives notifications for messages and blocked agents.
-9. Tap a notification and go straight to the relevant agent.
+4. See how many agents are working and which agents are blocked.
+5. Open the real terminal for an agent's Herdr work.
+6. Choose whether this device receives blocked-agent notifications.
+7. Tap a blocked-agent notification and open that agent's terminal.
 
-The daily return path is short: open Shepherdr, see who is blocked, and go straight to that agent.
+The daily return path is short: open Shepherdr, see who is blocked, and open that agent's terminal.
 
 This whole loop is the product bar. This document does not decide the order in which it will be built.
 
@@ -44,21 +42,17 @@ A persistent attention control shows how many agents are working. When any agent
 
 Empty, offline, and “Herdr is not running” are real states. Show them plainly.
 
-## Chat and terminal
+## Terminal
 
-Chat is one agent at a time. On a phone, it is the usual way into an agent. The terminal is the full-control escape hatch.
+The terminal is the full-control view into the same work Herdr owns. Home and blocked-agent notifications open the relevant agent's real terminal.
 
-Chat and terminal are two ways into the same Herdr work, not two conversations and not a second way to run agents.
-
-If a blocked agent is waiting for a choice or reply, chat may collect it only when Herdr exposes the choice and input in a general way. Do not add special behavior for one provider. When Herdr does not expose the input in a general way, open the blocked agent in the terminal.
-
-Chat must accept pasted text and images. Show an image preview before sending. Image paste in the terminal is welcome only when it stays clear and reliable.
+Use only terminal capabilities Herdr already exposes. Do not build another agent runtime or infer new product state from terminal output.
 
 ## Notifications
 
-Notification settings belong to each device. A person can choose notifications for messages and for blocked agents. Permission is requested when it makes sense, and the setting remains available later.
+Notification settings belong to each device. A person can choose whether to receive blocked-agent notifications. Permission is requested when it makes sense, and the setting remains available later.
 
-Tapping a notification opens the relevant agent. On a phone, it opens chat when chat can handle the next step and the terminal when it cannot.
+Tapping a blocked-agent notification opens that agent's terminal.
 
 ## Sign-in and devices
 
@@ -86,6 +80,8 @@ Reconnects, restarts, offline devices, and interrupted actions must leave the pe
 
 Treat Herdr output, agents, terminal content, repository files, attachments, and pasted content as untrusted. Merely displaying that content must never give it Shepherdr application authority.
 
+The current product uses only capabilities Herdr already exposes. Do not invent Herdr interfaces, reconstruct conversations from terminal output, or add a Shepherdr conversation store.
+
 ## Outside this product
 
 - Project planning and architecture management.
@@ -94,8 +90,9 @@ Treat Herdr output, agents, terminal content, repository files, attachments, and
 - Lost-device recovery in the current design.
 - Team accounts, roles, and organizations.
 - Provider-specific handling for blocked prompts.
-- A separate chat or agent runtime beside Herdr.
+- A replacement or second agent runtime beside Herdr.
+- Chat, image sending, and new-message notifications. Chat may return later through a deliberate agent-used channel, but it must not be a live, parsed, scraped, or reconstructed view of terminal output. That channel is not designed or approved.
 
 ## How we will know it works
 
-Use a real phone and a real Herdr server. Complete the full loop, reconnect, restart the service, receive a real notification, move between chat and terminal, and recover from an interrupted action. At every step, the interface must tell the truth about what Herdr has confirmed and what remains unknown.
+Use a real phone and a real Herdr server. Open Home, use the attention control, open a blocked agent's terminal, reconnect, restart the service, and receive a real blocked-agent notification. At every step, the interface must tell the truth about what Herdr has confirmed and what remains unknown.
