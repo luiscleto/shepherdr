@@ -1,20 +1,16 @@
 package server
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"mime"
 	"net"
 	"net/http"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -24,40 +20,17 @@ import (
 const homeHeartbeatInterval = 2 * time.Second
 
 type Server struct {
-	assets           fs.FS
-	attachments      map[*terminalAttachment]struct{}
-	controlMu        sync.Mutex
-	controllers      map[string]*terminalChild
-	epoch            string
-	herdrBinary      string
-	lifecycleChanged chan struct{}
-	lifecycleMu      sync.Mutex
-	logger           *slog.Logger
-	projector        *herdr.Projector
-	socketPath       string
-	terminalCancel   context.CancelFunc
-	terminalClose    sync.Once
-	terminalCtx      context.Context
-	upgrader         websocket.Upgrader
+	assets    fs.FS
+	epoch     string
+	projector *herdr.Projector
+	upgrader  websocket.Upgrader
 }
 
-func New(assets fs.FS, projector *herdr.Projector, socketPath, herdrBinary string, logger *slog.Logger) *Server {
-	if logger == nil {
-		logger = slog.Default()
-	}
-	terminalCtx, terminalCancel := context.WithCancel(context.Background())
+func New(assets fs.FS, projector *herdr.Projector) *Server {
 	return &Server{
-		assets:           assets,
-		attachments:      make(map[*terminalAttachment]struct{}),
-		controllers:      make(map[string]*terminalChild),
-		epoch:            newServerEpoch(),
-		herdrBinary:      herdrBinary,
-		lifecycleChanged: make(chan struct{}),
-		logger:           logger,
-		projector:        projector,
-		socketPath:       socketPath,
-		terminalCancel:   terminalCancel,
-		terminalCtx:      terminalCtx,
+		assets:    assets,
+		epoch:     newServerEpoch(),
+		projector: projector,
 		upgrader: websocket.Upgrader{
 			HandshakeTimeout: 5 * time.Second,
 		},
@@ -72,32 +45,9 @@ func newServerEpoch() string {
 	return hex.EncodeToString(value[:])
 }
 
-func (s *Server) Close(ctx context.Context) error {
-	s.terminalClose.Do(func() {
-		if s.terminalCancel != nil {
-			s.terminalCancel()
-		}
-	})
-	for {
-		s.lifecycleMu.Lock()
-		if len(s.attachments) == 0 {
-			s.lifecycleMu.Unlock()
-			return nil
-		}
-		changed := s.lifecycleChanged
-		s.lifecycleMu.Unlock()
-		select {
-		case <-changed:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-}
-
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/home", s.homeSocket)
-	mux.HandleFunc("GET /api/terminal", s.terminalSocket)
 	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		writer.WriteHeader(http.StatusOK)
@@ -207,28 +157,4 @@ func securityHeaders(next http.Handler) http.Handler {
 func writeJSON(connection *websocket.Conn, value any) error {
 	_ = connection.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	return connection.WriteJSON(value)
-}
-
-func readClientMessage(connection *websocket.Conn, messages chan<- terminalClientMessage, closed chan<- struct{}) {
-	defer close(closed)
-	for {
-		_, data, err := connection.ReadMessage()
-		if err != nil {
-			return
-		}
-		var message terminalClientMessage
-		if len(data) > 64*1024 || json.Unmarshal(data, &message) != nil {
-			continue
-		}
-		select {
-		case messages <- message:
-		default:
-		}
-	}
-}
-
-func (s *Server) logTerminalError(message string, err error) {
-	if err != nil {
-		s.logger.Info(message, "error", err)
-	}
 }

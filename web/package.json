@@ -8,10 +8,6 @@
     "test": "tsx --test src/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@xterm/addon-fit": "0.10.0",
-    "@xterm/xterm": "5.5.0"
-  },
   "devDependencies": {
     "esbuild": "0.25.9",
     "happy-dom": "20.11.2",

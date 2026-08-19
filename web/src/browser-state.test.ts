@@ -4,9 +4,8 @@ import test from "node:test";
 import { Window } from "happy-dom";
 
 import { HomeView } from "./home-view";
-import { findTerminal, type Home, type HomeState } from "./home-model";
-import { updateTerminalIdentity } from "./terminal-presentation";
-import { resolveTerminalRoute, returningToHome, terminalWaitingLabel } from "./terminal-route";
+import { type Home, type HomeState } from "./home-model";
+import { returningToHome } from "./terminal-route";
 
 function home(): Home {
   return {
@@ -42,63 +41,8 @@ function state(connection: HomeState["connection"] = "live", value = home()): Ho
   return { connection, gap: 2, home: value, last_known: connection !== "live" };
 }
 
-test("direct terminal routes wait for current truth and only live coherent absence is unavailable", () => {
+test("current Home truth is not overridden by a false offline hint", () => {
   const paneID = "pane-one";
-  const empty = state("reconnecting", { blocked_count: 0, working_count: 0, workspaces: [] });
-  const initial = resolveTerminalRoute(empty, paneID, { homeCurrent: false, offlineHint: false, receivedHome: false });
-  assert.deepEqual(initial, { kind: "waiting", state: "reconnecting" });
-  assert.equal(initial.kind === "waiting" ? terminalWaitingLabel(initial.state) : "", "Reconnecting to terminal");
-
-  const stopped = resolveTerminalRoute(
-    { ...empty, connection: "not_running" },
-    paneID,
-    { homeCurrent: true, offlineHint: false, receivedHome: true },
-  );
-  assert.deepEqual(stopped, { kind: "waiting", state: "not_running" });
-
-  const incompatible = resolveTerminalRoute(
-    { ...empty, connection: "incompatible" },
-    paneID,
-    { homeCurrent: true, offlineHint: false, receivedHome: true },
-  );
-  assert.deepEqual(incompatible, { kind: "waiting", state: "incompatible" });
-  assert.equal(incompatible.kind === "waiting" ? terminalWaitingLabel(incompatible.state) : "", "Cannot use this Herdr");
-
-  const offline = resolveTerminalRoute(empty, paneID, { homeCurrent: false, offlineHint: true, receivedHome: true });
-  assert.deepEqual(offline, { kind: "waiting", state: "offline" });
-  assert.equal(offline.kind === "waiting" ? terminalWaitingLabel(offline.state) : "", "Offline · terminal is not live");
-
-  const socketLost = resolveTerminalRoute(
-    { ...empty, connection: "live", last_known: false },
-    paneID,
-    { homeCurrent: false, offlineHint: false, receivedHome: true },
-  );
-  assert.deepEqual(socketLost, { kind: "waiting", state: "reconnecting" });
-
-  const missing = resolveTerminalRoute(
-    { ...empty, connection: "live", last_known: false },
-    paneID,
-    { homeCurrent: true, offlineHint: true, receivedHome: true },
-  );
-  assert.deepEqual(missing, { kind: "missing" });
-
-  const present = resolveTerminalRoute(state(), paneID, {
-    homeCurrent: true,
-    offlineHint: true,
-    receivedHome: true,
-  });
-  assert.equal(present.kind, "target");
-});
-
-test("a false offline hint cannot override current Home truth or coherent target absence", () => {
-  const paneID = "pane-one";
-  const missing = resolveTerminalRoute(
-    state("live", { blocked_count: 0, working_count: 0, workspaces: [] }),
-    paneID,
-    { homeCurrent: true, offlineHint: true, receivedHome: true },
-  );
-  assert.deepEqual(missing, { kind: "missing" });
-
   const window = new Window({ url: "http://localhost/" });
   const app = window.document.createElement("main");
   window.document.body.append(app);
@@ -255,27 +199,6 @@ test("Home transport states keep one stable connection region and stale values",
   assert.equal(row.getAttribute("aria-disabled"), "false");
   row.click();
   assert.equal(opens, 2, "real recovery restores the existing row action");
-  window.close();
-});
-
-test("same-pane semantic metadata refreshes terminal title", () => {
-  const window = new Window();
-  const heading = window.document.createElement("h1");
-  const first = findTerminal(home(), "pane-one");
-  assert.ok(first);
-  updateTerminalIdentity({ heading }, first);
-  assert.equal(heading.textContent, "Workspace one");
-
-  const replacementHome = structuredClone(home());
-  const terminal = replacementHome.workspaces[0].tabs[0].terminals[0];
-  terminal.title = "Agent replacement";
-  terminal.agent = { kind: "codex", name: "Replacement", status: "working" };
-  const replacement = findTerminal(replacementHome, "pane-one");
-  assert.ok(replacement);
-  updateTerminalIdentity({ heading }, replacement);
-
-  assert.equal(heading.textContent, "Agent replacement");
-  assert.equal(replacement.terminal.pane_id, first.terminal.pane_id);
   window.close();
 });
 

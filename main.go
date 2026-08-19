@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -37,7 +36,6 @@ func run() error {
 	}
 	listenAddress := flag.String("listen", "127.0.0.1:8787", "localhost address to listen on")
 	socketPath := flag.String("herdr-socket", defaultSocket, "Unix socket for the one Herdr session")
-	herdrBinary := flag.String("herdr-bin", "herdr", "path to the compatible Herdr CLI")
 	flag.Parse()
 
 	if err := server.ValidateListenAddress(*listenAddress); err != nil {
@@ -45,10 +43,6 @@ func run() error {
 	}
 	if *socketPath == "" || !filepath.IsAbs(*socketPath) {
 		return fmt.Errorf("-herdr-socket must be an absolute path")
-	}
-	binary, err := exec.LookPath(*herdrBinary)
-	if err != nil {
-		return fmt.Errorf("find Herdr CLI: %w", err)
 	}
 	assets, err := fs.Sub(browserFiles, "web/dist")
 	if err != nil {
@@ -58,7 +52,7 @@ func run() error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	client := herdr.NewClient(*socketPath)
 	projector := herdr.NewProjector(client)
-	application := server.New(assets, projector, *socketPath, binary, logger)
+	application := server.New(assets, projector)
 
 	listener, err := net.Listen("tcp", *listenAddress)
 	if err != nil {
@@ -86,13 +80,8 @@ func run() error {
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			return err
 		}
-		return application.Close(shutdownCtx)
+		return nil
 	case err := <-serveErrors:
-		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if closeErr := application.Close(closeCtx); closeErr != nil {
-			return closeErr
-		}
 		if err == http.ErrServerClosed {
 			return nil
 		}
