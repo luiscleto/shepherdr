@@ -6,7 +6,7 @@ Scope: the current product
 
 ## The promise
 
-Shepherdr is a simple way to check on Herdr from a phone. A person can see what agents are doing and open a real terminal when one needs attention or direct control.
+Shepherdr is a simple way to check on Herdr from a phone. A person can reach every real Herdr terminal, see what agents are doing when they are present, and open a terminal for attention or direct control.
 
 Shepherdr manages Herdr. It does not replace Herdr.
 
@@ -16,19 +16,19 @@ From a phone, a person can:
 
 1. Open Shepherdr in the chosen sign-in mode.
 2. Trust this device when passkeys are on and the device is new.
-3. See workspaces and agents with Herdr's real status words.
+3. See every current terminal under Herdr's workspace and tab structure, with agent identity and status when an agent is present.
 4. See how many agents are working and which agents are blocked.
-5. Open the real terminal for an agent's Herdr work.
+5. Open any current real Herdr terminal.
 6. Choose whether this device receives blocked-agent notifications.
 7. Tap a blocked-agent notification and open that agent's terminal.
 
-The daily return path is short: open Shepherdr, see who is blocked, and open that agent's terminal.
+The daily return path is short: open Shepherdr, see who is blocked, and open that terminal.
 
 This whole loop is the product bar. This document does not decide the order in which it will be built.
 
 ## Home and attention
 
-Home shows the workspaces and agents that Herdr reports. Agent status uses these words unchanged:
+Home shows every real Herdr terminal exactly once under the workspace and tab that Herdr reports. Agent identity and status are optional metadata on a terminal; they never determine whether the terminal exists. Agent status uses these words unchanged:
 
 - **working**
 - **blocked**
@@ -36,15 +36,19 @@ Home shows the workspaces and agents that Herdr reports. Agent status uses these
 - **done**
 - **unknown**
 
-Do not replace them with more precise-sounding words. Supporting text may say that a blocked agent “needs you,” but its status remains **blocked**.
+Do not replace them with more precise-sounding words or give an ordinary terminal an invented status.
 
-A persistent attention control shows how many agents are working. When any agent is blocked, it calls for attention and gives a direct path to those agents.
+A persistent attention area shows how many agents are working. When any agent is blocked, its blocked count opens a filtered reuse of those terminal rows with their workspace and tab context. It does not add a second list, show a zero-blocked control, or create another status.
 
-Empty, offline, and “Herdr is not running” are real states. Show them plainly.
+A single-terminal workspace is one compact, full-row destination. Home reveals tab and multi-terminal structure only when it helps distinguish place. It does not repeat agent counts, cards, or large “Open terminal” buttons.
+
+Human titles remain consistent between Home, Terminal, and accessibility. Neutral displayed-order numbers appear only when same-named flattened workspaces collide across Home or same-titled terminal rows collide within their workspace and, when shown, tab. Matching titles in unrelated workspace/tab contexts stay unnumbered. The sets come from the complete all-terminals view, so blocked filtering never renumbers them. Opaque IDs never appear as disambiguation.
+
+**No terminals**, offline, reconnecting, last-known, and “Herdr is not running” are real states. Show them plainly. An ordinary terminal means Home is not empty.
 
 ## Terminal
 
-The terminal is the full-control view into the same work Herdr owns. Home and blocked-agent notifications open the relevant agent's real terminal.
+The terminal is the full-control view into the same work Herdr owns. Home opens the selected real terminal. A blocked-agent notification opens that agent's terminal.
 
 Use only terminal capabilities Herdr already exposes. Do not build another agent runtime or infer new product state from terminal output.
 
@@ -78,7 +82,7 @@ Show only actions and state that exist. Never claim success before Herdr or the 
 
 Reconnects, restarts, offline devices, and interrupted actions must leave the person with a clear and truthful view of what is known.
 
-Treat Herdr output, agents, terminal content, repository files, attachments, and pasted content as untrusted. Merely displaying that content must never give it Shepherdr application authority.
+Treat Herdr output, names, agents, terminal identities, terminal content, repository files, attachments, and pasted content as untrusted. Merely displaying that content must never give it Shepherdr application authority. A terminal's identity cannot grant authority or redirect to another terminal.
 
 The current product uses only capabilities Herdr already exposes. Do not invent Herdr interfaces, reconstruct conversations from terminal output, or add a Shepherdr conversation store.
 
@@ -92,7 +96,8 @@ The current product uses only capabilities Herdr already exposes. Do not invent 
 - Provider-specific handling for blocked prompts.
 - A replacement or second agent runtime beside Herdr.
 - Chat, image sending, and new-message notifications. Chat may return later through a deliberate agent-used channel, but it must not be a live, parsed, scraped, or reconstructed view of terminal output. That channel is not designed or approved.
+- Worktree or repository grouping, workspace nesting, and collapsibility. Current Herdr metadata does not establish workspace parents; any later grouping layer must be separately approved and additive.
 
 ## How we will know it works
 
-Use a real phone and a real Herdr server. Open Home, use the attention control, open a blocked agent's terminal, reconnect, restart the service, and receive a real blocked-agent notification. At every step, the interface must tell the truth about what Herdr has confirmed and what remains unknown.
+Use a real phone and a real Herdr server. Compare Home with Herdr, open agent and ordinary terminals, use blocked attention, preserve place between Home and Terminal, exercise observer and takeover behavior, reconnect, restart the service, and receive a real blocked-agent notification when notification work exists. At every step, the interface must tell the truth about what Herdr has confirmed and what remains unknown.

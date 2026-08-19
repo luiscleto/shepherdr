@@ -1,0 +1,21 @@
+{
+  "name": "shepherdr-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --minify --outfile=dist/app.js && cp src/index.html dist/index.html",
+    "test": "tsx --test src/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.10.0",
+    "@xterm/xterm": "5.5.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.9",
+    "happy-dom": "20.11.2",
+    "tsx": "4.23.12",
+    "typescript": "5.9.2"
+  }
+}

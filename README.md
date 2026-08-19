@@ -1,47 +1,76 @@
 # Shepherdr
 
-Shepherdr is a mobile-first web tool for viewing and managing Herdr. From a phone, you can check on agents and open a real terminal when one needs you. Shepherdr does not replace Herdr.
+Shepherdr is a mobile-first web tool for viewing and managing Herdr. From a phone, you can see every real Herdr terminal, check which agents need attention, and open any current terminal. Shepherdr does not replace Herdr.
 
-The project is still being designed. There is no runnable service yet.
+## Start Shepherdr
 
-## Starting Shepherdr
+This build supports one local Herdr session with sign-in off and listens only on localhost.
 
-Shepherdr will have two ways to start.
+Requirements:
 
-### Start without sign-in
+- Go 1.22 or later
+- Node.js and npm for the browser build
+- Herdr 0.8.0 (socket protocol 19)
 
-This is the common daily setup for one person on a private network. Open Shepherdr and use it. You do not need to add or trust devices. Anyone who can reach Shepherdr can act as the operator.
+Build Shepherdr:
 
-### Start with passkeys
+```sh
+npm ci --prefix web
+npm run build --prefix web
+go build -o bin/shepherdr .
+```
 
-Use this when you want a second lock, when more than one trusted person uses Shepherdr, or in a business. Sign in with a passkey and trust each device before using it.
+Start it for the default Herdr session:
 
-You will be able to view trusted devices, revoke one, and reset sign-in from the command line so you can set it up again. The exact commands will be added when the tool is runnable.
+```sh
+./bin/shepherdr
+```
 
-Reaching Shepherdr is never enough to trust a new device. Trust must come from an already trusted authority or an explicit action on the machine running Herdr. The exact method comes later.
+Or select the Unix socket for one other configured Herdr session:
+
+```sh
+./bin/shepherdr -herdr-socket /absolute/path/to/herdr.sock
+```
+
+Shepherdr prints its localhost address. Open that address directly on the machine, or publish it through a trusted private-network route as described below.
+
+Sign-in is off. Anyone who can reach Shepherdr can view and control the configured Herdr terminals.
 
 ## Keep it on a private network
 
-Always make Shepherdr reachable only on a trusted private network, even when passkeys are on. A trusted private network contains only users and devices you are willing to give access to the machine running Herdr. Public internet access is not supported.
+Always make Shepherdr reachable only on a trusted private network. A trusted private network contains only users and devices you are willing to give access to the machine running Herdr. Public internet access is not supported.
 
 Tailscale is one practical way to do this:
 
-1. Start Shepherdr so it listens only on `localhost`.
+1. Start Shepherdr. It refuses non-localhost listen addresses.
 2. Note the local port that Shepherdr shows.
 3. Run `tailscale serve <port>`, replacing `<port>` with that port.
 4. Open the private address printed by Tailscale from another device on the same private network.
 
-Do not use `tailscale funnel`. Funnel makes the service public. Sign-in is an extra lock, not a reason to put a Herdr terminal on the public internet.
+Do not use `tailscale funnel`. Funnel makes the service public.
 
-## What it will do
+## What it does
 
-- Show workspaces and agents using Herdr's statuses: working, blocked, idle, done, and unknown.
-- Show how many agents are working, and take you to anyone who is blocked.
-- Open the real terminal for an agent's Herdr work.
-- Send blocked-agent notifications, with settings for each device.
-- Open the blocked agent's terminal when you tap its notification.
+- Show every current terminal under Herdr's workspace and tab structure.
+- Show agent identity and Herdr's working, blocked, idle, done, and unknown status when a terminal has an agent. Ordinary terminals have no invented status.
+- Show how many agents are working. When agents are blocked, show those same terminal rows in a filtered list without duplicating them on Home.
+- Keep a single-terminal workspace compact and make the whole terminal row the open action.
+- Add small displayed-order numbers only to same-named single-terminal workspaces across Home or same-titled terminal rows in the same workspace and, when shown, tab. Matching titles in unrelated workspace/tab contexts stay unnumbered, and filtering never renumbers them.
+- Open any current real Herdr terminal, whether or not it has an agent.
+- Open as an observer, acquire control when it is free, and require confirmation before taking control from someone else.
+- Keep Home up to date after a connection drops. Shepherdr shows clearly labelled last-known values without presenting them as openable until it reconnects.
 
-Herdr output, agent content, terminal content, repository files, attachments, and pasted content are untrusted. Displaying them must never give them control over Shepherdr.
+If Herdr stops, start it again and Shepherdr will reconnect automatically.
+
+Herdr output, names, IDs, agent content, terminal content, repository files, attachments, and pasted content are untrusted. Displaying them must never give them control over Shepherdr.
+
+## Checks
+
+```sh
+go test ./...
+npm run typecheck --prefix web
+npm run build --prefix web
+```
 
 ## Product documents
 
