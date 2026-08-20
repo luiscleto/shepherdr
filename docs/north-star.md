@@ -50,7 +50,7 @@ A persistent attention area shows the working count. When any agent is blocked, 
 
 A stable badge at the top right says **Live**, **Reconnecting**, **Offline**, **Herdr is not running**, or **Cannot use this Herdr**. Internal Home refresh does not turn a healthy connection into **Reconnecting**, and the badge never makes the page jump.
 
-Connection health and a coherent Home are separate truths. Shepherdr never publishes a partial or mixed Home. While a fresh coherent Home is being rebuilt, it may identify prior coherent rows as updating only when that remains honest. Otherwise it replaces them with a clear updating or unavailable state. Open and management actions remain absent until the coherent Home is current.
+Connection health and a coherent Home are separate truths. Shepherdr never publishes a partial or mixed Home. While a fresh coherent Home is being rebuilt, show one short **Home is updating** note above the list when the prior coherent rows remain honest. Otherwise replace the list with clear updating or unavailable content. Open and management actions remain absent until the coherent Home is current.
 
 **No terminals** is a real coherent state. An ordinary terminal means Home is not empty.
 
