@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#101715" />
+    <title>Terminal lab · Shepherdr</title>
+    <link rel="stylesheet" href="/terminal-lab.css" />
+  </head>
+  <body>
+    <main class="lab">
+      <header class="lab-header">
+        <div>
+          <p class="eyebrow">Development only</p>
+          <h1>Terminal lab</h1>
+        </div>
+        <a href="/">Home</a>
+      </header>
+
+      <section class="setup" aria-label="Terminal setup">
+        <label>
+          Renderer
+          <select id="renderer"></select>
+        </label>
+        <label>
+          Terminal
+          <select id="target"><option value="">Loading terminals…</option></select>
+        </label>
+        <label>
+          Session
+          <select id="mode">
+            <option value="observe">Observe</option>
+            <option value="control">Control</option>
+            <option value="takeover">Take over</option>
+          </select>
+        </label>
+        <button id="connect" type="button">Connect</button>
+        <button id="disconnect" type="button" class="quiet">Disconnect</button>
+      </section>
+
+      <section class="readout" aria-label="Lab status">
+        <span id="status">Loading renderer</span>
+        <span id="local-size">Local —</span>
+        <span id="remote-size">Remote —</span>
+        <span id="viewport-size">Viewport —</span>
+      </section>
+
+      <section id="surface" class="surface" aria-label="Terminal candidate"></section>
+
+      <nav class="accessory" aria-label="Terminal keys">
+        <button type="button" data-key="escape">Esc</button>
+        <button type="button" data-key="ctrl-c">Ctrl C</button>
+        <button type="button" data-key="ctrl-d">Ctrl D</button>
+        <button type="button" data-key="ctrl-z">Ctrl Z</button>
+        <button type="button" data-key="tab">Tab</button>
+        <button type="button" data-key="left" aria-label="Left arrow">←</button>
+        <button type="button" data-key="up" aria-label="Up arrow">↑</button>
+        <button type="button" data-key="down" aria-label="Down arrow">↓</button>
+        <button type="button" data-key="right" aria-label="Right arrow">→</button>
+        <button type="button" data-key="enter">Enter</button>
+        <button type="button" data-key="backspace">⌫</button>
+        <button id="page-up" type="button">Page ↑</button>
+        <button id="page-down" type="button">Page ↓</button>
+        <button id="paste" type="button">Paste</button>
+        <button id="copy" type="button">Copy selection</button>
+        <button id="focus" type="button">Focus</button>
+      </nav>
+
+      <details class="diagnostics">
+        <summary>Diagnostics</summary>
+        <div class="diagnostic-actions">
+          <button id="clear-log" type="button" class="quiet">Clear</button>
+          <button id="copy-log" type="button" class="quiet">Copy log</button>
+        </div>
+        <pre id="log"></pre>
+      </details>
+    </main>
+    <script type="module" src="/terminal-lab.js"></script>
+  </body>
+</html>

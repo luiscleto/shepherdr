@@ -20,17 +20,21 @@ import (
 const homeHeartbeatInterval = 2 * time.Second
 
 type Server struct {
-	assets    fs.FS
-	epoch     string
-	projector *herdr.Projector
-	upgrader  websocket.Upgrader
+	assets             fs.FS
+	epoch              string
+	projector          *herdr.Projector
+	terminal           *TerminalBridge
+	terminalLabEnabled bool
+	upgrader           websocket.Upgrader
 }
 
-func New(assets fs.FS, projector *herdr.Projector) *Server {
+func New(assets fs.FS, projector *herdr.Projector, terminal *TerminalBridge, terminalLabEnabled bool) *Server {
 	return &Server{
-		assets:    assets,
-		epoch:     newServerEpoch(),
-		projector: projector,
+		assets:             assets,
+		epoch:              newServerEpoch(),
+		projector:          projector,
+		terminal:           terminal,
+		terminalLabEnabled: terminalLabEnabled,
 		upgrader: websocket.Upgrader{
 			HandshakeTimeout: 5 * time.Second,
 		},
@@ -48,13 +52,29 @@ func newServerEpoch() string {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/home", s.homeSocket)
+	if s.terminal != nil {
+		mux.HandleFunc("GET /api/terminal", s.terminalSocket)
+		mux.HandleFunc("GET /api/terminal/read", s.terminalRead)
+	}
+	if s.terminalLabEnabled && s.terminal != nil {
+		mux.HandleFunc("GET /api/terminal-lab", s.terminal.socket)
+		mux.HandleFunc("GET /api/terminal-lab/read", s.terminal.read)
+	}
 	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		writer.WriteHeader(http.StatusOK)
 		_, _ = writer.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /", s.asset)
-	return securityHeaders(mux)
+	return securityHeaders(mux, s.terminalLabEnabled)
+}
+
+func (s *Server) terminalSocket(writer http.ResponseWriter, request *http.Request) {
+	s.terminal.productionSocket(writer, request)
+}
+
+func (s *Server) terminalRead(writer http.ResponseWriter, request *http.Request) {
+	s.terminal.productionRead(writer, request)
 }
 
 func ValidateListenAddress(address string) error {
@@ -120,11 +140,22 @@ func (s *Server) homeSocket(writer http.ResponseWriter, request *http.Request) {
 
 func (s *Server) asset(writer http.ResponseWriter, request *http.Request) {
 	name := strings.TrimPrefix(path.Clean(request.URL.Path), "/")
+	if strings.HasPrefix(name, "api/") {
+		http.NotFound(writer, request)
+		return
+	}
 	if name == "." || name == "" {
 		name = "index.html"
 	}
+	if name == "terminal-lab" {
+		name = "terminal-lab.html"
+	}
+	if isTerminalLabAsset(name) && !s.terminalLabEnabled {
+		http.NotFound(writer, request)
+		return
+	}
 	data, err := fs.ReadFile(s.assets, name)
-	if err != nil && !strings.HasPrefix(name, "api/") {
+	if err != nil && !strings.HasPrefix(name, "api/") && !isTerminalLabAsset(name) {
 		name = "index.html"
 		data, err = fs.ReadFile(s.assets, name)
 	}
@@ -136,7 +167,7 @@ func (s *Server) asset(writer http.ResponseWriter, request *http.Request) {
 	if contentType != "" {
 		writer.Header().Set("Content-Type", contentType)
 	}
-	if name == "index.html" {
+	if name == "index.html" || isTerminalLabAsset(name) {
 		writer.Header().Set("Cache-Control", "no-store")
 	} else {
 		writer.Header().Set("Cache-Control", "public, max-age=3600")
@@ -144,9 +175,21 @@ func (s *Server) asset(writer http.ResponseWriter, request *http.Request) {
 	_, _ = writer.Write(data)
 }
 
-func securityHeaders(next http.Handler) http.Handler {
+func isTerminalLabAsset(name string) bool {
+	return name == "terminal-lab.html" || name == "terminal-lab.js" || name == "terminal-lab.css" || name == "ghostty-vt.wasm"
+}
+
+func securityHeaders(next http.Handler, terminalLabEnabled bool) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+		// The terminal renderers apply validated color and geometry values through
+		// element styles. Terminal content is always inserted as text, never HTML.
+		styleSource := "style-src 'self' 'unsafe-inline'"
+		scriptSource := "script-src 'self'"
+		if terminalLabEnabled && request.URL.Path == "/terminal-lab" {
+			// One development-only candidate uses a WebAssembly terminal core.
+			scriptSource = "script-src 'self' 'wasm-unsafe-eval'"
+		}
+		writer.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; "+scriptSource+"; "+styleSource+"; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 		writer.Header().Set("Referrer-Policy", "no-referrer")
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		writer.Header().Set("X-Frame-Options", "DENY")
