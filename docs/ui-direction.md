@@ -61,15 +61,15 @@ Home shows every real workspace and every real terminal exactly once. Agent iden
 
 Keep ordinary flat Home compact. When Herdr establishes a valid worktree nest, replace its top-level workspace's ordinary position with one nested section. The section heading uses that workspace title once, **N workspaces**, and only nonzero actual agent totals in this order: **working**, **blocked**, **idle**, **done**, **unknown**. Counts do not open or filter anything.
 
-Expanding a nest shows every workspace and every terminal in it. The heading's disclosure title area and the top-level workspace's current-terminal **Open** action are sibling targets, each at least 44 by 44 CSS pixels. Show that **Open** only when the real current terminal resolves exactly. Never fall back to the first terminal. Its accessible name is **Open**, followed by the terminal title and its place. Do not expose internal terminology. Chevrons on terminal rows are decorative.
+Expanding a nest shows every workspace and every terminal in it. The heading is one clear disclosure target; it does not add another **Open**. Expanded top-level and worktree workspaces keep their ordinary terminal rows and **Open** actions. Never fall back to the first terminal. Accessible names use **Open**, followed by the terminal title and its place. Do not expose internal terminology. Chevrons on terminal rows are decorative.
 
 On the first loaded visit, expand nests containing working or blocked agents and collapse the others. After that, the person's manual expand or collapse choice wins for the visit even when statuses change. Show compact **Expand all** when any nest is collapsed and **Collapse all** when all are expanded. Omit both when there are no nests and in **Blocked**.
 
-The persistent attention area shows the working count and no zero-blocked copy. When agents are blocked, **N blocked** opens **Blocked**. This view temporarily shows only blocked terminal rows plus the minimum workspace context. It omits nest disclosure, the top-level **Open**, totals, **Expand all**, **Collapse all**, **New worktree**, and **Actions**. **Show all terminals** returns to Home and restores its prior scroll, focus, and expansion state.
+The persistent attention area shows the working count and no zero-blocked copy. When agents are blocked, **N blocked** opens **Blocked**. This view temporarily shows only blocked terminal rows plus the minimum workspace context. It omits nest disclosure, totals, **Expand all**, **Collapse all**, **New worktree**, and **Actions**. **Show all terminals** returns to Home and restores its prior scroll, focus, and expansion state.
 
-Every terminal **Open** action uses the same human title and place on Home and in its accessible name. Internal IDs do not appear as titles or disambiguation. Hide every terminal **Open** and the top-level **Open** whenever Home is not current and complete.
+Every terminal **Open** action uses the same human title and place on Home and in its accessible name. Internal IDs do not appear as titles or disambiguation. Hide terminal actions whenever no complete usable Home exists.
 
-## Connection and coherent content
+## Connection and Home updates
 
 Reserve a stable top-right badge slot. Its labels are exactly:
 
@@ -79,11 +79,11 @@ Reserve a stable top-right badge slot. Its labels are exactly:
 - **Herdr is not running**
 - **Cannot use this Herdr**
 
-Current-generation frames mean **Live**. An internal Home refresh never changes a healthy badge to **Reconnecting**. Keep the existing transport behavior and 45-second threshold before **Offline**. **Herdr is not running** and **Cannot use this Herdr** suppress **Live** and do not open the reconnect sheet. The stable slot prevents layout shift.
+Valid current data or a liveness heartbeat means **Live**. Reading Home again never changes or animates a healthy badge. Keep the existing transport behavior and 45-second threshold before **Offline**. **Herdr is not running** and **Cannot use this Herdr** suppress **Live** and do not open the reconnect sheet. The stable slot prevents layout shift.
 
-Connection state and coherent Home content are separate. Never show a partial or mixed Home. While a new Home is not yet valid, show a short **Home is updating** note above the prior coherent rows only when they remain honest. Otherwise replace the rows with a clear updating or unavailable state. Until a complete current Home is ready, omit every terminal **Open**, the top-level **Open**, and every management control. Resuming Home rebuilds without a healthy-**Live** flicker.
+Keep the last complete Home in place until its complete replacement is ready. Do not show a Home refresh banner, insert a temporary row, or move the page. If no complete Home has loaded, replace the list with one short loading or unavailable state. Never show a partial Home.
 
-When a coherent live Home has nothing open, show **No terminals** and “Herdr is running, but nothing is open.” An ordinary terminal prevents this empty state.
+When a live Home has nothing open, show **No terminals** and “Herdr is running, but nothing is open.” An ordinary terminal prevents this empty state.
 
 ## Read-only first slice
 
@@ -127,7 +127,7 @@ Buttons are **Remove folder** and **Cancel**. If Herdr refuses because the folde
 
 > This folder has changes. It was not removed. Resolve the changes in the terminal, then try again.
 
-All interactive targets are at least 44 by 44 CSS pixels. While any action or its Home reconciliation is outstanding, remove every management action rather than leaving a stale control.
+All interactive targets are at least 44 by 44 CSS pixels. While an action is running, remove its management actions rather than leaving a stale control.
 
 ## Mobile behavior
 

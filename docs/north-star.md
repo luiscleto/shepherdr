@@ -40,7 +40,7 @@ Do not replace them with more precise-sounding words or give an ordinary termina
 
 Ordinary flat Home stays compact. When Herdr establishes a worktree relationship, Home mirrors it as one nested set: one top-level workspace and its worktree workspaces. Shepherdr does not store or invent another organization. A set opens to show every workspace and every terminal. Its heading uses the top-level workspace title once, the workspace total, and only nonzero real agent totals in Herdr's fixed status order. Those totals are information, not controls.
 
-The set's disclosure and the top-level workspace's current-terminal **Open** action are separate targets. **Open** appears only when that current terminal resolves exactly; Shepherdr never substitutes the first terminal. Every other terminal remains visible in its workspace.
+The set heading expands or collapses the set; it does not add another Terminal action. When expanded, the top-level workspace and its worktrees keep their ordinary terminal rows and **Open** actions. Shepherdr never substitutes the first terminal or another surviving terminal.
 
 On the first load of a visit, sets with working or blocked agents are expanded and the rest are collapsed. A person's later expand or collapse choice wins for that loaded visit even if agent statuses change. Home offers one compact **Expand all** or **Collapse all** action when useful.
 
@@ -48,11 +48,9 @@ A persistent attention area shows the working count. When any agent is blocked, 
 
 ## Truthful connection and content
 
-A stable badge at the top right says **Live**, **Reconnecting**, **Offline**, **Herdr is not running**, or **Cannot use this Herdr**. Internal Home refresh does not turn a healthy connection into **Reconnecting**, and the badge never makes the page jump.
+A stable badge at the top right says **Live**, **Reconnecting**, **Offline**, **Herdr is not running**, or **Cannot use this Herdr**. It follows the real connection and never changes merely because Home is being read again.
 
-Connection health and a coherent Home are separate truths. Shepherdr never publishes a partial or mixed Home. While a fresh coherent Home is being rebuilt, show one short **Home is updating** note above the list when the prior coherent rows remain honest. Otherwise replace the list with clear updating or unavailable content. Open and management actions remain absent until the coherent Home is current.
-
-**No terminals** is a real coherent state. An ordinary terminal means Home is not empty.
+Shepherdr keeps showing the last complete Home until a complete replacement is ready. It does not show a Home refresh banner, animation, or second status. If no Home has loaded yet, show one short loading or unavailable state in the list's place. **No terminals** is a real state; an ordinary terminal means Home is not empty.
 
 ## Workspace management
 
@@ -107,4 +105,4 @@ The current product uses only capabilities Herdr already exposes. Do not invent 
 
 ## How we will know it works
 
-Use production Shepherdr with a real Herdr server and a real phone. Compare flat and worktree-nested Home with Herdr, check every terminal and exact agent total, exercise expansion and Blocked place restoration, and verify connection and coherent-update states without flicker or stale actions. Terminal acceptance follows `terminal-direction.md`; record only the behavior actually exercised. For each later management slice, perform its real named, blank, clean, dirty, interrupted, and hostile-input cases. Tests and emulator checks support confidence, but the real phone workflow is the gate.
+Use production Shepherdr with a real Herdr server and a real phone. Compare flat and worktree-nested Home with Herdr, check every terminal and exact agent total, exercise expansion and Blocked place restoration, and verify that ordinary updates do not blink, move the page, or change the connection badge. A normal refresh must load the current interface. Terminal acceptance follows `terminal-direction.md`; record only the behavior actually exercised. For each later management slice, perform its real named, blank, clean, dirty, interrupted, and hostile-input cases. Tests and emulator checks support confidence, but the real phone workflow is the gate.

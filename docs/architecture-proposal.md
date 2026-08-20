@@ -2,148 +2,123 @@
 
 Status: approved
 
-Approved reconciliation: 2026-08-20
+Approved simplification: 2026-08-20
 
-## Scope and shape
+## Scope
 
-This architecture covers the non-terminal stream: read-only Home first, followed by New worktree, linked-workspace Close, and non-force Remove. Terminal implementation is separate. Sign-in, devices, notifications, and Chat remain later work.
+This document covers Home and the later workspace actions: New worktree, Close, and non-force Remove. Terminal is separate. Sign-in, devices, notifications, and Chat remain later work.
 
-The system has three live parts:
+The current shape is small:
 
-1. One configured Herdr 0.8.0 session remains authoritative for workspaces, tabs, panes, terminals, layouts, agents, focus, and worktree operations.
-2. One Shepherdr process binds to `localhost`, talks to that session, serves a same-origin embedded TypeScript UI, and owns the coherent in-memory projection and mutation coordinator.
-3. A phone browser renders that UI and sends only typed requests allowed by the server.
+1. One configured Herdr 0.8.0 session owns the real workspaces, terminals, agents, statuses, and worktree actions.
+2. One Go process talks to Herdr, serves the embedded browser UI on `localhost`, and keeps only the latest complete Home in memory.
+3. The phone renders Home and opens the existing Terminal destination.
 
-There is no durable Home, grouping, or action store. Home is rebuilt from Herdr. The current private-network and access policy remains unchanged.
+There is no Home database, stored grouping, second runtime, or public hosting support.
 
-## Confirmed Herdr 0.8.0 contract
+## What Herdr provides
 
-`session.snapshot` provides the canonical workspace, tab, pane, terminal, layout, agent, focus, version, and protocol data. Workspace provenance includes `repo_key`, `checkout_path`, and `is_linked_worktree`.
+`session.snapshot` returns the complete state needed by read-only Home: workspaces, tabs, panes, terminals, layouts, agents, focus, protocol information, and worktree provenance.
 
-The scoped `worktree.list({workspace_id})` response provides source provenance and entries containing `path`, `branch`, `open_workspace_id`, `is_bare`, `is_prunable`, and `is_linked_worktree`. Herdr has no group API. Git worktree enumeration is validation evidence, not Home display order.
+`events.subscribe` reports changes to that state. Events tell Shepherdr to read another complete snapshot; the browser does not need Herdr event details or partial updates.
 
-`events.subscribe` covers the workspace, tab, pane, layout, agent, focus, status, and worktree lifecycle events relevant to the current projection or an outstanding action. Subscriptions are scoped to the configured session and connection generation. Herdr status words remain `working`, `blocked`, `idle`, `done`, and `unknown`.
+Later workspace actions use Herdr's confirmed `worktree.list`, worktree creation and removal, and workspace close requests. Shepherdr does not invent another interface.
 
-Only confirmed Herdr 0.8.0 requests and response/event forms are used. The browser transport adds no product semantics, and terminal output never drives Home, agent state, grouping, or action results.
+Herdr remains the authority for the status words `working`, `blocked`, `idle`, `done`, and `unknown`.
 
-## Fresh coherent projection
+## The Home loop
 
-Shepherdr establishes all relevant subscriptions before any read may contribute to publication. Reconnaissance reads may discover what needs subscription, but they can never publish. Each attempt builds a fresh candidate from contributing reads taken after subscription coverage exists.
+Herdr 0.8.0 requires status subscriptions to name the panes they watch. Home therefore uses one small setup read, then one simple loop:
 
-A candidate is coherent only when:
+1. Read once to learn the current pane IDs. Do not show that setup read.
+2. Open one event connection for global changes and those pane statuses.
+3. After Herdr accepts the subscription, read one complete `session.snapshot` over a short-lived read connection.
+4. Validate and publish that complete Home.
+5. When a relevant change arrives, read another complete snapshot.
 
-- workspace, tab, pane, and terminal IDs are unique;
-- every workspace/tab/pane/terminal reference joins by exact equality and agrees in all identity fields;
-- layout identity is unambiguous and every layout reference joins exactly to canonical panes; layouts may order terminals but never create, duplicate, or hide them;
-- each agent decoration joins by exact workspace, tab, pane, and terminal equality; and
-- each unique valid real agent is counted once.
+Only one snapshot read runs at a time. If another change arrives during that read, remember one pending refresh and read once more afterward. Do not cancel a complete snapshot, start parallel reads, or build a queue of refreshes.
 
-Any relevant event observed from the first contributing read through publication invalidates the entire candidate and restarts the attempt. Missing, malformed, duplicate, ambiguous, or conflicting identity data also prevents publication. Publication is atomic: the browser receives one complete coherent Home, never a partial or mixed view.
+Keep showing the last complete Home while the next one is read. Replace it once, only when the new complete Home is ready. If it is unchanged, send nothing. If no complete Home has ever been available, show one in-place loading or unavailable state.
 
-Once published, relevant events and Home resume trigger another covered rebuild. An unchanged semantic projection does not rerender. Connection generation changes, subscription loss, incompatible data, or an invalid join remove fresh authority and trigger reconciliation rather than replay or inference.
+The browser receives whole Home states, not read phases or Herdr events. There is no visible Home refresh state, banner, animation, timer, or second lifecycle.
 
-## Derived worktree nesting and order
+After a disconnect, reconnect the Herdr subscription and read a new complete snapshot. Do not replay or guess missed state.
 
-Nesting is derived only from exact nonempty, schema-valid opaque `repo_key` equality in a fresh coherent snapshot. A valid nest has exactly one workspace with `is_linked_worktree:false` and one or more with `is_linked_worktree:true`. A null or malformed key, a linked-only set, or a key with multiple nonlinked workspaces remains flat. Labels, paths, branches, and list order never define grouping.
+If a snapshot reveals new panes, update the one subscription and read once more so their status changes are covered. If the subscription is lost during a read, reconnect and read again before publishing. These are the only required gap guards.
 
-A nest replaces its nonlinked workspace at that workspace's Herdr top-level position. Its linked children are removed from their former top-level positions and retain their original Herdr relative order inside the nest, including when a child originally appeared before the parent. All unrelated workspaces retain Herdr order. Shepherdr stores no grouping and does not use Git worktree enumeration as display order.
+## Grouping and Home behavior
 
-Ordinary flat Home remains compact. An expanded nest contains every workspace and every terminal. Its header uses the nonlinked workspace's display title once, the workspace count, and only nonzero actual agent totals in fixed Herdr order: `working`, `blocked`, `idle`, `done`, `unknown`. Counts are inert.
+Use the exact, nonempty `repo_key` and `is_linked_worktree` values in the snapshot. One ordinary checkout plus one or more linked worktrees with the same key forms a set. Missing, malformed, linked-only, or ambiguous provenance stays flat. Never group by labels, paths, branches, Git output, or list position.
 
-## Disclosure, Open, Blocked, and visit state
+Keep unrelated workspaces in Herdr order. An expanded set shows every workspace and every terminal exactly once. Agent presence never determines whether a terminal exists.
 
-The nest header has two sibling 44-pixel targets: the title/disclosure area and, when valid, the parent's current-terminal `Open`. The parent Open is derived only through this exact chain:
+The set heading contains its title, workspace count, nonzero agent status totals, and disclosure. It has no separate Terminal action. When expanded, the top-level workspace keeps the same ordinary terminal rows and **Open** actions as every other workspace. When collapsed, the heading only expands the set.
 
-1. `active_tab_id` resolves to exactly one canonical tab in that workspace.
-2. Exactly one canonical layout matches that workspace and tab.
-3. Its `focused_pane_id` resolves to exactly one canonical pane.
-4. The pane's workspace, tab, pane, and terminal identities match exactly throughout the candidate.
+Sets with working or blocked agents start expanded; the rest start collapsed. A person's later choice wins for that browser visit. **Expand all** and **Collapse all** appear only when useful.
 
-Missing or ambiguous data at any step omits parent Open. There is no first-terminal fallback. Terminal Opens also require an exact current terminal. Accessible names use the human terminal title and place; internal identity terms never appear. Terminal chevrons are decorative.
+The persistent attention area shows the working count. **N blocked** opens the blocked terminals with enough workspace context. Returning restores the previous expansion, focus, and scroll position.
 
-The first loaded visit expands nests containing `working` or `blocked` agents and collapses the rest. After initialization, manual expand/collapse state wins for that visit even when later statuses change. `Expand all` appears when any nest is collapsed; `Collapse all` appears when every nest is expanded. Neither appears without nests or in Blocked view.
+## Connection state
 
-Blocked view is a temporary projection of only blocked terminal rows plus the minimum workspace context. It omits nest disclosure, parent Open, nest totals, Expand/Collapse all, New worktree, and Actions. It does not mutate remembered Home state. Returning restores Home scroll, focus, and expansion.
+Connection state comes only from the real connection, not from Home reads.
 
-## Connection state and content truth
+- Valid current data, or a small liveness heartbeat when nothing changed, means **Live**.
+- A broken connection means **Reconnecting**.
+- The existing 45-second threshold leads to **Offline**, with the existing manual reconnect action.
+- A stopped or incompatible Herdr reports its exact state.
 
-The existing transport and 45-second offline threshold remain. A stable top-right badge slot shows `Live`, `Reconnecting`, `Offline`, `Herdr is not running`, or `Cannot use this Herdr` without layout shift. Valid frames for the current connection generation mean Live. Internal Home reconciliation never changes a healthy Live badge to Reconnecting. A stopped or incompatible Herdr suppresses Live and does not open the reconnect sheet.
+Reading or replacing Home never changes the connection badge. Ordinary activity must not blink, animate, add a banner, or move the page. The badge has a stable place at the top right.
 
-Transport health does not make Home coherent. While a fresh projection is invalid, Shepherdr may retain prior coherent rows with a short updating note only when they are still honest. Otherwise it replaces them with an updating or unavailable state. Every terminal Open, parent Open, and management control is absent until atomic coherent publication. Home resume rebuilds without a healthy-Live flicker.
+A heartbeat carries no Home or product meaning. It exists only to keep connection detection honest when Herdr state is unchanged.
 
-## Trust and mutation authority
+Production browser files must revalidate so a normal refresh cannot combine an old interface with a new executable.
 
-All names, IDs, paths, branches, repository keys, Herdr content, repository content, attachments, and pasted content are inert untrusted data. They may be displayed safely but cannot define grouping, authorization, request kinds, routes, commands, or operation targets.
+## Truth and trust
 
-Before any mutation, the server enforces the existing same-origin and access policy. One server-owned single-flight coordinator for the configured session is scoped to the connection generation. It spans fresh projection and operation-specific validation, typed request construction, confirmation/classification, and coherent Home reconciliation.
+Publish only a complete snapshot that can be joined without duplicate or conflicting core identities. Missing or malformed worktree provenance leaves that case flat; uncertain layout or focus omits only what cannot be resolved. It does not hide otherwise valid workspaces and terminals.
 
-The browser may supply only an untrusted target ID and, for creation, an optional branch string. It cannot set force, focus, `cwd`, base, path, label, repository identity, or operation kind. The server derives every authoritative field from fresh Herdr data. Management controls are absent without a fresh coherent projection, while the coordinator is locked, and throughout action reconciliation.
+Render names, IDs, paths, branches, repository keys, and all Herdr or terminal content as untrusted text. Displayed content cannot become markup, a route, a request, a command, or application authority.
 
-One outstanding mutation excludes all others across browser tabs. A connection-generation change, malformed or mismatched result, or loss of required fresh authority prevents inferred success. A confirmed action followed by a delayed Home rebuild remains confirmed and shows Home updating; it does not become unknown.
+An **Open** action targets the exact terminal represented by its row. If that target no longer exists, the action fails honestly; it never falls back to a different terminal.
 
-## New worktree correlation
+## Later workspace actions
 
-New worktree is available later to an eligible flat nonlinked top-level workspace, including before it has a linked child. The server freshly validates the target, omits a blank branch so Herdr chooses, and always sets `focus:false`. It derives all other request fields.
+Workspace actions arrive one slice at a time. Do not add their controls or supporting structure before their slice.
 
-Only the matched `worktree_created` response for that locked request confirms creation. An event alone never confirms it. A missing, interrupted, malformed, or mismatched response is `Result unknown`; there is no automatic retry, fabricated preview, or inferred success.
+Before an action, read current Herdr state and validate that exact target. Run one workspace action at a time. Send only the confirmed Herdr request. Report success only from its matching response; after an interrupted or unclear result, say the result is unknown and refresh Home.
 
-## Linked-workspace Close correlation
+- **New worktree** uses the chosen top-level workspace. A blank branch is omitted so Herdr chooses. It does not move focus.
+- **Close** applies only to a linked worktree workspace. It ends its terminals but keeps the folder and branch.
+- **Remove** applies only to an eligible linked worktree checkout. It uses `force:false`, never deletes the branch, and reports a dirty refusal honestly.
 
-Close is available later only for a freshly validated linked workspace, never for its nonlinked parent or an ordinary flat workspace. The server sends the validated workspace ID.
+Displayed names, paths, branches, and browser-supplied values never choose the operation or grant authority. Add only the validation required by the action being built; do not keep speculative machinery for later actions.
 
-A matched generic `ok` response confirms close. An exact `workspace_closed` event observed after the action begins and matching the validated workspace may also confirm it. Otherwise the result is unknown. Closing ends terminals but retains the folder and branch.
+## Work order and acceptance
 
-## Non-force Remove correlation
-
-Remove is available later only after a fresh, same-generation scoped `worktree.list` whose `source.repo_key` exactly matches snapshot provenance and where exactly one entry matches both the validated `open_workspace_id` and `checkout_path`. That entry must have `is_linked_worktree:true`, `is_bare:false`, and `is_prunable:false`.
-
-The server sends the validated workspace ID with `force:false`. It never accepts a browser path, forces removal, or deletes the branch. The UI displays the exact validated path inertly.
-
-An exact matched `worktree_removed` response confirms removal. An exact lifecycle event observed after locked validation and action begin may also confirm only when workspace, path, and `forced:false` all match. Response/event reordering is allowed only through those exact correlations. Missing, interrupted, malformed, mismatched, or lost evidence is unknown. A dirty refusal is not success and leaves the folder and branch intact.
-
-## Sequential slices and ownership
-
-Work proceeds sequentially from the preceding approved integrated commit:
+Work remains sequential:
 
 1. read-only Home;
 2. New worktree;
-3. linked-workspace Close;
+3. Close;
 4. non-force Remove.
 
-Each slice has one worker, an independent technical reviewer, an independent Grok UX reviewer, and a separate integrator. The slice gate runs the production build, Android Pixel 8a emulator validation where relevant, then a human-run or human-witnessed real-phone workflow. A failed real workflow stops the next slice. Worker success, review approval, integration success, and human acceptance remain separate states.
+Each slice has one worker, an independent technical reviewer, an independent language and interface reviewer, and an integrator. Tests should be few and useful. The production executable against real Herdr and the real-phone workflow remain the acceptance gate.
 
-## Acceptance gates
+Read-only Home must prove:
 
-Read-only Home must demonstrate:
+- flat and real worktree-nested cases match Herdr;
+- every workspace and terminal appears exactly once;
+- status totals, blocked attention, disclosure, focus, and place are correct;
+- ordinary Herdr activity updates Home without a banner, badge flicker, or page movement;
+- disconnect, reconnect, Herdr restart, empty Home, and incompatible Herdr are honest;
+- a normal phone refresh loads the current embedded interface; and
+- Terminal navigation reaches the existing exact destination without changing Terminal behavior.
 
-- compact flat density and exact-once display of every workspace and terminal;
-- derived nesting for noncontiguous children, children before the parent, and flat treatment of null, malformed, linked-only, or multiple-parent provenance;
-- every expanded workspace and terminal, exact unique-agent counts in fixed order, exact current-terminal Open, and omission for missing or ambiguous resolution;
-- first-visit defaults, manual-collapse precedence, Expand/Collapse all, focus and scroll restoration, and Blocked filtering with its required omissions;
-- a stable badge with no internal-refresh or resume flicker, stopped/incompatible handling, and the 45-second offline threshold; and
-- atomic rebuild across resume, relevant events, event/read races, invalid joins, subscription or connection loss, hostile display data, and immediate stale-affordance removal.
+Later action slices add their own real success, refusal, interruption, and hostile-input checks. They do not reopen read-only Home or Terminal architecture.
 
-New worktree adds named and blank-branch creation, branch omission, `focus:false`, focus preservation, hostile and tampered browser inputs, cross-tab concurrency, connection loss, exact response matching, and unknown-result behavior. Actions remain absent throughout the outstanding request and reconciliation.
+## Risks
 
-Close adds linked-only eligibility, parent and ordinary-workspace exclusion, exact response/event ordering and loss, terminal ending, and verified folder and branch retention.
-
-Remove adds clean removal with branch retention, dirty refusal, exact inert path display, `force:false`, tampered path/force rejection, and exact response/event ordering and loss. It never removes an ineligible, bare, prunable, mismatched, or ambiguously matched checkout.
-
-Tests and fixtures support these cases but do not replace the production Herdr workflow, emulator check where relevant, or real-phone human gate.
-
-## Assumptions and risks
-
-Assumptions:
-
-- The product uses one configured local Herdr 0.8.0 session and its confirmed interfaces.
-- Workspace, tab, pane, terminal, layout, agent, focus, and worktree provenance needed for a coherent candidate are available or the Home remains honestly unavailable.
-- A modern phone browser supports the same-origin transport through the operator's trusted private-network route.
-- Herdr's status and worktree validation are the runtime truth; Shepherdr does not supplement them from Git or terminal content.
-
-Risks:
-
-- Continuous relevant events can repeatedly invalidate a candidate and delay coherent publication. Honest delay is preferred to mixed state.
-- Missing or malformed provenance keeps workspaces flat; it must never be guessed from labels, paths, branches, or Git order.
-- Connection loss during an action can leave an honestly unknown result. Single-flight and no retry prevent compounding it.
-- Delayed or reordered lifecycle evidence can resemble success for another operation unless generation, timing, identity, and request correlation remain exact.
-- Mobile browsers and private proxies may interrupt streams; resume always rebuilds current truth rather than replaying an assumed gap.
+- Herdr may send many events during active terminal output. The one-read-plus-one-pending-refresh rule prevents parallel work and retry storms.
+- Missing or malformed provenance keeps workspaces flat; Shepherdr never guesses.
+- A connection can fail during an action. Unknown is safer than an automatic retry.
+- Mobile browsers and private-network proxies can interrupt connections or cache files. Reconnect from current Herdr state, and make browser files revalidate.

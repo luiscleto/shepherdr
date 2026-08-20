@@ -75,6 +75,9 @@ Implementation order and wave contents come later from approved architecture and
 ## Working rules
 
 - Keep the design and implementation simple. Add structure only when the current work needs it.
+- Prefer one complete Herdr read and one complete browser update over partial updates, replay, queues, or reconciliation machinery. Add those only when a confirmed Herdr limit and an approved current requirement make them necessary.
+- Do not expose internal reads, refreshes, retries, or bookkeeping as interface states. If current data is arriving, keep the interface stable and live.
+- When a simpler approved direction replaces an earlier design, delete the superseded code and tests. Do not preserve complexity for speculative later work.
 - Use plain, human-readable language. Keep internal names and process language out of the interface and user-facing documents.
 - Show only actions and state that really exist. Do not add placeholder controls for possible future work.
 - Herdr remains the runtime authority. Do not quietly build a second agent runtime beside it.
@@ -86,6 +89,7 @@ Implementation order and wave contents come later from approved architecture and
 - Use Herdr's status words unchanged: working, blocked, idle, done, and unknown.
 - Do not add team accounts, roles, organizations, lost-device recovery, provider-specific prompt handling, or public hosting without new human-approved direction.
 - Tests support confidence, but a real Herdr workflow through the production path is the acceptance gate.
+- Browser tests must use the repository's memory-capped test entry. Assertions compare primitive results rather than live DOM objects so a useful failure cannot exhaust the machine.
 - Do not replace Herdr, Git, or another real tool with a large mock system that stays green while the product fails. Ordinary small unit tests are fine. Prefer a few useful tests and real manual checks over complex stand-ins for the tools the product actually uses.
 - `docs/herdr-integration-discovery.md` is evidence, not product direction. Do not edit it unless the human asks.
 - Use conventional commits. Do not commit dependencies, generated build output, local databases, credentials, or private keys.
