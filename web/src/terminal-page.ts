@@ -2,6 +2,7 @@ import { terminalKeySequences, terminalSubmission } from "./terminal-input";
 import type { TerminalDimensions } from "./terminal/adapter";
 import { terminalReaderForDevice } from "./terminal/device";
 import { nextTerminalOwnership, terminalOwnershipAction, type TerminalOwnership } from "./terminal/ownership";
+import { readerActionAvailability, type ReaderInputState } from "./terminal/reader-availability";
 import { ReaderInputQueue } from "./terminal/reader-input";
 import { ReaderView } from "./terminal/reader-view";
 import { TerminalSession } from "./terminal/session";
@@ -146,17 +147,13 @@ export class TerminalPage {
         if (window.confirm("Take control? The current controller will lose input.")) input.retry(true);
       }),
       onSending: (count) => reader.inputSending(count),
-      onState: (state) => {
-        this.#setReaderCommandsEnabled(state === "observing" && this.#observerReady);
-        if (state === "requesting") this.#setStatus("Requesting control");
-        else if (state === "forwarding") this.#setStatus("Forwarding input");
-        else if (state === "occupied") this.#setStatus("Controlled elsewhere · observing");
-        else if (state === "failed") this.#setStatus("Could not send · observing");
-        else this.#setStatus("Observing");
+      onState: () => {
+        this.#syncReaderActions();
+        this.#renderReaderStatus();
       },
       onUncertain: (message) => {
         this.#readerTextQueued = false;
-        reader.inputUncertain(message);
+        reader.inputUncertain(message, () => input.dismissUncertain());
       },
     }, { endpoint: "/api/terminal" });
     this.#readerInput = input;
@@ -165,7 +162,7 @@ export class TerminalPage {
     input.setTarget(this.paneID, dimensions, this.terminalID);
     const controls = this.#readerControls(reader, input);
     this.#host.append(controls);
-    this.#setReaderInteractive(false);
+    this.#syncReaderActions();
     this.#connectObserver(dimensions);
   }
 
@@ -195,13 +192,28 @@ export class TerminalPage {
     return controls;
   }
 
-  #setReaderInteractive(interactive: boolean): void {
-    this.#reader?.setInteractive(interactive);
-    this.#setReaderCommandsEnabled(interactive);
+  #syncReaderActions(): void {
+    if (!this.#readerMode) return;
+    const availability = readerActionAvailability(this.#observerReady, this.#readerInput?.state() ?? "ready");
+    this.#reader?.setActionAvailability(availability);
+    for (const button of this.#commandButtons) button.disabled = !availability.send;
   }
 
-  #setReaderCommandsEnabled(enabled: boolean): void {
-    for (const button of this.#commandButtons) button.disabled = !enabled;
+  #renderReaderStatus(): void {
+    if (!this.#observerReady) {
+      this.#setStatus(this.#hasObserved ? "Reconnecting" : "Connecting");
+      return;
+    }
+    const inputState = this.#readerInput?.state() ?? "ready";
+    const status = ({
+      failed: "Could not send · observing",
+      forwarding: "Forwarding input",
+      occupied: "Controlled elsewhere · observing",
+      ready: "Observing",
+      requesting: "Requesting control",
+      uncertain: "Delivery uncertain · observing",
+    } satisfies Record<ReaderInputState, string>)[inputState];
+    this.#setStatus(status);
   }
 
   async #startDesktop(): Promise<void> {
@@ -245,8 +257,8 @@ export class TerminalPage {
         this.#ownership = nextTerminalOwnership(this.#ownership, "observer-ready");
         this.#hasObserved = true;
         if (this.#readerMode) {
-          this.#setReaderInteractive(true);
-          this.#setStatus("Observing");
+          this.#syncReaderActions();
+          this.#renderReaderStatus();
         } else {
           this.#renderDesktopOwnership();
           if (this.#desktopAutoAcquire) {
@@ -260,7 +272,7 @@ export class TerminalPage {
         this.#observer = undefined;
         this.#observerReady = false;
         this.#reader?.pauseLiveRefresh();
-        this.#setReaderInteractive(false);
+        this.#syncReaderActions();
         if (this.#controller || this.#ownership === "controlling" || this.#ownership === "requesting") this.#desktopAutoAcquire = true;
         this.#releaseController(false);
         this.#ownership = nextTerminalOwnership(this.#ownership, "observer-lost");

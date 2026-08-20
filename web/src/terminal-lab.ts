@@ -1,5 +1,6 @@
 import type { RendererKind, TerminalAdapter, TerminalDimensions } from "./terminal/adapter";
 import { rendererOptions } from "./terminal/adapter";
+import { readerActionAvailability, type ReaderInputState } from "./terminal/reader-availability";
 import { terminalKeySequences, terminalSubmission } from "./terminal-input";
 import { ReaderInputQueue } from "./terminal/reader-input";
 import { ReaderView } from "./terminal/reader-view";
@@ -36,6 +37,7 @@ const remoteSizeNode = required<HTMLElement>("#remote-size");
 const viewportSizeNode = required<HTMLElement>("#viewport-size");
 const surface = required<HTMLElement>("#surface");
 const logNode = required<HTMLElement>("#log");
+const terminalKeyButtons = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-key]"));
 
 let adapter: TerminalAdapter | undefined;
 let adapterGeneration = 0;
@@ -43,6 +45,7 @@ let frameCount = 0;
 let logLines: string[] = [];
 let reader: ReaderView | undefined;
 let readerInput: ReaderInputQueue | undefined;
+let readerObserverReady = false;
 let session: TerminalSession | undefined;
 
 for (const option of rendererOptions) {
@@ -88,6 +91,13 @@ function setStatus(message: string): void {
   statusNode.textContent = message;
 }
 
+function syncReaderActions(): void {
+  const inputState: ReaderInputState = readerInput?.state() ?? "ready";
+  const availability = readerActionAvailability(readerObserverReady, inputState);
+  reader?.setActionAvailability(availability);
+  for (const button of terminalKeyButtons) button.disabled = reader !== undefined && !availability.send;
+}
+
 function createAdapter(kind: RendererKind): TerminalAdapter {
   if (kind === "xterm") return new XTermAdapter();
   if (kind === "reader") throw new Error("Reader does not use a terminal adapter");
@@ -101,6 +111,8 @@ async function activateRenderer(kind: RendererKind): Promise<void> {
   readerInput = undefined;
   reader?.destroy();
   reader = undefined;
+  readerObserverReady = false;
+  syncReaderActions();
   adapter?.destroy();
   adapter = undefined;
   const generation = ++adapterGeneration;
@@ -119,13 +131,15 @@ async function activateRenderer(kind: RendererKind): Promise<void> {
       }),
       onSending: (chunks) => reader?.inputSending(chunks),
       onForwarded: () => reader?.inputForwarded(false),
-      onUncertain: (message) => reader?.inputUncertain(message),
+      onState: syncReaderActions,
+      onUncertain: (message) => reader?.inputUncertain(message, () => readerInput?.dismissUncertain()),
     }, { endpoint: "/api/terminal-lab" });
     reader = new ReaderView(surface, {
       onLog: log,
       onStatus: setStatus,
       onSubmit: (text) => readerInput?.enqueueBatch(terminalSubmission(text)) ?? false,
     }, { endpoint: "/api/terminal-lab/read" });
+    syncReaderActions();
     modeField.hidden = true;
     sessionStorage.setItem("terminal-lab.renderer.v2", kind);
     const url = new URL(location.href);
@@ -185,7 +199,8 @@ async function connect(): Promise<void> {
   }
   session?.disconnect();
   readerInput?.clearTarget();
-  reader?.setInteractive(false);
+  readerObserverReady = false;
+  syncReaderActions();
   frameCount = 0;
   remoteSizeNode.textContent = "Remote —";
   const mode: SessionMode = reader ? "observe" : modeSelect.value as SessionMode;
@@ -202,6 +217,10 @@ async function connect(): Promise<void> {
   }
   session = new TerminalSession(mode, {
     onFrame(frame, bytes) {
+      if (reader && !readerObserverReady) {
+        readerObserverReady = true;
+        syncReaderActions();
+      }
       frameCount += 1;
       remoteSizeNode.textContent = `Remote ${frame.width}×${frame.height} · seq ${frame.seq} · ${frameCount} frames`;
       log("terminal.frame", {
@@ -217,11 +236,16 @@ async function connect(): Promise<void> {
         else adapter?.write(bytes);
       }
     },
-    onLog: log,
+    onLog: (event, detail) => {
+      log(event, detail);
+      if (event === "session.close" && reader) {
+        readerObserverReady = false;
+        syncReaderActions();
+      }
+    },
     onStatus: setStatus,
   }, { endpoint: "/api/terminal-lab" });
   session.connect(pane, dimensions);
-  reader?.setInteractive(true);
   if (mode !== "observe") adapter?.focus();
 }
 
@@ -323,11 +347,12 @@ disconnectButton.addEventListener("click", () => {
   session?.disconnect();
   session = undefined;
   readerInput?.clearTarget();
-  reader?.setInteractive(false);
+  readerObserverReady = false;
+  syncReaderActions();
 });
 modeSelect.addEventListener("change", () => sessionStorage.setItem("terminal-lab.mode", modeSelect.value));
 
-document.querySelectorAll<HTMLButtonElement>("[data-key]").forEach((button) => {
+terminalKeyButtons.forEach((button) => {
   button.addEventListener("click", () => {
     const sequence = terminalKeySequences[button.dataset.key ?? ""];
     if (!sequence) return;

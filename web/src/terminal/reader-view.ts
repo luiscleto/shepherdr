@@ -1,5 +1,6 @@
 import { renderANSI } from "./ansi-dom";
 import type { TerminalDimensions } from "./adapter";
+import type { ReaderActionAvailability } from "./reader-availability";
 
 interface ReaderSnapshot extends TerminalDimensions {
   ansi: string;
@@ -33,7 +34,6 @@ export function pauseReaderLiveRefresh(atLatest: boolean, hasSelection: boolean)
 
 export class ReaderView {
   #abort: AbortController | undefined;
-  #blocked = false;
   #collapsibleComposer: boolean;
   #composer: HTMLDivElement;
   #dimensions: TerminalDimensions = { cols: 80, rows: 24 };
@@ -45,7 +45,6 @@ export class ReaderView {
   #intersectionObserver: IntersectionObserver;
   #lastANSI = "";
   #generation: number | undefined;
-  #interactive = false;
   #loading = false;
   #newOutput = false;
   #output: HTMLDivElement;
@@ -65,7 +64,6 @@ export class ReaderView {
   #terminalID: string | undefined;
   #allHistoryLoaded = false;
   #selectionChange: () => void;
-  #sending = false;
 
   constructor(host: HTMLElement, events: ReaderEvents, options: ReaderOptions) {
     this.#host = host;
@@ -154,7 +152,7 @@ export class ReaderView {
       if (!this.#input.value || !this.#events.onSubmit(this.#input.value)) return;
       this.#events.onLog("reader.input", { characters: this.#input.value.length });
     });
-    this.setInteractive(false);
+    this.setActionAvailability({ observerReady: false, recover: false, send: false });
   }
 
   dimensions(): TerminalDimensions {
@@ -163,12 +161,9 @@ export class ReaderView {
 
   async open(pane: string, terminalID?: string): Promise<TerminalDimensions> {
     this.#abort?.abort();
-    this.#blocked = false;
-    this.#sending = false;
     this.#sendFeedback.hidden = true;
     this.#retryAction = undefined;
     this.#takeoverAction = undefined;
-    this.#syncInputState();
     this.#pane = pane;
     this.#terminalID = terminalID;
     this.#historyLines = historyPageLines;
@@ -247,11 +242,13 @@ export class ReaderView {
     }
   }
 
-  setInteractive(interactive: boolean): void {
-    this.#interactive = interactive;
-    this.#syncInputState();
-    this.#input.placeholder = interactive ? "Type text to send" : "Connect to send text";
-    if (!interactive && this.#collapsibleComposer) this.hideComposer();
+  setActionAvailability(availability: ReaderActionAvailability): void {
+    this.#input.disabled = !availability.send;
+    this.#send.disabled = !availability.send;
+    this.#retrySend.disabled = !availability.recover;
+    this.#takeoverSend.disabled = !availability.recover;
+    this.#input.placeholder = availability.observerReady ? "Type text to send" : "Connect to send text";
+    if (!availability.observerReady && this.#collapsibleComposer) this.hideComposer();
   }
 
   showComposer(): void {
@@ -267,9 +264,6 @@ export class ReaderView {
   }
 
   inputSending(chunks: number): void {
-    this.#blocked = false;
-    this.#sending = true;
-    this.#syncInputState();
     this.#sendFeedback.hidden = false;
     this.#sendFeedbackMessage.textContent = chunks === 1 ? "Sending queued input…" : `Sending ${chunks} queued inputs…`;
     this.#retrySend.hidden = true;
@@ -277,9 +271,6 @@ export class ReaderView {
   }
 
   inputForwarded(clearText: boolean): void {
-    this.#blocked = false;
-    this.#sending = false;
-    this.#syncInputState();
     if (clearText) this.#input.value = "";
     this.#sendFeedback.hidden = true;
     this.#retryAction = undefined;
@@ -287,24 +278,21 @@ export class ReaderView {
   }
 
   inputFailed(message: string, retry: () => void): void {
-    this.#blocked = true;
-    this.#sending = false;
-    this.#syncInputState();
-    this.#showRecovery(message, retry, undefined);
+    this.#showRecovery(message, { label: "Try again", run: retry }, undefined);
   }
 
   inputOccupied(message: string, takeover: () => void): void {
-    this.#blocked = true;
-    this.#sending = false;
-    this.#syncInputState();
     this.#showRecovery(message, undefined, takeover);
   }
 
-  inputUncertain(message: string): void {
-    this.#blocked = false;
-    this.#sending = false;
-    this.#syncInputState();
-    this.#showRecovery(message, undefined, undefined);
+  inputUncertain(message: string, dismiss: () => void): void {
+    this.#showRecovery(message, {
+      label: "Dismiss",
+      run: () => {
+        this.#sendFeedback.hidden = true;
+        dismiss();
+      },
+    }, undefined);
   }
 
   connectionReset(): void {
@@ -370,17 +358,17 @@ export class ReaderView {
     this.#events.onNewOutput?.(available);
   }
 
-  #syncInputState(): void {
-    this.#input.disabled = !this.#interactive || this.#sending || this.#blocked;
-    this.#send.disabled = !this.#interactive || this.#sending || this.#blocked;
-  }
-
-  #showRecovery(message: string, retry: (() => void) | undefined, takeover: (() => void) | undefined): void {
+  #showRecovery(
+    message: string,
+    primary: { label: string; run: () => void } | undefined,
+    takeover: (() => void) | undefined,
+  ): void {
     this.#sendFeedback.hidden = false;
     this.#sendFeedbackMessage.textContent = message;
-    this.#retrySend.hidden = retry === undefined;
+    this.#retrySend.textContent = primary?.label ?? "Try again";
+    this.#retrySend.hidden = primary === undefined;
     this.#takeoverSend.hidden = takeover === undefined;
-    this.#retryAction = retry;
+    this.#retryAction = primary?.run;
     this.#takeoverAction = takeover;
   }
 

@@ -1,4 +1,5 @@
 import type { TerminalDimensions } from "./adapter";
+import type { ReaderInputState } from "./reader-availability";
 import {
   TerminalSession,
   type SessionMode,
@@ -12,7 +13,7 @@ interface ReaderInputEvents {
   onLog(event: string, detail?: unknown): void;
   onOccupied(message: string): void;
   onSending(count: number): void;
-  onState?(state: "failed" | "forwarding" | "observing" | "occupied" | "requesting"): void;
+  onState?(state: ReaderInputState): void;
   onUncertain(message: string): void;
 }
 
@@ -36,6 +37,7 @@ export class ReaderInputQueue {
   #pane = "";
   #pendingBatch: string[] | undefined;
   #session: TerminalSessionLike | undefined;
+  #state: ReaderInputState = "ready";
   #takeover = false;
   #terminalID: string | undefined;
 
@@ -63,6 +65,7 @@ export class ReaderInputQueue {
     this.#currentRequestID = undefined;
     this.#acquired = false;
     this.#lastStatus = "";
+    this.#state = "ready";
     this.#terminalID = undefined;
   }
 
@@ -70,9 +73,13 @@ export class ReaderInputQueue {
     return this.enqueueBatch([text]);
   }
 
+  state(): ReaderInputState {
+    return this.#state;
+  }
+
   enqueueBatch(chunks: string[]): boolean {
     const batch = chunks.filter(Boolean);
-    if (!this.#pane || batch.length === 0 || this.#session || this.#pendingBatch || this.#activeBatch) return false;
+    if (!this.#pane || this.#state !== "ready" || batch.length === 0 || this.#session || this.#pendingBatch || this.#activeBatch) return false;
     this.#pendingBatch = batch;
     this.#events.onLog("reader.input-queued", {
       chunks: batch.length,
@@ -83,8 +90,14 @@ export class ReaderInputQueue {
   }
 
   retry(takeover: boolean): void {
-    if (this.#session || !this.#pendingBatch) return;
+    const permitted = takeover ? this.#state === "occupied" : this.#state === "failed";
+    if (!permitted || this.#session || !this.#pendingBatch) return;
     this.#start(takeover);
+  }
+
+  dismissUncertain(): void {
+    if (this.#state !== "uncertain") return;
+    this.#setState("ready");
   }
 
   #start(takeover: boolean): void {
@@ -107,7 +120,7 @@ export class ReaderInputQueue {
     }, this.#endpoint, this.#terminalID);
     this.#session = session;
     this.#events.onSending(1);
-    this.#events.onState?.("requesting");
+    this.#setState("requesting");
     this.#events.onLog("reader.control.acquire", { mode, ...this.#dimensions });
     session.connect(this.#pane, this.#dimensions);
     this.#armTimer(session, "Timed out while waiting for terminal control");
@@ -117,7 +130,7 @@ export class ReaderInputQueue {
     if (this.#session !== session || this.#acquired) return;
     this.#acquired = true;
     this.#clearTimer();
-    this.#events.onState?.("forwarding");
+    this.#setState("forwarding");
     this.#sendNext(session);
   }
 
@@ -155,7 +168,7 @@ export class ReaderInputQueue {
       takeover: this.#takeover,
     });
     this.#acquired = false;
-    this.#events.onState?.("observing");
+    this.#setState("ready");
     this.#events.onForwarded(1);
   }
 
@@ -180,19 +193,19 @@ export class ReaderInputQueue {
     this.#acquired = false;
     if (ambiguous) {
       this.#pendingBatch = undefined;
-      this.#events.onState?.("observing");
+      this.#setState("uncertain");
       this.#events.onLog("reader.control.uncertain", { message: this.#lastStatus });
       this.#events.onUncertain("The input was handed to the connection, but delivery could not be confirmed. Check the terminal before sending it again.");
       return;
     }
     const occupied = this.#lastStatus.includes("already has an attached client");
     if (occupied) {
-      this.#events.onState?.("occupied");
+      this.#setState("occupied");
       this.#events.onLog("reader.control.occupied", { message: this.#lastStatus });
       this.#events.onOccupied("Someone else is controlling this terminal, so your input was not sent.");
       return;
     }
-    this.#events.onState?.("failed");
+    this.#setState("failed");
     this.#events.onLog("reader.control.failed", { message: this.#lastStatus });
     this.#events.onFailed("Could not acquire terminal control, so your input was not sent.");
   }
@@ -201,5 +214,10 @@ export class ReaderInputQueue {
     if (this.#attemptTimer === undefined) return;
     window.clearTimeout(this.#attemptTimer);
     this.#attemptTimer = undefined;
+  }
+
+  #setState(state: ReaderInputState): void {
+    this.#state = state;
+    this.#events.onState?.(state);
   }
 }

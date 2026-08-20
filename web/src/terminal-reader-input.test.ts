@@ -100,6 +100,7 @@ test("Reader input matches the forwarded request ID before releasing control", (
   assert.equal(forwarded, 0, "a mismatched acknowledgement must not complete input");
   sessions[0].forward();
   assert.equal(forwarded, 1);
+  assert.equal(queue.state(), "ready");
   assert.equal(sessions[0].disconnected, true, "transient Reader control must release after forwarding");
 });
 
@@ -131,6 +132,8 @@ test("Reader input stays queued when occupied and offers only explicit takeover"
   assert.equal(sessions.length, 1, "ordinary failure must not steal control");
   assert.equal(queue.enqueue("\x03"), false, "the queued batch cannot be duplicated while awaiting a decision");
 
+  queue.retry(false);
+  assert.equal(sessions.length, 1, "occupied recovery must not permit an ordinary retry");
   queue.retry(true);
   assert.equal(sessions[1].mode, "takeover");
   sessions[1].acquire();
@@ -141,10 +144,11 @@ test("Reader input stays queued when occupied and offers only explicit takeover"
 test("ambiguous Reader input is never automatically queued or sent again", (t) => {
   withBrowser(t);
   const sessions: FakeTerminalSession[] = [];
+  let forwarded = 0;
   let uncertain = "";
   const queue = new ReaderInputQueue({
     onFailed: () => assert.fail("ambiguous input must not be described as unsent"),
-    onForwarded: () => assert.fail("input was not acknowledged"),
+    onForwarded: () => forwarded += 1,
     onLog: () => undefined,
     onOccupied: () => assert.fail("ambiguous input must not be described as occupied"),
     onSending: () => undefined,
@@ -164,10 +168,19 @@ test("ambiguous Reader input is never automatically queued or sent again", (t) =
   assert.equal(queue.enqueue("\x04"), false, "a second batch cannot enter while acknowledgement is unresolved");
   sessions[0].close("connection lost");
   assert.match(uncertain, /could not be confirmed/);
+  assert.equal(forwarded, 0);
+  assert.equal(queue.state(), "uncertain");
+  assert.equal(queue.enqueue("\x04"), false, "uncertain delivery must be acknowledged before another batch");
 
   queue.retry(false);
   queue.retry(true);
   assert.equal(sessions.length, 1, "an ambiguous batch must require a new human send action");
+  queue.dismissUncertain();
+  assert.equal(queue.state(), "ready");
+  assert.equal(queue.enqueue("\x04"), true);
+  sessions[1].acquire();
+  sessions[1].forward();
+  assert.equal(forwarded, 1);
 });
 
 test("ordinary acquisition failure offers only an ordinary retry", (t) => {
@@ -194,6 +207,8 @@ test("ordinary acquisition failure offers only an ordinary retry", (t) => {
   sessions[0].close("connection failed");
   assert.match(failed, /not sent/);
 
+  queue.retry(true);
+  assert.equal(sessions.length, 1, "ordinary failure must not permit takeover");
   queue.retry(false);
   assert.equal(sessions[1].mode, "control");
   sessions[1].acquire();

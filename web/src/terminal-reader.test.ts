@@ -4,6 +4,7 @@ import test from "node:test";
 import { Window } from "happy-dom";
 
 import { terminalReaderForDevice } from "./terminal/device";
+import { readerActionAvailability } from "./terminal/reader-availability";
 import { pauseReaderLiveRefresh, ReaderView, readerAtLatest } from "./terminal/reader-view";
 
 class TestIntersectionObserver {
@@ -76,7 +77,20 @@ test("the production Reader follows the primary coarse pointer even when another
   assert.equal(terminalReaderForDevice(desktop), false);
 });
 
-test("collapsed Reader shows shortcut recovery with only the truthful action", (t) => {
+test("Reader availability composes observer readiness with every unresolved send state", () => {
+  assert.deepEqual(readerActionAvailability(false, "ready"), { observerReady: false, recover: false, send: false });
+  assert.deepEqual(readerActionAvailability(true, "ready"), { observerReady: true, recover: false, send: true });
+  for (const state of ["requesting", "forwarding", "failed", "occupied", "uncertain"] as const) {
+    assert.equal(readerActionAvailability(true, state).send, false, `${state} must keep the command row unavailable after reconnect`);
+  }
+  assert.equal(readerActionAvailability(false, "failed").recover, false);
+  assert.equal(readerActionAvailability(true, "failed").recover, true);
+  assert.equal(readerActionAvailability(false, "occupied").recover, false);
+  assert.equal(readerActionAvailability(true, "occupied").recover, true);
+  assert.equal(readerActionAvailability(false, "uncertain").recover, true, "local dismissal does not require a terminal connection");
+});
+
+test("collapsed Reader keeps recovery visible but gates remote actions across disconnect and reconnect", (t) => {
   const { host } = withReaderBrowser(t);
   const reader = new ReaderView(host, {
     onLog: () => undefined,
@@ -89,23 +103,45 @@ test("collapsed Reader shows shortcut recovery with only the truthful action", (
   const retry = buttons.find((button) => button.textContent === "Try again")!;
   const takeover = buttons.find((button) => button.textContent === "Take over and send")!;
 
-  reader.inputUncertain("Delivery could not be confirmed");
-  assert.equal(composer.hidden, true, "shortcut recovery must not open the text composer");
-  assert.equal(feedback.hidden, false, "uncertain shortcut feedback must be visible");
-  assert.equal(retry.hidden, true);
-  assert.equal(takeover.hidden, true);
-
   let takeoverRequested = false;
+  reader.setActionAvailability(readerActionAvailability(false, "occupied"));
   reader.inputOccupied("Someone else is controlling this terminal", () => takeoverRequested = true);
   assert.equal(composer.hidden, true);
+  assert.equal(feedback.hidden, false, "recovery feedback must remain visible while disconnected");
   assert.equal(retry.hidden, true, "occupied recovery must not offer ordinary retry");
   assert.equal(takeover.hidden, false);
+  assert.equal(takeover.disabled, true, "takeover must not be usable while the observer is disconnected");
+  takeover.click();
+  assert.equal(takeoverRequested, false);
+
+  reader.setActionAvailability(readerActionAvailability(true, "occupied"));
+  assert.equal(takeover.disabled, false);
+  assert.equal((host.querySelector("textarea") as HTMLTextAreaElement).disabled, true, "reconnect must not enable a new batch during recovery");
   takeover.click();
   assert.equal(takeoverRequested, true);
 
-  reader.inputFailed("Control could not be acquired", () => undefined);
+  let retryRequested = false;
+  reader.setActionAvailability(readerActionAvailability(false, "failed"));
+  reader.inputFailed("Control could not be acquired", () => retryRequested = true);
   assert.equal(retry.hidden, false, "ordinary acquisition failure may offer ordinary retry");
+  assert.equal(retry.disabled, true, "ordinary retry must not be usable while disconnected");
   assert.equal(takeover.hidden, true, "ordinary failure must not offer takeover");
+  retry.click();
+  assert.equal(retryRequested, false);
+  reader.setActionAvailability(readerActionAvailability(true, "failed"));
+  assert.equal(retry.disabled, false);
+  retry.click();
+  assert.equal(retryRequested, true);
+
+  let dismissed = false;
+  reader.setActionAvailability(readerActionAvailability(false, "uncertain"));
+  reader.inputUncertain("Delivery could not be confirmed", () => dismissed = true);
+  assert.equal(composer.hidden, true, "shortcut recovery must not open the text composer");
+  assert.equal(retry.textContent, "Dismiss");
+  assert.equal(retry.disabled, false);
+  retry.click();
+  assert.equal(dismissed, true);
+  assert.equal(feedback.hidden, true);
   reader.destroy();
 });
 
