@@ -4,7 +4,7 @@ Status: proposed
 
 This is a voice and interface guide, not a component library.
 
-The current non-terminal stream covers Home and later workspace management. Terminal implementation is separate. Sign-in, device trust, notifications, and Chat remain later work.
+The current product includes read-only Home and Terminal. The active non-terminal stream covers Home and later workspace management. Sign-in, device trust, notifications, and Chat remain later work.
 
 ## Voice
 
@@ -25,11 +25,12 @@ Exact paths and raw errors appear only when they help the person act. IDs and in
 
 ## Screens
 
-The current stream has one main screen:
+The current product has two main screens:
 
 - **Home** — see every current workspace and terminal, with agent status and attention when an agent is present.
+- **Terminal** — observe one exact current terminal and, when intended, send input using the device-appropriate interaction.
 
-Workspace-management sheets arrive only in their approved later slices. Terminal is a separate implementation stream. **Sign in**, **Trust this device**, **This device's notifications**, and **Devices** remain later work. Do not add screens, tabs, or controls for work that does not exist.
+Workspace-management sheets arrive only in their approved later slices. **Sign in**, **Trust this device**, **This device's notifications**, and **Devices** remain later work. Do not add screens, tabs, or controls for work that does not exist.
 
 With current sign-in-off access, Home opens directly and quietly keeps **Sign-in is off** visible.
 
@@ -87,6 +88,22 @@ When a coherent live Home has nothing open, show **No terminals** and “Herdr i
 ## Read-only first slice
 
 Slice 1 is Home only. It has no **New worktree**, **Branch**, **Actions**, **Close**, **Remove**, placeholders, disabled future controls, or empty menus.
+
+## Terminal
+
+Terminal uses the human terminal title and short connection or input state. Those states describe this attachment; they never replace or embellish an agent's Herdr status.
+
+On a phone or another primary coarse-pointer device, use Reader for stable reading, ordinary browser selection, text entry, and terminal shortcuts. Reader observes between sends. **Write text** and each shortcut create one batch; sending requests ordinary control, forwards that batch after acquisition, waits for its matching acknowledgement, and releases immediately.
+
+Do not show persistent **Control**, **Take over**, or **Release** controls in mobile Reader. If another controller occupies the terminal, say that the input was not sent and offer only **Take over and send** for the pending batch. Confirm with:
+
+> Take control? The current controller will lose input.
+
+An unconfirmed takeover sends nothing. An uncertain delivery is never retried automatically; tell the person to check the terminal before sending again.
+
+On a desktop primary-pointer device, use the full terminal renderer. Persistent **Control**, **Take over**, and **Release** actions are available only there. Takeover uses the same confirmation, and Release leaves the terminal observing.
+
+The development renderer lab is not part of the product interface and is unavailable without its explicit flag. Current implementation and acceptance boundaries are recorded in `terminal-direction.md`.
 
 ## Later workspace management
 
