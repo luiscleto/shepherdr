@@ -11,12 +11,19 @@ interface ReaderEvents {
   onSubmit(text: string): boolean;
 }
 
+interface ReaderOptions {
+  collapsibleComposer?: boolean;
+  endpoint?: string;
+}
+
 const historyPageLines = 500;
 const maximumHistoryLines = 20_000;
 const liveRefreshDelayMilliseconds = 150;
 
 export class ReaderView {
   #abort: AbortController | undefined;
+  #collapsibleComposer: boolean;
+  #composer: HTMLDivElement;
   #dimensions: TerminalDimensions = { cols: 80, rows: 24 };
   #events: ReaderEvents;
   #historyLines = historyPageLines;
@@ -38,13 +45,17 @@ export class ReaderView {
   #retryAction: (() => void) | undefined;
   #takeoverAction: (() => void) | undefined;
   #scroll: HTMLDivElement;
+  #readEndpoint: string;
   #topSentinel: HTMLDivElement;
+  #terminalID: string | undefined;
   #allHistoryLoaded = false;
   #selectionChange: () => void;
 
-  constructor(host: HTMLElement, events: ReaderEvents) {
+  constructor(host: HTMLElement, events: ReaderEvents, options: ReaderOptions = {}) {
     this.#host = host;
     this.#events = events;
+    this.#collapsibleComposer = options.collapsibleComposer ?? false;
+    this.#readEndpoint = options.endpoint ?? "/api/terminal-lab/read";
     host.classList.add("reader-surface");
 
     this.#topSentinel = document.createElement("div");
@@ -58,10 +69,10 @@ export class ReaderView {
     this.#scroll.className = "reader-scroll";
     this.#scroll.append(this.#topSentinel, this.#output);
 
-    const composer = document.createElement("div");
-    composer.className = "reader-composer";
+    this.#composer = document.createElement("div");
+    this.#composer.className = "reader-composer";
     this.#input = document.createElement("textarea");
-    this.#input.rows = 3;
+    this.#input.rows = this.#collapsibleComposer ? 2 : 3;
     this.#input.placeholder = "Type text to send";
     this.#input.autocapitalize = "off";
     this.#input.autocomplete = "off";
@@ -80,8 +91,18 @@ export class ReaderView {
     this.#takeoverSend.type = "button";
     this.#takeoverSend.textContent = "Take over and send";
     this.#sendFeedback.append(this.#sendFeedbackMessage, this.#retrySend, this.#takeoverSend);
-    composer.append(this.#input, this.#send, this.#sendFeedback);
-    host.replaceChildren(this.#scroll, composer);
+    this.#composer.append(this.#input, this.#send);
+    if (this.#collapsibleComposer) {
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "reader-composer-close";
+      close.textContent = "Close";
+      close.addEventListener("click", () => this.hideComposer());
+      this.#composer.append(close);
+      this.#composer.hidden = true;
+    }
+    this.#composer.append(this.#sendFeedback);
+    host.replaceChildren(this.#scroll, this.#composer);
 
     this.#intersectionObserver = new IntersectionObserver((entries) => {
       if (!entries.some((entry) => entry.isIntersecting) || !this.#pane || !this.#lastANSI || this.#allHistoryLoaded || this.#hasSelection()) return;
@@ -114,9 +135,10 @@ export class ReaderView {
     return this.#dimensions;
   }
 
-  async open(pane: string): Promise<TerminalDimensions> {
+  async open(pane: string, terminalID?: string): Promise<TerminalDimensions> {
     this.#abort?.abort();
     this.#pane = pane;
+    this.#terminalID = terminalID;
     this.#historyLines = historyPageLines;
     this.#lastANSI = "";
     this.#allHistoryLoaded = false;
@@ -144,8 +166,9 @@ export class ReaderView {
     this.#abort = abort;
     const pane = this.#pane;
     const query = new URLSearchParams({ pane, lines: String(this.#historyLines), source: "recent-unwrapped" });
+    if (this.#terminalID) query.set("terminal", this.#terminalID);
     try {
-      const response = await fetch(`/api/terminal-lab/read?${query}`, { cache: "no-store", signal: abort.signal });
+      const response = await fetch(`${this.#readEndpoint}?${query}`, { cache: "no-store", signal: abort.signal });
       if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
       const snapshot = await response.json() as ReaderSnapshot;
       if (this.#abort !== abort || this.#pane !== pane) return;
@@ -179,6 +202,19 @@ export class ReaderView {
     this.#input.disabled = !interactive;
     this.#send.disabled = !interactive;
     this.#input.placeholder = interactive ? "Type text to send" : "Connect to send text";
+    if (!interactive && this.#collapsibleComposer) this.hideComposer();
+  }
+
+  showComposer(): void {
+    if (!this.#collapsibleComposer || this.#input.disabled) return;
+    this.#composer.hidden = false;
+    this.#input.focus();
+  }
+
+  hideComposer(): void {
+    if (!this.#collapsibleComposer) return;
+    this.#composer.hidden = true;
+    this.#input.blur();
   }
 
   inputSending(chunks: number): void {
@@ -227,6 +263,7 @@ export class ReaderView {
 
   destroy(): void {
     this.#pane = "";
+    this.#terminalID = undefined;
     this.#refreshQueued = undefined;
     this.#abort?.abort();
     this.#intersectionObserver.disconnect();

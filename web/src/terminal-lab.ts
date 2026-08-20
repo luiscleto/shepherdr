@@ -1,8 +1,9 @@
 import type { RendererKind, TerminalAdapter, TerminalDimensions } from "./terminal-lab/adapter";
 import { rendererOptions } from "./terminal-lab/adapter";
+import { terminalKeySequences, terminalSubmission } from "./terminal-input";
 import { ReaderInputQueue } from "./terminal-lab/reader-input";
 import { ReaderView } from "./terminal-lab/reader-view";
-import { LabSession, type SessionMode } from "./terminal-lab/session";
+import { TerminalSession, type SessionMode } from "./terminal-lab/session";
 import { WTermAdapter } from "./terminal-lab/wterm-adapter";
 import { XTermAdapter } from "./terminal-lab/xterm-adapter";
 
@@ -10,20 +11,6 @@ interface LabTarget {
   label: string;
   pane: string;
 }
-
-const keySequences: Record<string, string> = {
-  escape: "\x1b",
-  "ctrl-c": "\x03",
-  "ctrl-d": "\x04",
-  "ctrl-z": "\x1a",
-  tab: "\t",
-  left: "\x1b[D",
-  up: "\x1b[A",
-  down: "\x1b[B",
-  right: "\x1b[C",
-  enter: "\r",
-  backspace: "\x7f",
-};
 
 function required<T extends Element>(selector: string): T {
   const node = document.querySelector<T>(selector);
@@ -56,7 +43,7 @@ let frameCount = 0;
 let logLines: string[] = [];
 let reader: ReaderView | undefined;
 let readerInput: ReaderInputQueue | undefined;
-let session: LabSession | undefined;
+let session: TerminalSession | undefined;
 
 for (const option of rendererOptions) {
   const node = document.createElement("option");
@@ -80,11 +67,6 @@ function short(value: string, length = 100): string {
     .replaceAll("\n", "\\n")
     .replaceAll("\t", "\\t");
   return visible.length > length ? `${visible.slice(0, length)}…` : visible;
-}
-
-function terminalSubmission(text: string): string[] {
-  const safePaste = text.replaceAll("\x1b", "").replace(/\r\n|\r|\n/g, "\r");
-  return [`\x1b[200~${safePaste}\x1b[201~`, "\r"];
 }
 
 function log(event: string, detail?: unknown): void {
@@ -220,7 +202,7 @@ async function connect(): Promise<void> {
     localSizeNode.textContent = `PTY ${dimensions.cols}×${dimensions.rows} · Reader reflows locally`;
     connectButton.disabled = false;
   }
-  session = new LabSession(mode, {
+  session = new TerminalSession(mode, {
     onFrame(frame, bytes) {
       frameCount += 1;
       remoteSizeNode.textContent = `Remote ${frame.width}×${frame.height} · seq ${frame.seq} · ${frameCount} frames`;
@@ -346,7 +328,7 @@ modeSelect.addEventListener("change", () => sessionStorage.setItem("terminal-lab
 
 document.querySelectorAll<HTMLButtonElement>("[data-key]").forEach((button) => {
   button.addEventListener("click", () => {
-    const sequence = keySequences[button.dataset.key ?? ""];
+    const sequence = terminalKeySequences[button.dataset.key ?? ""];
     if (!sequence) return;
     log("accessory.input", { key: button.dataset.key, text: short(sequence) });
     if (reader) readerInput?.enqueue(sequence);

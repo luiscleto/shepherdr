@@ -1,11 +1,15 @@
 import type { TerminalDimensions } from "./adapter";
-import { LabSession } from "./session";
+import { TerminalSession } from "./session";
 
 interface ReaderInputEvents {
   onBlocked(message: string): void;
   onLog(event: string, detail?: unknown): void;
   onSending(count: number): void;
   onSent(count: number): void;
+}
+
+interface ReaderInputOptions {
+  endpoint?: string;
 }
 
 const acquireTimeoutMilliseconds = 2_500;
@@ -15,23 +19,27 @@ export class ReaderInputQueue {
   #current: string | undefined;
   #dimensions: TerminalDimensions = { cols: 80, rows: 24 };
   #events: ReaderInputEvents;
+  #endpoint: string;
   #inFlight: string[][] = [];
   #lastStatus = "";
   #outbound: string[] = [];
   #pane = "";
   #pending: string[][] = [];
   #sentBatches = 0;
-  #session: LabSession | undefined;
+  #session: TerminalSession | undefined;
   #takeover = false;
+  #terminalID: string | undefined;
 
-  constructor(events: ReaderInputEvents) {
+  constructor(events: ReaderInputEvents, options: ReaderInputOptions = {}) {
     this.#events = events;
+    this.#endpoint = options.endpoint ?? "/api/terminal-lab";
   }
 
-  setTarget(pane: string, dimensions: TerminalDimensions): void {
+  setTarget(pane: string, dimensions: TerminalDimensions, terminalID?: string): void {
     this.clearTarget();
     this.#pane = pane;
     this.#dimensions = dimensions;
+    this.#terminalID = terminalID;
   }
 
   clearTarget(): void {
@@ -45,6 +53,7 @@ export class ReaderInputQueue {
     this.#current = undefined;
     this.#sentBatches = 0;
     this.#lastStatus = "";
+    this.#terminalID = undefined;
   }
 
   enqueue(text: string): boolean {
@@ -75,7 +84,7 @@ export class ReaderInputQueue {
     this.#lastStatus = "";
     this.#takeover = takeover;
     const mode = takeover ? "takeover" : "control";
-    const session = new LabSession(mode, {
+    const session = new TerminalSession(mode, {
       onFrame: () => this.#acquired(session),
       onInputAcknowledged: () => this.#inputAcknowledged(session),
       onLog: (event, detail) => {
@@ -85,7 +94,7 @@ export class ReaderInputQueue {
       onStatus: (message) => {
         this.#lastStatus = message;
       },
-    });
+    }, { endpoint: this.#endpoint, terminalID: this.#terminalID });
     this.#session = session;
     this.#events.onSending(this.#inFlight.length);
     this.#events.onLog("reader.control.acquire", { mode, batches: this.#inFlight.length, ...this.#dimensions });
@@ -93,7 +102,7 @@ export class ReaderInputQueue {
     this.#armTimer(session, "Timed out while waiting for terminal control");
   }
 
-  #acquired(session: LabSession): void {
+  #acquired(session: TerminalSession): void {
     if (this.#session !== session || this.#current || this.#outbound.length > 0) return;
     this.#clearTimer();
     const batches = [...this.#inFlight, ...this.#pending];
@@ -104,14 +113,14 @@ export class ReaderInputQueue {
     this.#sendNext(session);
   }
 
-  #inputAcknowledged(session: LabSession): void {
+  #inputAcknowledged(session: TerminalSession): void {
     if (this.#session !== session || !this.#current) return;
     this.#clearTimer();
     this.#current = undefined;
     this.#sendNext(session);
   }
 
-  #sendNext(session: LabSession): void {
+  #sendNext(session: TerminalSession): void {
     if (this.#session !== session || this.#current) return;
     if (this.#outbound.length === 0 && this.#pending.length > 0) {
       this.#sentBatches += this.#pending.length;
@@ -131,7 +140,7 @@ export class ReaderInputQueue {
     this.#armTimer(session, "Timed out while sending terminal input");
   }
 
-  #finished(session: LabSession): void {
+  #finished(session: TerminalSession): void {
     if (this.#session !== session) return;
     const sentBatches = this.#sentBatches;
     this.#session = undefined;
@@ -144,7 +153,7 @@ export class ReaderInputQueue {
     this.#events.onSent(sentBatches);
   }
 
-  #armTimer(session: LabSession, message: string): void {
+  #armTimer(session: TerminalSession, message: string): void {
     this.#clearTimer();
     this.#acquireTimer = window.setTimeout(() => {
       if (this.#session !== session) return;
@@ -154,7 +163,7 @@ export class ReaderInputQueue {
     }, acquireTimeoutMilliseconds);
   }
 
-  #failed(session: LabSession): void {
+  #failed(session: TerminalSession): void {
     if (this.#session !== session) return;
     this.#clearTimer();
     this.#session = undefined;

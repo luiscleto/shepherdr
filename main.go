@@ -54,15 +54,12 @@ func run() error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	client := herdr.NewClient(*socketPath)
 	projector := herdr.NewProjector(client)
-	var terminalLab *server.TerminalLab
-	if *terminalLabEnabled {
-		herdrBinary, err := exec.LookPath("herdr")
-		if err != nil {
-			return fmt.Errorf("enable terminal lab: find herdr executable: %w", err)
-		}
-		terminalLab = server.NewTerminalLab(herdrBinary, *socketPath, logger)
+	herdrBinary, err := exec.LookPath("herdr")
+	if err != nil {
+		return fmt.Errorf("find herdr executable for terminal access: %w", err)
 	}
-	application := server.New(assets, projector, terminalLab)
+	terminal := server.NewTerminalBridge(herdrBinary, *socketPath, logger)
+	application := server.New(assets, projector, terminal, *terminalLabEnabled)
 
 	listener, err := net.Listen("tcp", *listenAddress)
 	if err != nil {

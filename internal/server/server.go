@@ -20,19 +20,21 @@ import (
 const homeHeartbeatInterval = 2 * time.Second
 
 type Server struct {
-	assets      fs.FS
-	epoch       string
-	projector   *herdr.Projector
-	terminalLab *TerminalLab
-	upgrader    websocket.Upgrader
+	assets             fs.FS
+	epoch              string
+	projector          *herdr.Projector
+	terminal           *TerminalBridge
+	terminalLabEnabled bool
+	upgrader           websocket.Upgrader
 }
 
-func New(assets fs.FS, projector *herdr.Projector, terminalLab *TerminalLab) *Server {
+func New(assets fs.FS, projector *herdr.Projector, terminal *TerminalBridge, terminalLabEnabled bool) *Server {
 	return &Server{
-		assets:      assets,
-		epoch:       newServerEpoch(),
-		projector:   projector,
-		terminalLab: terminalLab,
+		assets:             assets,
+		epoch:              newServerEpoch(),
+		projector:          projector,
+		terminal:           terminal,
+		terminalLabEnabled: terminalLabEnabled,
 		upgrader: websocket.Upgrader{
 			HandshakeTimeout: 5 * time.Second,
 		},
@@ -50,9 +52,13 @@ func newServerEpoch() string {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/home", s.homeSocket)
-	if s.terminalLab != nil {
-		mux.HandleFunc("GET /api/terminal-lab", s.terminalLab.socket)
-		mux.HandleFunc("GET /api/terminal-lab/read", s.terminalLab.read)
+	if s.terminal != nil {
+		mux.HandleFunc("GET /api/terminal", s.terminalSocket)
+		mux.HandleFunc("GET /api/terminal/read", s.terminalRead)
+	}
+	if s.terminalLabEnabled && s.terminal != nil {
+		mux.HandleFunc("GET /api/terminal-lab", s.terminal.socket)
+		mux.HandleFunc("GET /api/terminal-lab/read", s.terminal.read)
 	}
 	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -60,7 +66,44 @@ func (s *Server) Handler() http.Handler {
 		_, _ = writer.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /", s.asset)
-	return securityHeaders(mux, s.terminalLab != nil)
+	return securityHeaders(mux, s.terminalLabEnabled)
+}
+
+func (s *Server) terminalSocket(writer http.ResponseWriter, request *http.Request) {
+	if !s.currentTerminal(request) {
+		http.Error(writer, "Terminal unavailable", http.StatusNotFound)
+		return
+	}
+	s.terminal.socket(writer, request)
+}
+
+func (s *Server) terminalRead(writer http.ResponseWriter, request *http.Request) {
+	if !s.currentTerminal(request) {
+		http.Error(writer, "Terminal unavailable", http.StatusNotFound)
+		return
+	}
+	s.terminal.read(writer, request)
+}
+
+func (s *Server) currentTerminal(request *http.Request) bool {
+	if s.projector == nil {
+		return false
+	}
+	paneID := request.URL.Query().Get("pane")
+	terminalID := request.URL.Query().Get("terminal")
+	if !validTerminalPane(paneID) || terminalID == "" {
+		return false
+	}
+	state := s.projector.Current()
+	if state.Connection != herdr.ConnectionLive || state.LastKnown {
+		return false
+	}
+	for _, pane := range state.Snapshot.Panes {
+		if pane.PaneID == paneID && pane.TerminalID == terminalID {
+			return true
+		}
+	}
+	return false
 }
 
 func ValidateListenAddress(address string) error {
@@ -132,7 +175,7 @@ func (s *Server) asset(writer http.ResponseWriter, request *http.Request) {
 	if name == "terminal-lab" {
 		name = "terminal-lab.html"
 	}
-	if isTerminalLabAsset(name) && s.terminalLab == nil {
+	if isTerminalLabAsset(name) && !s.terminalLabEnabled {
 		http.NotFound(writer, request)
 		return
 	}
@@ -163,13 +206,12 @@ func isTerminalLabAsset(name string) bool {
 
 func securityHeaders(next http.Handler, terminalLabEnabled bool) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		styleSource := "style-src 'self'"
+		// The terminal renderers apply validated color and geometry values through
+		// element styles. Terminal content is always inserted as text, never HTML.
+		styleSource := "style-src 'self' 'unsafe-inline'"
 		scriptSource := "script-src 'self'"
 		if terminalLabEnabled && request.URL.Path == "/terminal-lab" {
-			// Both candidate renderers use element styles as part of their public DOM renderer.
-			// Their cores are WebAssembly. Keep both relaxations scoped to the
-			// development-only lab document.
-			styleSource = "style-src 'self' 'unsafe-inline'"
+			// One development-only candidate uses a WebAssembly terminal core.
 			scriptSource = "script-src 'self' 'wasm-unsafe-eval'"
 		}
 		writer.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; "+scriptSource+"; "+styleSource+"; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")

@@ -21,8 +21,8 @@ func TestValidateListenAddressAllowsOnlyLocalhost(t *testing.T) {
 }
 
 func TestServerEpochIsPresentAndProcessLocal(t *testing.T) {
-	first := New(nil, nil, nil)
-	second := New(nil, nil, nil)
+	first := New(nil, nil, nil, false)
+	second := New(nil, nil, nil, false)
 	if first.epoch == "" || second.epoch == "" {
 		t.Fatal("server epoch must be present")
 	}
@@ -40,5 +40,15 @@ func TestSecurityHeadersConfineBrowserContent(t *testing.T) {
 	policy := response.Header().Get("Content-Security-Policy")
 	if !strings.Contains(policy, "object-src 'none'") || !strings.Contains(policy, "connect-src 'self'") {
 		t.Fatalf("unexpected content security policy %q", policy)
+	}
+}
+
+func TestProductionTerminalRequiresCurrentHerdrTarget(t *testing.T) {
+	application := New(nil, nil, &TerminalBridge{}, false)
+	request := httptest.NewRequest("GET", "http://localhost/api/terminal?pane=w1:p1&terminal=term-1&mode=observe&cols=80&rows=24", nil)
+	response := httptest.NewRecorder()
+	application.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("terminal without current Herdr truth returned %d, want 404", response.Code)
 	}
 }

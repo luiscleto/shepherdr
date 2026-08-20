@@ -1,5 +1,6 @@
 @import "@wterm/dom/css";
 @import "@xterm/xterm/css/xterm.css";
+@import "./terminal-reader.css";
 
 :root {
   color-scheme: dark;
@@ -139,94 +140,6 @@ a {
 .terminal-mount > .xterm {
   width: 100%;
   height: 100%;
-}
-
-.surface.reader-surface {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  overflow: hidden;
-}
-
-.reader-scroll {
-  min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  touch-action: pan-y;
-}
-
-.reader-composer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.5rem;
-  padding: 0.45rem;
-  background: color-mix(in srgb, #101715 94%, transparent);
-}
-
-.reader-output {
-  min-height: 100%;
-  margin: 0;
-  padding: 0.65rem;
-  color: #e5e7df;
-  user-select: text;
-  -webkit-user-select: text;
-  font: 0.82rem/1.4 "IBM Plex Mono", "Cascadia Mono", monospace;
-}
-
-.reader-line {
-  min-height: 1.25em;
-  line-height: 1.25em;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.reader-line > span {
-  padding-block: 0.125em;
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
-}
-
-.reader-top-sentinel {
-  height: 1px;
-}
-
-.reader-composer {
-  align-items: stretch;
-  border-top: 1px solid #37463f;
-}
-
-.reader-composer textarea {
-  min-width: 0;
-  flex: 1 1 auto;
-  padding: 0.65rem;
-  border: 1px solid #4a5a54;
-  border-radius: 8px;
-  background: #18231f;
-  color: inherit;
-  font: 1rem/1.35 "IBM Plex Mono", "Cascadia Mono", monospace;
-  resize: vertical;
-}
-
-.reader-send-feedback {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  color: #efcb82;
-  font-size: 0.82rem;
-}
-
-.reader-send-feedback[hidden],
-.reader-send-feedback button[hidden] {
-  display: none;
-}
-
-.reader-send-feedback button {
-  min-height: 36px;
-}
-
-.reader-composer textarea:disabled {
-  opacity: 0.65;
 }
 
 .terminal-mount.wterm {

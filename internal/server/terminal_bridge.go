@@ -22,21 +22,21 @@ import (
 )
 
 const (
-	terminalLabMaxCommandBytes = 1 << 20
-	terminalLabMaxFrameBytes   = 4 << 20
-	terminalLabMaxReadBytes    = 16 << 20
-	terminalLabShutdownWait    = time.Second
+	terminalBridgeMaxCommandBytes = 1 << 20
+	terminalBridgeMaxFrameBytes   = 4 << 20
+	terminalBridgeMaxReadBytes    = 16 << 20
+	terminalBridgeShutdownWait    = time.Second
 )
 
-type TerminalLab struct {
+type TerminalBridge struct {
 	binary     string
 	logger     *slog.Logger
 	socketPath string
 	upgrader   websocket.Upgrader
 }
 
-func NewTerminalLab(binary, socketPath string, logger *slog.Logger) *TerminalLab {
-	return &TerminalLab{
+func NewTerminalBridge(binary, socketPath string, logger *slog.Logger) *TerminalBridge {
+	return &TerminalBridge{
 		binary:     binary,
 		logger:     logger,
 		socketPath: socketPath,
@@ -46,7 +46,7 @@ func NewTerminalLab(binary, socketPath string, logger *slog.Logger) *TerminalLab
 	}
 }
 
-type terminalLabSettings struct {
+type terminalBridgeSettings struct {
 	cols     int
 	mode     string
 	pane     string
@@ -54,41 +54,41 @@ type terminalLabSettings struct {
 	takeover bool
 }
 
-func parseTerminalLabSettings(request *http.Request) (terminalLabSettings, error) {
+func parseTerminalBridgeSettings(request *http.Request) (terminalBridgeSettings, error) {
 	query := request.URL.Query()
 	pane := query.Get("pane")
-	if !validTerminalLabPane(pane) {
-		return terminalLabSettings{}, errors.New("pane must be a non-empty Herdr target")
+	if !validTerminalPane(pane) {
+		return terminalBridgeSettings{}, errors.New("pane must be a non-empty Herdr target")
 	}
 	mode := query.Get("mode")
 	if mode != "observe" && mode != "control" && mode != "takeover" {
-		return terminalLabSettings{}, errors.New("mode must be observe, control, or takeover")
+		return terminalBridgeSettings{}, errors.New("mode must be observe, control, or takeover")
 	}
 	cols, err := strconv.Atoi(query.Get("cols"))
 	if err != nil || cols < 2 || cols > 1000 {
-		return terminalLabSettings{}, errors.New("cols must be between 2 and 1000")
+		return terminalBridgeSettings{}, errors.New("cols must be between 2 and 1000")
 	}
 	rows, err := strconv.Atoi(query.Get("rows"))
 	if err != nil || rows < 1 || rows > 1000 {
-		return terminalLabSettings{}, errors.New("rows must be between 1 and 1000")
+		return terminalBridgeSettings{}, errors.New("rows must be between 1 and 1000")
 	}
-	return terminalLabSettings{cols: cols, mode: mode, pane: pane, rows: rows, takeover: mode == "takeover"}, nil
+	return terminalBridgeSettings{cols: cols, mode: mode, pane: pane, rows: rows, takeover: mode == "takeover"}, nil
 }
 
-func validTerminalLabPane(pane string) bool {
+func validTerminalPane(pane string) bool {
 	return pane != "" && len(pane) <= 256 && strings.IndexFunc(pane, unicode.IsControl) < 0
 }
 
-type terminalLabReadResponse struct {
+type terminalReadResponse struct {
 	ANSI string `json:"ansi"`
 	Cols int    `json:"cols"`
 	Rows int    `json:"rows"`
 }
 
-func (lab *TerminalLab) read(writer http.ResponseWriter, request *http.Request) {
+func (lab *TerminalBridge) read(writer http.ResponseWriter, request *http.Request) {
 	query := request.URL.Query()
 	pane := query.Get("pane")
-	if !validTerminalLabPane(pane) {
+	if !validTerminalPane(pane) {
 		http.Error(writer, "pane must be a non-empty Herdr target", http.StatusBadRequest)
 		return
 	}
@@ -105,13 +105,13 @@ func (lab *TerminalLab) read(writer http.ResponseWriter, request *http.Request) 
 
 	ansi, err := lab.output(request, "pane", "read", pane, "--source", source, "--lines", strconv.Itoa(lines), "--format", "ansi", "--raw")
 	if err != nil {
-		lab.logger.Info("terminal lab reader failed", "pane", pane, "error", err)
+		lab.logger.Info("terminal reader failed", "pane", pane, "error", err)
 		http.Error(writer, "Could not read this Herdr terminal", http.StatusBadGateway)
 		return
 	}
 	layout, err := lab.output(request, "pane", "layout", "--pane", pane)
 	if err != nil {
-		lab.logger.Info("terminal lab reader layout failed", "pane", pane, "error", err)
+		lab.logger.Info("terminal reader layout failed", "pane", pane, "error", err)
 		http.Error(writer, "Could not read this Herdr terminal layout", http.StatusBadGateway)
 		return
 	}
@@ -132,7 +132,7 @@ func (lab *TerminalLab) read(writer http.ResponseWriter, request *http.Request) 
 		http.Error(writer, "Herdr returned an invalid terminal layout", http.StatusBadGateway)
 		return
 	}
-	response := terminalLabReadResponse{ANSI: string(ansi)}
+	response := terminalReadResponse{ANSI: string(ansi)}
 	for _, candidate := range envelope.Result.Layout.Panes {
 		if candidate.PaneID == pane {
 			response.Cols = candidate.Rect.Width
@@ -147,11 +147,11 @@ func (lab *TerminalLab) read(writer http.ResponseWriter, request *http.Request) 
 	writer.Header().Set("Cache-Control", "no-store")
 	writer.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(writer).Encode(response); err != nil {
-		lab.logger.Debug("terminal lab reader response closed", "pane", pane, "error", err)
+		lab.logger.Debug("terminal reader response closed", "pane", pane, "error", err)
 	}
 }
 
-func (lab *TerminalLab) output(request *http.Request, arguments ...string) ([]byte, error) {
+func (lab *TerminalBridge) output(request *http.Request, arguments ...string) ([]byte, error) {
 	command := exec.CommandContext(request.Context(), lab.binary, arguments...)
 	command.Env = append(os.Environ(), "HERDR_SOCKET_PATH="+lab.socketPath)
 	stdout, err := command.StdoutPipe()
@@ -163,16 +163,16 @@ func (lab *TerminalLab) output(request *http.Request, arguments ...string) ([]by
 	if err := command.Start(); err != nil {
 		return nil, err
 	}
-	output, readErr := io.ReadAll(io.LimitReader(stdout, terminalLabMaxReadBytes+1))
+	output, readErr := io.ReadAll(io.LimitReader(stdout, terminalBridgeMaxReadBytes+1))
 	if readErr != nil {
 		_ = command.Process.Kill()
 		_ = command.Wait()
 		return nil, readErr
 	}
-	if len(output) > terminalLabMaxReadBytes {
+	if len(output) > terminalBridgeMaxReadBytes {
 		_ = command.Process.Kill()
 		_ = command.Wait()
-		return nil, errors.New("Herdr terminal history exceeded the lab read limit")
+		return nil, errors.New("Herdr terminal history exceeded the reader limit")
 	}
 	waitErr := command.Wait()
 	if waitErr != nil {
@@ -181,13 +181,13 @@ func (lab *TerminalLab) output(request *http.Request, arguments ...string) ([]by
 	return output, nil
 }
 
-type terminalLabStreamEvent struct {
+type terminalStreamEvent struct {
 	err  error
 	line []byte
 }
 
-func (lab *TerminalLab) socket(writer http.ResponseWriter, request *http.Request) {
-	settings, err := parseTerminalLabSettings(request)
+func (lab *TerminalBridge) socket(writer http.ResponseWriter, request *http.Request) {
+	settings, err := parseTerminalBridgeSettings(request)
 	if err != nil {
 		http.Error(writer, err.Error(), http.StatusBadRequest)
 		return
@@ -197,7 +197,7 @@ func (lab *TerminalLab) socket(writer http.ResponseWriter, request *http.Request
 		return
 	}
 	defer connection.Close()
-	connection.SetReadLimit(terminalLabMaxCommandBytes)
+	connection.SetReadLimit(terminalBridgeMaxCommandBytes)
 
 	operation := settings.mode
 	if operation == "takeover" {
@@ -211,33 +211,33 @@ func (lab *TerminalLab) socket(writer http.ResponseWriter, request *http.Request
 	command.Env = append(os.Environ(), "HERDR_SOCKET_PATH="+lab.socketPath)
 	stdout, err := command.StdoutPipe()
 	if err != nil {
-		_ = writeLabStatus(connection, "Could not create the Herdr output stream")
+		_ = writeTerminalStatus(connection, "Could not create the Herdr output stream")
 		return
 	}
 	stdin, err := command.StdinPipe()
 	if err != nil {
-		_ = writeLabStatus(connection, "Could not create the Herdr input stream")
+		_ = writeTerminalStatus(connection, "Could not create the Herdr input stream")
 		return
 	}
 	stderr := &boundedLog{limit: 8192}
 	command.Stderr = stderr
 	if err := command.Start(); err != nil {
 		_ = stdin.Close()
-		_ = writeLabStatus(connection, "Could not start the Herdr terminal stream")
+		_ = writeTerminalStatus(connection, "Could not start the Herdr terminal stream")
 		return
 	}
 
 	handlerDone := make(chan struct{})
 	processExited := make(chan struct{})
-	streamEvents := make(chan terminalLabStreamEvent, 32)
+	streamEvents := make(chan terminalStreamEvent, 32)
 	go func() {
 		defer close(processExited)
 		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 64*1024), terminalLabMaxFrameBytes)
+		scanner.Buffer(make([]byte, 64*1024), terminalBridgeMaxFrameBytes)
 		for scanner.Scan() {
 			line := bytes.Clone(scanner.Bytes())
 			select {
-			case streamEvents <- terminalLabStreamEvent{line: line}:
+			case streamEvents <- terminalStreamEvent{line: line}:
 			case <-handlerDone:
 				_ = command.Process.Kill()
 				_ = command.Wait()
@@ -250,7 +250,7 @@ func (lab *TerminalLab) socket(writer http.ResponseWriter, request *http.Request
 			waitErr = scanErr
 		}
 		select {
-		case streamEvents <- terminalLabStreamEvent{err: waitErr}:
+		case streamEvents <- terminalStreamEvent{err: waitErr}:
 		case <-handlerDone:
 		}
 	}()
@@ -263,13 +263,13 @@ func (lab *TerminalLab) socket(writer http.ResponseWriter, request *http.Request
 		select {
 		case <-processExited:
 			return
-		case <-time.After(terminalLabShutdownWait):
+		case <-time.After(terminalBridgeShutdownWait):
 		}
 		_ = command.Process.Kill()
 		select {
 		case <-processExited:
-		case <-time.After(terminalLabShutdownWait):
-			lab.logger.Error("terminal lab child did not exit after kill", "pane", settings.pane, "mode", settings.mode)
+		case <-time.After(terminalBridgeShutdownWait):
+			lab.logger.Error("terminal child did not exit after kill", "pane", settings.pane, "mode", settings.mode)
 		}
 	}
 	defer cleanup()
@@ -295,13 +295,13 @@ func (lab *TerminalLab) socket(writer http.ResponseWriter, request *http.Request
 		}
 	}()
 
-	lab.logger.Info("terminal lab stream started", "pane", settings.pane, "mode", settings.mode, "cols", settings.cols, "rows", settings.rows)
+	lab.logger.Info("terminal stream started", "pane", settings.pane, "mode", settings.mode, "cols", settings.cols, "rows", settings.rows)
 	for {
 		select {
 		case event := <-streamEvents:
 			if event.line != nil {
-				if !validTerminalLabFrame(event.line) {
-					_ = writeLabStatus(connection, "Herdr emitted an invalid terminal frame")
+				if !validTerminalFrame(event.line) {
+					_ = writeTerminalStatus(connection, "Herdr emitted an invalid terminal frame")
 					return
 				}
 				_ = connection.SetWriteDeadline(time.Now().Add(10 * time.Second))
@@ -312,29 +312,29 @@ func (lab *TerminalLab) socket(writer http.ResponseWriter, request *http.Request
 			}
 			detail := strings.TrimSpace(stderr.String())
 			if event.err != nil || detail != "" {
-				lab.logger.Info("terminal lab stream ended", "pane", settings.pane, "mode", settings.mode, "error", event.err, "stderr", detail)
+				lab.logger.Info("terminal stream ended", "pane", settings.pane, "mode", settings.mode, "error", event.err, "stderr", detail)
 				if detail == "" {
 					detail = "Herdr terminal stream exited"
 				}
-				_ = writeLabStatus(connection, detail)
+				_ = writeTerminalStatus(connection, detail)
 			}
 			return
 		case message := <-clientMessages:
 			if settings.mode == "observe" {
-				_ = writeLabStatus(connection, "Observer input was blocked by the lab bridge")
+				_ = writeTerminalStatus(connection, "An observing terminal cannot send input")
 				continue
 			}
-			command, requestID, err := validatedTerminalLabCommand(message)
+			command, requestID, err := validatedTerminalCommand(message)
 			if err != nil {
-				_ = writeLabStatus(connection, "Rejected browser command: "+err.Error())
+				_ = writeTerminalStatus(connection, "Rejected browser command: "+err.Error())
 				continue
 			}
 			if err := json.NewEncoder(stdin).Encode(command); err != nil {
-				_ = writeLabStatus(connection, "Herdr input stream closed")
+				_ = writeTerminalStatus(connection, "Herdr input stream closed")
 				return
 			}
 			if requestID > 0 {
-				if err := writeJSON(connection, map[string]any{"type": "lab.input-accepted", "request_id": requestID}); err != nil {
+				if err := writeJSON(connection, map[string]any{"type": "terminal.input-accepted", "request_id": requestID}); err != nil {
 					return
 				}
 			}
@@ -346,7 +346,7 @@ func (lab *TerminalLab) socket(writer http.ResponseWriter, request *http.Request
 	}
 }
 
-func validTerminalLabFrame(line []byte) bool {
+func validTerminalFrame(line []byte) bool {
 	var envelope struct {
 		Bytes    string `json:"bytes"`
 		Encoding string `json:"encoding"`
@@ -368,7 +368,7 @@ func validTerminalLabFrame(line []byte) bool {
 	return err == nil
 }
 
-func validatedTerminalLabCommand(message []byte) (any, int, error) {
+func validatedTerminalCommand(message []byte) (any, int, error) {
 	var envelope struct {
 		Bytes     *string `json:"bytes"`
 		Cols      int     `json:"cols"`
@@ -391,13 +391,13 @@ func validatedTerminalLabCommand(message []byte) (any, int, error) {
 			return nil, 0, errors.New("input must contain exactly one of text or bytes")
 		}
 		if envelope.Text != nil {
-			if len(*envelope.Text) > terminalLabMaxCommandBytes {
+			if len(*envelope.Text) > terminalBridgeMaxCommandBytes {
 				return nil, 0, errors.New("input is too large")
 			}
 			return map[string]any{"type": envelope.Type, "text": *envelope.Text}, envelope.RequestID, nil
 		}
 		decoded, err := base64.StdEncoding.DecodeString(*envelope.Bytes)
-		if err != nil || len(decoded) > terminalLabMaxCommandBytes {
+		if err != nil || len(decoded) > terminalBridgeMaxCommandBytes {
 			return nil, 0, errors.New("bytes must be valid base64 within the size limit")
 		}
 		return map[string]any{"type": envelope.Type, "bytes": *envelope.Bytes}, envelope.RequestID, nil
@@ -421,8 +421,8 @@ func validatedTerminalLabCommand(message []byte) (any, int, error) {
 	}
 }
 
-func writeLabStatus(connection *websocket.Conn, message string) error {
-	return writeJSON(connection, map[string]string{"type": "lab.status", "message": message})
+func writeTerminalStatus(connection *websocket.Conn, message string) error {
+	return writeJSON(connection, map[string]string{"type": "terminal.status", "message": message})
 }
 
 type boundedLog struct {

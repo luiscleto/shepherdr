@@ -6,6 +6,7 @@ import {
   type HomeReachability,
 } from "./home-connection";
 import { allTerminals, findTerminal, type HomeState, type TerminalEntry } from "./home-model";
+import { TerminalPage } from "./terminal-page";
 import { returningToHome } from "./terminal-route";
 
 interface HomeHeartbeat {
@@ -60,6 +61,7 @@ let restoreHomePlace = false;
 let hasConnectedHome = false;
 let publishedStateSignature = "";
 let renderedTerminalPane: string | undefined;
+let terminalPage: TerminalPage | undefined;
 const homeView = new HomeView(app, {
   onFocusPane: (paneID) => {
     lastFocusedHomePane = paneID;
@@ -225,6 +227,8 @@ function render(): void {
 }
 
 function renderHome(): void {
+  terminalPage?.destroy();
+  terminalPage = undefined;
   if (homeMode === "blocked" && state.home.blocked_count === 0) homeMode = "all";
   document.body.classList.remove("terminal-active");
   homeView.render({
@@ -284,19 +288,64 @@ function openTerminal(entry: TerminalEntry): void {
 function renderTerminal(paneID: string): void {
   document.body.classList.add("terminal-active");
   window.scrollTo(0, 0);
-  app.className = "terminal-screen";
-
   const current = findTerminal(state.home, paneID);
-  if (current) selectedTerminal = current;
-  const entry = selectedTerminal?.terminal.pane_id === paneID ? selectedTerminal : undefined;
-  const header = element("header", "terminal-header");
-  const title = element("div", "terminal-title");
-  title.append(element("h1", undefined, entry?.terminal.title ?? "Terminal"));
-  header.append(button("Home", leaveTerminal), title);
-  app.replaceChildren(header);
+  const selected = selectedTerminal?.terminal.pane_id === paneID ? selectedTerminal : undefined;
+  if (current && selected && current.terminal.terminal_id !== selected.terminal.terminal_id) {
+    renderTerminalUnavailable();
+    return;
+  }
+  if (!current && state.connection === "live" && !state.last_known) {
+    renderTerminalUnavailable();
+    return;
+  }
+  const entry = current ?? selected;
+  if (!entry) {
+    renderTerminalWaiting();
+    return;
+  }
+  selectedTerminal = entry;
+  if (terminalPage?.paneID === paneID && terminalPage.terminalID === entry.terminal.terminal_id) {
+    terminalPage.updateTarget(entry.terminal.title, entry.terminal.agent?.status);
+    return;
+  }
+  terminalPage?.destroy();
+  terminalPage = new TerminalPage(app, {
+    agentStatus: entry.terminal.agent?.status,
+    paneID,
+    terminalID: entry.terminal.terminal_id,
+    title: entry.terminal.title,
+  }, { onHome: leaveTerminal });
+}
+
+function renderTerminalWaiting(): void {
+  terminalPage?.destroy();
+  terminalPage = undefined;
+  app.className = "terminal-state-screen";
+  const panel = element("section", "state-panel terminal-unavailable");
+  panel.append(
+    element("strong", undefined, "Connecting"),
+    element("p", undefined, "Waiting for this terminal."),
+    button("Home", leaveTerminal),
+  );
+  app.replaceChildren(panel);
+}
+
+function renderTerminalUnavailable(): void {
+  terminalPage?.destroy();
+  terminalPage = undefined;
+  app.className = "terminal-state-screen";
+  const panel = element("section", "state-panel terminal-unavailable");
+  panel.append(
+    element("strong", undefined, "Terminal unavailable"),
+    element("p", undefined, "This terminal is no longer here."),
+    button("Home", leaveTerminal),
+  );
+  app.replaceChildren(panel);
 }
 
 function leaveTerminal(): void {
+  terminalPage?.destroy();
+  terminalPage = undefined;
   selectedTerminal = undefined;
   restoreHomePlace = true;
   window.location.hash = "";

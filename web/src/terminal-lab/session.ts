@@ -12,21 +12,26 @@ interface TerminalFrame {
   width: number;
 }
 
-interface LabStatus {
+interface TerminalStatus {
   message: string;
-  type: "lab.status";
+  type: "terminal.status";
 }
 
-interface LabInputAccepted {
+interface TerminalInputAccepted {
   request_id: number;
-  type: "lab.input-accepted";
+  type: "terminal.input-accepted";
 }
 
-export interface LabSessionEvents {
+export interface TerminalSessionEvents {
   onFrame(frame: TerminalFrame, bytes: Uint8Array): void;
   onInputAcknowledged?(requestID: number): void;
   onLog(message: string, detail?: unknown): void;
   onStatus(message: string): void;
+}
+
+interface TerminalSessionOptions {
+  endpoint?: string;
+  terminalID?: string;
 }
 
 function decodeBase64(value: string): Uint8Array {
@@ -34,16 +39,20 @@ function decodeBase64(value: string): Uint8Array {
   return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
 }
 
-export class LabSession {
-  #events: LabSessionEvents;
+export class TerminalSession {
+  #endpoint: string;
+  #events: TerminalSessionEvents;
   #lastSize: string | undefined;
   #mode: SessionMode;
   #nextInputRequestID = 0;
   #socket: WebSocket | undefined;
+  #terminalID: string | undefined;
 
-  constructor(mode: SessionMode, events: LabSessionEvents) {
+  constructor(mode: SessionMode, events: TerminalSessionEvents, options: TerminalSessionOptions = {}) {
     this.#mode = mode;
     this.#events = events;
+    this.#endpoint = options.endpoint ?? "/api/terminal-lab";
+    this.#terminalID = options.terminalID;
   }
 
   connect(pane: string, dimensions: TerminalDimensions): void {
@@ -54,8 +63,9 @@ export class LabSession {
       cols: String(dimensions.cols),
       rows: String(dimensions.rows),
     });
+    if (this.#terminalID) query.set("terminal", this.#terminalID);
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(`${protocol}//${location.host}/api/terminal-lab?${query}`);
+    const socket = new WebSocket(`${protocol}//${location.host}${this.#endpoint}?${query}`);
     this.#socket = socket;
     this.#lastSize = `${dimensions.cols}x${dimensions.rows}`;
     this.#events.onStatus("Connecting");
@@ -76,12 +86,12 @@ export class LabSession {
       if (message.type === "terminal.frame") {
         const frame = message as TerminalFrame;
         this.#events.onFrame(frame, decodeBase64(frame.bytes));
-      } else if (message.type === "lab.status") {
-        const status = message as LabStatus;
+      } else if (message.type === "terminal.status") {
+        const status = message as TerminalStatus;
         this.#events.onStatus(status.message);
         this.#events.onLog("session.status", status.message);
-      } else if (message.type === "lab.input-accepted") {
-        const accepted = message as LabInputAccepted;
+      } else if (message.type === "terminal.input-accepted") {
+        const accepted = message as TerminalInputAccepted;
         this.#events.onLog("input.accepted", { requestID: accepted.request_id });
         this.#events.onInputAcknowledged?.(accepted.request_id);
       } else {

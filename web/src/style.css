@@ -1,3 +1,6 @@
+@import "@xterm/xterm/css/xterm.css";
+@import "./terminal-reader.css";
+
 :root {
   color: #292925;
   background: #f5f1e8;
@@ -314,6 +317,8 @@ button.terminal-row:not([aria-disabled="true"]):hover {
 
 .terminal-screen {
   position: fixed;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   top: 0;
   right: 0;
   left: 0;
@@ -326,12 +331,25 @@ button.terminal-row:not([aria-disabled="true"]):hover {
   color: #292925;
 }
 
+.terminal-state-screen {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.terminal-unavailable {
+  width: min(100%, 28rem);
+}
+
 .terminal-header {
   min-width: 0;
-  gap: 0.75rem;
+  min-height: 48px;
+  gap: 0.5rem;
   border-bottom: 1px solid #35352f;
   background: #f5f1e8;
-  padding: calc(0.5rem + env(safe-area-inset-top)) max(0.65rem, env(safe-area-inset-right)) 0.5rem max(0.65rem, env(safe-area-inset-left));
+  padding: calc(0.2rem + env(safe-area-inset-top)) max(0.4rem, env(safe-area-inset-right)) 0.2rem max(0.4rem, env(safe-area-inset-left));
 }
 
 .terminal-title {
@@ -345,9 +363,19 @@ button.terminal-row:not([aria-disabled="true"]):hover {
   margin: 0;
   color: #292925;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 600;
   letter-spacing: -0.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-connection {
+  display: block;
+  overflow: hidden;
+  color: #6b675f;
+  font-size: 0.7rem;
+  line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -356,6 +384,74 @@ button.terminal-row:not([aria-disabled="true"]):hover {
   border-color: #35352f;
   color: #292925;
   background: #fffaf1;
+}
+
+.terminal-home,
+.terminal-control-action {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.6rem;
+}
+
+.terminal-production-surface {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #101715;
+}
+
+.terminal-desktop-page .terminal-production-surface,
+.terminal-desktop-page .terminal-production-surface > .xterm {
+  width: 100%;
+  height: 100%;
+}
+
+.terminal-desktop-page .terminal-production-surface {
+  padding: 8px;
+}
+
+.terminal-command-bar {
+  display: flex;
+  min-width: 0;
+  gap: 1px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  border-top: 1px solid #35352f;
+  background: #f5f1e8;
+  padding: 0 max(0.25rem, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(0.25rem, env(safe-area-inset-left));
+  scrollbar-width: thin;
+}
+
+.terminal-command-bar button {
+  flex: 0 0 auto;
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 0;
+  padding: 0.25rem 0.45rem;
+  background: #f5f1e8;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.terminal-command-bar button + button {
+  border-left: 1px solid #d1cabd;
+}
+
+.terminal-command-bar .terminal-write-text {
+  padding-inline: 0.65rem;
+  color: #8d3f22;
+}
+
+.terminal-reader-page .reader-composer button {
+  min-height: 44px;
+  border-color: #66726d;
+  background: #25332f;
+  color: #f4f5ef;
+  padding-inline: 0.55rem;
+}
+
+.terminal-reader-page .reader-send-feedback button {
+  min-height: 36px;
 }
 
 @media (min-width: 700px) {
