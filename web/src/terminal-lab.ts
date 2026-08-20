@@ -1,11 +1,11 @@
-import type { RendererKind, TerminalAdapter, TerminalDimensions } from "./terminal-lab/adapter";
-import { rendererOptions } from "./terminal-lab/adapter";
+import type { RendererKind, TerminalAdapter, TerminalDimensions } from "./terminal/adapter";
+import { rendererOptions } from "./terminal/adapter";
 import { terminalKeySequences, terminalSubmission } from "./terminal-input";
-import { ReaderInputQueue } from "./terminal-lab/reader-input";
-import { ReaderView } from "./terminal-lab/reader-view";
-import { TerminalSession, type SessionMode } from "./terminal-lab/session";
+import { ReaderInputQueue } from "./terminal/reader-input";
+import { ReaderView } from "./terminal/reader-view";
+import { TerminalSession, type SessionMode } from "./terminal/session";
 import { WTermAdapter } from "./terminal-lab/wterm-adapter";
-import { XTermAdapter } from "./terminal-lab/xterm-adapter";
+import { XTermAdapter } from "./terminal/xterm-adapter";
 
 interface LabTarget {
   label: string;
@@ -121,13 +121,14 @@ async function activateRenderer(kind: RendererKind): Promise<void> {
       },
       onLog: log,
       onSending: (chunks) => reader?.inputSending(chunks),
-      onSent: () => reader?.inputSent(),
-    });
+      onForwarded: () => reader?.inputForwarded(false),
+      onUncertain: (message) => reader?.inputUncertain(message),
+    }, { endpoint: "/api/terminal-lab" });
     reader = new ReaderView(surface, {
       onLog: log,
       onStatus: setStatus,
       onSubmit: (text) => readerInput?.enqueueBatch(terminalSubmission(text)) ?? false,
-    });
+    }, { endpoint: "/api/terminal-lab/read" });
     modeField.hidden = true;
     sessionStorage.setItem("terminal-lab.renderer.v2", kind);
     const url = new URL(location.href);
@@ -214,11 +215,14 @@ async function connect(): Promise<void> {
         width: frame.width,
       });
       if (reader) reader.refreshSoon();
-      else adapter?.write(bytes);
+      else {
+        if (frame.full && adapter?.replace) adapter.replace(bytes);
+        else adapter?.write(bytes);
+      }
     },
     onLog: log,
     onStatus: setStatus,
-  });
+  }, { endpoint: "/api/terminal-lab" });
   session.connect(pane, dimensions);
   reader?.setInteractive(true);
   if (mode !== "observe") adapter?.focus();

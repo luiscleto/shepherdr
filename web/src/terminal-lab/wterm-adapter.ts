@@ -1,6 +1,6 @@
 import { WTerm } from "@wterm/dom";
 import { GhosttyCore } from "@wterm/ghostty";
-import type { RendererKind, TerminalAdapter, TerminalAdapterEvents, TerminalDimensions } from "./adapter";
+import type { RendererKind, TerminalAdapter, TerminalAdapterEvents, TerminalDimensions } from "../terminal/adapter";
 
 export class WTermAdapter implements TerminalAdapter {
   readonly kind: RendererKind;

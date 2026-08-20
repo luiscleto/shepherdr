@@ -70,40 +70,11 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) terminalSocket(writer http.ResponseWriter, request *http.Request) {
-	if !s.currentTerminal(request) {
-		http.Error(writer, "Terminal unavailable", http.StatusNotFound)
-		return
-	}
-	s.terminal.socket(writer, request)
+	s.terminal.productionSocket(writer, request)
 }
 
 func (s *Server) terminalRead(writer http.ResponseWriter, request *http.Request) {
-	if !s.currentTerminal(request) {
-		http.Error(writer, "Terminal unavailable", http.StatusNotFound)
-		return
-	}
-	s.terminal.read(writer, request)
-}
-
-func (s *Server) currentTerminal(request *http.Request) bool {
-	if s.projector == nil {
-		return false
-	}
-	paneID := request.URL.Query().Get("pane")
-	terminalID := request.URL.Query().Get("terminal")
-	if !validTerminalPane(paneID) || terminalID == "" {
-		return false
-	}
-	state := s.projector.Current()
-	if state.Connection != herdr.ConnectionLive || state.LastKnown {
-		return false
-	}
-	for _, pane := range state.Snapshot.Panes {
-		if pane.PaneID == paneID && pane.TerminalID == terminalID {
-			return true
-		}
-	}
-	return false
+	s.terminal.productionRead(writer, request)
 }
 
 func ValidateListenAddress(address string) error {
@@ -169,6 +140,10 @@ func (s *Server) homeSocket(writer http.ResponseWriter, request *http.Request) {
 
 func (s *Server) asset(writer http.ResponseWriter, request *http.Request) {
 	name := strings.TrimPrefix(path.Clean(request.URL.Path), "/")
+	if strings.HasPrefix(name, "api/") {
+		http.NotFound(writer, request)
+		return
+	}
 	if name == "." || name == "" {
 		name = "index.html"
 	}

@@ -1,9 +1,11 @@
 import { terminalKeySequences, terminalSubmission } from "./terminal-input";
-import type { TerminalDimensions } from "./terminal-lab/adapter";
-import { ReaderInputQueue } from "./terminal-lab/reader-input";
-import { ReaderView } from "./terminal-lab/reader-view";
-import { TerminalSession } from "./terminal-lab/session";
-import { XTermAdapter } from "./terminal-lab/xterm-adapter";
+import type { TerminalDimensions } from "./terminal/adapter";
+import { terminalReaderForDevice } from "./terminal/device";
+import { nextTerminalOwnership, terminalOwnershipAction, type TerminalOwnership } from "./terminal/ownership";
+import { ReaderInputQueue } from "./terminal/reader-input";
+import { ReaderView } from "./terminal/reader-view";
+import { TerminalSession } from "./terminal/session";
+import { XTermAdapter } from "./terminal/xterm-adapter";
 
 export interface TerminalPageTarget {
   agentStatus?: string;
@@ -36,30 +38,28 @@ function action(text: string, run: () => void, className?: string): HTMLButtonEl
   return node;
 }
 
-function readerRequested(): boolean {
-  const override = new URLSearchParams(location.search).get("terminal");
-  if (override === "desktop") return false;
-  if (override === "reader") return true;
-  return matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches;
-}
-
 export class TerminalPage {
   readonly paneID: string;
   readonly terminalID: string;
 
-  #controlAction: HTMLButtonElement;
   #agentStatus: string | undefined;
+  #commandButtons: HTMLButtonElement[] = [];
   #connectionStatus = "Connecting";
+  #controlAction: HTMLButtonElement;
   #controller: TerminalSession | undefined;
-  #controllerAcquired = false;
-  #controlAttempted = false;
+  #desktopAutoAcquire = true;
   #destroyed = false;
+  #hasObserved = false;
   #host: HTMLElement;
+  #newOutput = false;
   #observer: TerminalSession | undefined;
+  #observerReady = false;
   #observerRetry: number | undefined;
+  #ownership: TerminalOwnership = "waiting";
   #reader: ReaderView | undefined;
   #readerInput: ReaderInputQueue | undefined;
   #readerMode: boolean;
+  #readerTextQueued = false;
   #status: HTMLSpanElement;
   #surface: HTMLDivElement;
   #title: HTMLHeadingElement;
@@ -70,7 +70,7 @@ export class TerminalPage {
     this.#agentStatus = target.agentStatus;
     this.paneID = target.paneID;
     this.terminalID = target.terminalID;
-    this.#readerMode = readerRequested();
+    this.#readerMode = terminalReaderForDevice();
 
     const header = element("header", "terminal-header");
     const home = action("Home", options.onHome, "terminal-home");
@@ -122,8 +122,16 @@ export class TerminalPage {
   async #startReader(): Promise<void> {
     const reader = new ReaderView(this.#surface, {
       onLog: () => undefined,
+      onNewOutput: (available) => {
+        this.#newOutput = available;
+        this.#renderStatus();
+      },
       onStatus: (message) => this.#setStatus(message),
-      onSubmit: (text) => this.#readerInput?.enqueueBatch(terminalSubmission(text)) ?? false,
+      onSubmit: (text) => {
+        const queued = this.#readerInput?.enqueueBatch(terminalSubmission(text)) ?? false;
+        if (queued) this.#readerTextQueued = true;
+        return queued;
+      },
     }, { collapsibleComposer: true, endpoint: "/api/terminal/read" });
     this.#reader = reader;
     const input = new ReaderInputQueue({
@@ -137,27 +145,38 @@ export class TerminalPage {
         );
         reader.showComposer();
       },
+      onForwarded: () => {
+        reader.inputForwarded(this.#readerTextQueued);
+        this.#readerTextQueued = false;
+        reader.hideComposer();
+      },
       onLog: () => undefined,
       onSending: (count) => reader.inputSending(count),
-      onSent: () => {
-        reader.inputSent();
-        reader.hideComposer();
+      onState: (state) => {
+        if (state === "requesting") this.#setStatus("Requesting control");
+        else if (state === "forwarding") this.#setStatus("Forwarding input");
+        else if (state === "occupied") this.#setStatus("Controlled elsewhere · observing");
+        else this.#setStatus("Observing");
+      },
+      onUncertain: (message) => {
+        this.#readerTextQueued = false;
+        reader.inputUncertain(message);
       },
     }, { endpoint: "/api/terminal" });
     this.#readerInput = input;
     const dimensions = await reader.open(this.paneID, this.terminalID);
     if (this.#destroyed) return;
     input.setTarget(this.paneID, dimensions, this.terminalID);
-    reader.setInteractive(true);
     const controls = this.#readerControls(reader, input);
     this.#host.append(controls);
+    this.#setReaderInteractive(false);
     this.#connectObserver(dimensions);
   }
 
   #readerControls(reader: ReaderView, input: ReaderInputQueue): HTMLElement {
     const controls = element("nav", "terminal-command-bar");
     controls.setAttribute("aria-label", "Terminal commands");
-    controls.append(action("Write text", () => reader.showComposer(), "terminal-write-text"));
+    this.#commandButtons.push(action("Write text", () => reader.showComposer(), "terminal-write-text"));
     const keys: Array<[string, string, string]> = [
       ["escape", "Esc", "Escape"],
       ["ctrl-c", "Ctrl C", "Control C"],
@@ -174,9 +193,15 @@ export class TerminalPage {
     for (const [key, label, accessibleName] of keys) {
       const button = action(label, () => input.enqueue(terminalKeySequences[key]));
       button.setAttribute("aria-label", accessibleName);
-      controls.append(button);
+      this.#commandButtons.push(button);
     }
+    controls.append(...this.#commandButtons);
     return controls;
+  }
+
+  #setReaderInteractive(interactive: boolean): void {
+    this.#reader?.setInteractive(interactive);
+    for (const button of this.#commandButtons) button.disabled = !interactive;
   }
 
   async #startDesktop(): Promise<void> {
@@ -184,10 +209,10 @@ export class TerminalPage {
     this.#xterm = terminal;
     await terminal.mount(this.#surface, {
       onData: (data) => {
-        if (this.#controllerAcquired) this.#controller?.input(data);
+        if (this.#ownership === "controlling") this.#controller?.input(data);
       },
       onResize: (dimensions) => {
-        if (this.#controllerAcquired) this.#controller?.resize(dimensions);
+        if (this.#ownership === "controlling") this.#controller?.resize(dimensions);
       },
     });
     if (this.#destroyed) {
@@ -202,21 +227,43 @@ export class TerminalPage {
     const previous = this.#observer;
     this.#observer = undefined;
     previous?.disconnect();
+    this.#observerReady = false;
     let receivedFrame = false;
     const session = new TerminalSession("observe", {
-      onFrame: (_frame, bytes) => {
+      onFrame: (frame, bytes) => {
         if (this.#observer !== session) return;
-        if (this.#reader) this.#reader.refreshSoon();
-        else this.#xterm?.write(bytes);
+        if (this.#reader) {
+          if (!receivedFrame && this.#hasObserved) this.#reader.connectionReset();
+          this.#reader.refreshSoon();
+        } else {
+          if (frame.full) this.#xterm?.replace(bytes);
+          else this.#xterm?.write(bytes);
+        }
         if (receivedFrame) return;
         receivedFrame = true;
-        this.#setStatus("Observing");
-        if (!this.#readerMode && !this.#controlAttempted) this.#connectController(false);
+        this.#observerReady = true;
+        this.#ownership = nextTerminalOwnership(this.#ownership, "observer-ready");
+        this.#hasObserved = true;
+        if (this.#readerMode) {
+          this.#setReaderInteractive(true);
+          this.#setStatus("Observing");
+        } else {
+          this.#renderDesktopOwnership();
+          if (this.#desktopAutoAcquire) {
+            this.#desktopAutoAcquire = false;
+            this.#connectController(false);
+          }
+        }
       },
       onLog: (event) => {
         if (event !== "session.close" || this.#observer !== session) return;
         this.#observer = undefined;
-        this.#releaseController();
+        this.#observerReady = false;
+        this.#reader?.pauseLiveRefresh();
+        this.#setReaderInteractive(false);
+        if (this.#controller || this.#ownership === "controlling" || this.#ownership === "requesting") this.#desktopAutoAcquire = true;
+        this.#releaseController(false);
+        this.#ownership = nextTerminalOwnership(this.#ownership, "observer-lost");
         this.#scheduleObserverReconnect();
       },
       onStatus: (message) => {
@@ -233,37 +280,31 @@ export class TerminalPage {
     this.#observerRetry = window.setTimeout(() => {
       this.#observerRetry = undefined;
       const dimensions = this.#reader?.dimensions() ?? this.#xterm?.dimensions() ?? { cols: 80, rows: 24 };
-      this.#controlAttempted = false;
       this.#connectObserver(dimensions);
     }, reconnectDelayMilliseconds);
   }
 
   #connectController(takeover: boolean): void {
-    if (this.#destroyed || this.#readerMode || !this.#observer || this.#controller) return;
-    this.#controlAttempted = true;
-    this.#controlAction.hidden = true;
-    this.#setStatus(takeover ? "Taking control" : "Requesting control");
+    if (this.#destroyed || this.#readerMode || !this.#observerReady || !this.#observer || this.#controller) return;
+    this.#ownership = nextTerminalOwnership(this.#ownership, "request");
+    this.#renderDesktopOwnership(takeover ? "Taking control" : "Requesting control");
     let lastStatus = "";
     const session = new TerminalSession(takeover ? "takeover" : "control", {
       onFrame: () => {
-        if (this.#controller !== session || this.#controllerAcquired) return;
-        this.#controllerAcquired = true;
-        this.#setStatus("Controlling");
+        if (this.#controller !== session || this.#ownership !== "requesting") return;
+        this.#ownership = nextTerminalOwnership(this.#ownership, "acquired");
+        this.#renderDesktopOwnership();
         this.#xterm?.focus();
       },
       onLog: (event) => {
         if (event !== "session.close" || this.#controller !== session) return;
         this.#controller = undefined;
-        const wasControlling = this.#controllerAcquired;
-        this.#controllerAcquired = false;
-        if (this.#destroyed) return;
-        if (lastStatus.includes("already has an attached client")) {
-          this.#setStatus("Controlled elsewhere · observing");
-          this.#showControlAction("Take over", true);
-        } else {
-          this.#setStatus(wasControlling ? "Control lost · observing" : "Observing");
-          this.#showControlAction("Control", false);
-        }
+        if (this.#destroyed || !this.#observerReady) return;
+        this.#ownership = nextTerminalOwnership(
+          this.#ownership,
+          lastStatus.includes("already has an attached client") ? "occupied" : "failed",
+        );
+        this.#renderDesktopOwnership();
       },
       onStatus: (message) => {
         lastStatus = message;
@@ -273,20 +314,41 @@ export class TerminalPage {
     session.connect(this.paneID, this.#xterm?.dimensions() ?? { cols: 80, rows: 24 });
   }
 
-  #showControlAction(label: string, takeover: boolean): void {
-    this.#controlAction.textContent = label;
-    this.#controlAction.hidden = false;
-    this.#controlAction.onclick = () => {
-      if (takeover && !window.confirm("Take control? The current controller will lose input.")) return;
-      this.#connectController(takeover);
-    };
-  }
-
-  #releaseController(): void {
+  #releaseController(explicit: boolean): void {
     const controller = this.#controller;
     this.#controller = undefined;
-    this.#controllerAcquired = false;
     controller?.disconnect();
+    if (explicit) this.#desktopAutoAcquire = false;
+    if (!this.#observerReady) return;
+    this.#ownership = nextTerminalOwnership(this.#ownership, "release");
+    this.#renderDesktopOwnership();
+  }
+
+  #renderDesktopOwnership(temporaryStatus?: string): void {
+    if (this.#readerMode) return;
+    const control = terminalOwnershipAction(this.#ownership);
+    this.#controlAction.hidden = control === undefined;
+    this.#controlAction.onclick = null;
+    if (control === "release") {
+      this.#controlAction.textContent = "Release";
+      this.#controlAction.onclick = () => this.#releaseController(true);
+    } else if (control === "takeover") {
+      this.#controlAction.textContent = "Take over";
+      this.#controlAction.onclick = () => {
+        if (window.confirm("Take control? The current controller will lose input.")) this.#connectController(true);
+      };
+    } else if (control === "control") {
+      this.#controlAction.textContent = "Control";
+      this.#controlAction.onclick = () => this.#connectController(false);
+    }
+    const status = temporaryStatus ?? ({
+      controlling: "Controlling",
+      observing: "Observing",
+      occupied: "Controlled elsewhere · observing",
+      requesting: "Requesting control",
+      waiting: "Connecting",
+    } satisfies Record<TerminalOwnership, string>)[this.#ownership];
+    this.#setStatus(status);
   }
 
   #setStatus(message: string): void {
@@ -296,6 +358,6 @@ export class TerminalPage {
 
   #renderStatus(): void {
     if (this.#destroyed) return;
-    this.#status.textContent = [this.#agentStatus, this.#connectionStatus].filter(Boolean).join(" · ");
+    this.#status.textContent = [this.#agentStatus, this.#connectionStatus, this.#newOutput ? "New output" : undefined].filter(Boolean).join(" · ");
   }
 }

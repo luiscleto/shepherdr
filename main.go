@@ -58,7 +58,8 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("find herdr executable for terminal access: %w", err)
 	}
-	terminal := server.NewTerminalBridge(herdrBinary, *socketPath, logger)
+	terminal := server.NewTerminalBridge(herdrBinary, *socketPath, logger, projector)
+	defer terminal.Close()
 	application := server.New(assets, projector, terminal, *terminalLabEnabled)
 
 	listener, err := net.Listen("tcp", *listenAddress)
@@ -82,6 +83,7 @@ func run() error {
 
 	select {
 	case <-ctx.Done():
+		terminal.Close()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {

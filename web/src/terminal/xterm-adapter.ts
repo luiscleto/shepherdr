@@ -6,8 +6,10 @@ export class XTermAdapter implements TerminalAdapter {
   readonly kind = "xterm" as const;
 
   #fit: FitAddon | undefined;
+  #outputQueue: Array<{ data: Uint8Array; full: boolean }> = [];
   #resizeObserver: ResizeObserver | undefined;
   #terminal: Terminal | undefined;
+  #writing = false;
 
   async mount(host: HTMLElement, events: TerminalAdapterEvents): Promise<void> {
     const terminal = new Terminal({
@@ -76,14 +78,37 @@ export class XTermAdapter implements TerminalAdapter {
   }
 
   write(data: Uint8Array): void {
-    this.#terminal?.write(data);
+    this.#outputQueue.push({ data, full: false });
+    this.#drainOutput();
+  }
+
+  replace(data: Uint8Array): void {
+    this.#outputQueue = [{ data, full: true }];
+    this.#drainOutput();
   }
 
   destroy(): void {
     this.#resizeObserver?.disconnect();
+    this.#outputQueue = [];
     this.#terminal?.dispose();
     this.#resizeObserver = undefined;
     this.#fit = undefined;
     this.#terminal = undefined;
+  }
+
+  #drainOutput(): void {
+    const terminal = this.#terminal;
+    if (!terminal || this.#writing) return;
+    const next = this.#outputQueue.shift();
+    if (!next) return;
+    this.#writing = true;
+    if (next.full) {
+      terminal.reset();
+      terminal.clear();
+    }
+    terminal.write(next.data, () => {
+      this.#writing = false;
+      this.#drainOutput();
+    });
   }
 }

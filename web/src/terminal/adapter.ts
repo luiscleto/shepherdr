@@ -16,6 +16,7 @@ export interface TerminalAdapter {
   dimensions(): TerminalDimensions;
   focus(): void;
   paste(text: string): boolean;
+  replace?(data: Uint8Array): void;
   scrollLines(lines: number): void;
   selection(): string;
   write(data: Uint8Array): void;

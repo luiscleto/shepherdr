@@ -3,25 +3,37 @@ import type { TerminalDimensions } from "./adapter";
 
 interface ReaderSnapshot extends TerminalDimensions {
   ansi: string;
+  generation?: number;
+  terminal_id?: string;
 }
 
 interface ReaderEvents {
   onLog(event: string, detail?: unknown): void;
+  onNewOutput?(available: boolean): void;
   onStatus(message: string): void;
   onSubmit(text: string): boolean;
 }
 
 interface ReaderOptions {
   collapsibleComposer?: boolean;
-  endpoint?: string;
+  endpoint: string;
 }
 
 const historyPageLines = 500;
 const maximumHistoryLines = 20_000;
 const liveRefreshDelayMilliseconds = 150;
 
+export function readerAtLatest(scrollHeight: number, scrollTop: number, clientHeight: number): boolean {
+  return scrollHeight - scrollTop - clientHeight < 32;
+}
+
+export function pauseReaderLiveRefresh(atLatest: boolean, hasSelection: boolean): boolean {
+  return !atLatest || hasSelection;
+}
+
 export class ReaderView {
   #abort: AbortController | undefined;
+  #blocked = false;
   #collapsibleComposer: boolean;
   #composer: HTMLDivElement;
   #dimensions: TerminalDimensions = { cols: 80, rows: 24 };
@@ -31,10 +43,12 @@ export class ReaderView {
   #input: HTMLTextAreaElement;
   #intersectionObserver: IntersectionObserver;
   #lastANSI = "";
+  #generation: number | undefined;
+  #interactive = false;
   #loading = false;
+  #newOutput = false;
   #output: HTMLDivElement;
   #pane = "";
-  #pending: ReaderSnapshot | undefined;
   #refreshTimer: number | undefined;
   #refreshQueued: { force: boolean; preserveTop: boolean } | undefined;
   #send: HTMLButtonElement;
@@ -50,12 +64,13 @@ export class ReaderView {
   #terminalID: string | undefined;
   #allHistoryLoaded = false;
   #selectionChange: () => void;
+  #sending = false;
 
-  constructor(host: HTMLElement, events: ReaderEvents, options: ReaderOptions = {}) {
+  constructor(host: HTMLElement, events: ReaderEvents, options: ReaderOptions) {
     this.#host = host;
     this.#events = events;
     this.#collapsibleComposer = options.collapsibleComposer ?? false;
-    this.#readEndpoint = options.endpoint ?? "/api/terminal-lab/read";
+    this.#readEndpoint = options.endpoint;
     host.classList.add("reader-surface");
 
     this.#topSentinel = document.createElement("div");
@@ -68,6 +83,12 @@ export class ReaderView {
     this.#scroll = document.createElement("div");
     this.#scroll.className = "reader-scroll";
     this.#scroll.append(this.#topSentinel, this.#output);
+    this.#scroll.addEventListener("scroll", () => {
+      if (this.#newOutput && this.#atLatest() && !this.#hasSelection()) {
+        this.#setNewOutput(false);
+        this.refreshSoon();
+      }
+    }, { passive: true });
 
     this.#composer = document.createElement("div");
     this.#composer.className = "reader-composer";
@@ -115,10 +136,10 @@ export class ReaderView {
     }, { root: this.#scroll, rootMargin: "160px 0px 0px" });
     this.#intersectionObserver.observe(this.#topSentinel);
     this.#selectionChange = () => {
-      if (!this.#pending || this.#hasSelection()) return;
-      const pending = this.#pending;
-      this.#pending = undefined;
-      this.#render(pending, false);
+      if (this.#newOutput && !this.#hasSelection() && this.#atLatest()) {
+        this.#setNewOutput(false);
+        this.refreshSoon();
+      }
     };
     document.addEventListener("selectionchange", this.#selectionChange);
     this.#retrySend.addEventListener("click", () => this.#retryAction?.());
@@ -126,7 +147,6 @@ export class ReaderView {
     this.#send.addEventListener("click", () => {
       if (!this.#input.value || !this.#events.onSubmit(this.#input.value)) return;
       this.#events.onLog("reader.input", { characters: this.#input.value.length });
-      this.#input.value = "";
     });
     this.setInteractive(false);
   }
@@ -137,10 +157,18 @@ export class ReaderView {
 
   async open(pane: string, terminalID?: string): Promise<TerminalDimensions> {
     this.#abort?.abort();
+    this.#blocked = false;
+    this.#sending = false;
+    this.#sendFeedback.hidden = true;
+    this.#retryAction = undefined;
+    this.#takeoverAction = undefined;
+    this.#syncInputState();
     this.#pane = pane;
     this.#terminalID = terminalID;
     this.#historyLines = historyPageLines;
     this.#lastANSI = "";
+    this.#generation = undefined;
+    this.#setNewOutput(false);
     this.#allHistoryLoaded = false;
     await this.refresh(true, false);
     return this.#dimensions;
@@ -148,6 +176,10 @@ export class ReaderView {
 
   refreshSoon(): void {
     if (this.#refreshTimer !== undefined || !this.#pane) return;
+    if (pauseReaderLiveRefresh(this.#atLatest(), this.#hasSelection())) {
+      this.#setNewOutput(true);
+      return;
+    }
     this.#refreshTimer = window.setTimeout(() => {
       this.#refreshTimer = undefined;
       void this.refresh(false, false);
@@ -171,15 +203,15 @@ export class ReaderView {
       const response = await fetch(`${this.#readEndpoint}?${query}`, { cache: "no-store", signal: abort.signal });
       if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
       const snapshot = await response.json() as ReaderSnapshot;
-      if (this.#abort !== abort || this.#pane !== pane) return;
+      if (this.#abort !== abort || this.#pane !== pane || !this.#validSnapshot(snapshot)) throw new Error("invalid terminal history response");
       this.#dimensions = { cols: snapshot.cols, rows: snapshot.rows };
       if (preserveTop && snapshot.ansi === this.#lastANSI) {
         this.#allHistoryLoaded = true;
         this.#events.onStatus("All retained output is loaded");
         return;
       }
-      if (!force && this.#hasSelection()) {
-        this.#pending = snapshot;
+      if (!force && pauseReaderLiveRefresh(this.#atLatest(), this.#hasSelection())) {
+        this.#setNewOutput(true);
         return;
       }
       this.#render(snapshot, preserveTop);
@@ -199,8 +231,8 @@ export class ReaderView {
   }
 
   setInteractive(interactive: boolean): void {
-    this.#input.disabled = !interactive;
-    this.#send.disabled = !interactive;
+    this.#interactive = interactive;
+    this.#syncInputState();
     this.#input.placeholder = interactive ? "Type text to send" : "Connect to send text";
     if (!interactive && this.#collapsibleComposer) this.hideComposer();
   }
@@ -218,25 +250,59 @@ export class ReaderView {
   }
 
   inputSending(chunks: number): void {
+    this.#blocked = false;
+    this.#sending = true;
+    this.#syncInputState();
     this.#sendFeedback.hidden = false;
     this.#sendFeedbackMessage.textContent = chunks === 1 ? "Sending queued input…" : `Sending ${chunks} queued inputs…`;
     this.#retrySend.hidden = true;
     this.#takeoverSend.hidden = true;
   }
 
-  inputSent(): void {
+  inputForwarded(clearText: boolean): void {
+    this.#blocked = false;
+    this.#sending = false;
+    this.#syncInputState();
+    if (clearText) this.#input.value = "";
     this.#sendFeedback.hidden = true;
     this.#retryAction = undefined;
     this.#takeoverAction = undefined;
   }
 
   inputBlocked(message: string, retry: () => void, takeover: () => void): void {
+    this.#blocked = true;
+    this.#sending = false;
+    this.#syncInputState();
     this.#sendFeedback.hidden = false;
     this.#sendFeedbackMessage.textContent = message;
     this.#retrySend.hidden = false;
     this.#takeoverSend.hidden = false;
     this.#retryAction = retry;
     this.#takeoverAction = takeover;
+  }
+
+  inputUncertain(message: string): void {
+    this.#blocked = false;
+    this.#sending = false;
+    this.#syncInputState();
+    this.#sendFeedback.hidden = false;
+    this.#sendFeedbackMessage.textContent = message;
+    this.#retrySend.hidden = true;
+    this.#takeoverSend.hidden = true;
+    this.#retryAction = undefined;
+    this.#takeoverAction = undefined;
+  }
+
+  connectionReset(): void {
+    this.pauseLiveRefresh();
+    this.#generation = undefined;
+  }
+
+  pauseLiveRefresh(): void {
+    this.#abort?.abort();
+    this.#refreshQueued = undefined;
+    if (this.#refreshTimer !== undefined) window.clearTimeout(this.#refreshTimer);
+    this.#refreshTimer = undefined;
   }
 
   focus(): void {
@@ -264,6 +330,7 @@ export class ReaderView {
   destroy(): void {
     this.#pane = "";
     this.#terminalID = undefined;
+    this.#generation = undefined;
     this.#refreshQueued = undefined;
     this.#abort?.abort();
     this.#intersectionObserver.disconnect();
@@ -278,13 +345,39 @@ export class ReaderView {
     return Boolean(selection && !selection.isCollapsed && selection.anchorNode && this.#output.contains(selection.anchorNode));
   }
 
+  #atLatest(): boolean {
+    return readerAtLatest(this.#scroll.scrollHeight, this.#scroll.scrollTop, this.#scroll.clientHeight);
+  }
+
+  #setNewOutput(available: boolean): void {
+    if (this.#newOutput === available) return;
+    this.#newOutput = available;
+    this.#events.onNewOutput?.(available);
+  }
+
+  #syncInputState(): void {
+    this.#input.disabled = !this.#interactive || this.#sending || this.#blocked;
+    this.#send.disabled = !this.#interactive || this.#sending || this.#blocked;
+  }
+
+  #validSnapshot(snapshot: ReaderSnapshot): boolean {
+    if (typeof snapshot.ansi !== "string" || !Number.isSafeInteger(snapshot.cols) || snapshot.cols < 2 || snapshot.cols > 1000 ||
+      !Number.isSafeInteger(snapshot.rows) || snapshot.rows < 1 || snapshot.rows > 1000) return false;
+    if (this.#terminalID) {
+      if (snapshot.terminal_id !== this.#terminalID || !Number.isSafeInteger(snapshot.generation) || Number(snapshot.generation) < 0) return false;
+      if (this.#generation !== undefined && snapshot.generation !== this.#generation) return false;
+      this.#generation = snapshot.generation;
+    }
+    return true;
+  }
+
   #render(snapshot: ReaderSnapshot, preserveTop: boolean): void {
     const oldHeight = this.#scroll.scrollHeight;
     const oldTop = this.#scroll.scrollTop;
     const followBottom = oldHeight - oldTop - this.#scroll.clientHeight < 32;
     renderANSI(this.#output, snapshot.ansi);
     this.#lastANSI = snapshot.ansi;
-    this.#pending = undefined;
+    this.#setNewOutput(false);
     if (preserveTop) this.#scroll.scrollTop = oldTop + this.#scroll.scrollHeight - oldHeight;
     else if (followBottom) this.#scroll.scrollTop = this.#scroll.scrollHeight;
     else this.#scroll.scrollTop = oldTop;
