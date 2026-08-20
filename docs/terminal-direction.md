@@ -1,46 +1,37 @@
 # Shepherdr terminal direction
 
-Status: approved current behavior; integrated at `997edbc8ed720d9d7eb88ac3089bd741193de7bd`; real-device acceptance pending
+Status: approved current behavior; integrated at `997edbc8ed720d9d7eb88ac3089bd741193de7bd`
 
 This document records the human's direct terminal R&D decisions. It supersedes older terminal architecture and interface claims, including `wave-01-human-gate-correction.md`. The Home and workspace-management direction remains unchanged.
 
 ## Current experience
 
-Terminal opens only from a current Home target whose pane and terminal identities resolve exactly. The server checks that same target again for terminal reads and attachments. A missing, stale, replaced, or mismatched target is unavailable; Shepherdr never falls back to another terminal.
+Shepherdr opens only the exact current terminal chosen from Home. If that terminal is missing, stale, replaced, or does not match, it is unavailable; Shepherdr never falls back to another terminal.
 
-Opening Terminal establishes an observer so output can remain visible without control. Observation and control are separate Herdr sessions. A new attachment begins with a full frame, later frames must be in order, and a replacement attachment starts a new frame sequence. Shepherdr uses Herdr's current output and does not promise durable history or offline replay.
+On a phone, Terminal uses Reader and observes without taking control between sends. Reader supports browser text selection and can load older output that Herdr still supplies. Shepherdr promises no terminal history beyond that output.
 
-On a phone or another primary coarse-pointer device, Terminal uses Reader:
+Sending text or a shortcut obtains ordinary control only long enough to send one batch and receive its acknowledgement, then releases. If someone else has control, Shepherdr sends nothing and offers only **Take over and send**, after confirming that the current controller will lose input. Shepherdr never retries terminal input automatically. Persistent **Control**, **Take over**, and **Release** actions are desktop-only.
 
-- Reader observes between sends and supports ordinary browser text selection.
-- **Write text** and each terminal shortcut form one input batch.
-- Sending implicitly requests ordinary control, forwards that one batch only after control is acquired, waits for Herdr's matching forwarding acknowledgement, and immediately releases control.
-- If someone else has control, nothing is sent. Reader says so and offers only **Take over and send** for that pending batch. The takeover requires confirmation that the current controller will lose input.
-- If delivery cannot be confirmed after forwarding begins, Reader does not queue or send the batch again automatically. The person must check the terminal before acting again.
-- Reader never shows persistent **Control**, **Take over**, or **Release** controls and never holds control between batches.
+On a desktop, Terminal uses the full terminal renderer. It observes first and can keep control for interactive use until the person chooses **Release**. Takeover remains confirmed, and release leaves observation running.
 
-On a desktop primary-pointer device, Terminal uses the full terminal renderer. It observes first, requests ordinary free control, and may keep control for interactive use. Persistent **Control**, **Take over**, and **Release** actions belong only to this desktop experience. Takeover remains confirmed, and release leaves observation running.
-
-Connection and input messages describe this terminal attachment, not the agent's status. Only actual agents use Herdr's `working`, `blocked`, `idle`, `done`, and `unknown` words.
+Connection and input messages describe the terminal connection, not the agent's status. Only actual agents use Herdr's `working`, `blocked`, `idle`, `done`, and `unknown` words.
 
 ## Runtime boundary
 
-Shepherdr uses Herdr 0.8.0's existing snapshot, terminal read, observe, control, input acknowledgement, release, and takeover capabilities. Herdr remains authoritative for the terminal process, output, and control. Shepherdr does not add another terminal runtime.
+Shepherdr uses Herdr 0.8.0's existing snapshot, terminal read, observe, control, input acknowledgement, release, and takeover capabilities. Herdr remains authoritative for the terminal process, output, and control.
 
-The server owns exact target checks and the exact Herdr child processes started for an attachment. Closing or replacing a browser attachment cancels and collects its child. Browser disconnect, navigation, release, server shutdown, and target replacement must not leave a Shepherdr-started controller behind.
+The server rechecks the exact pane and terminal identity for reads and sessions. Observation and control use separate Herdr child processes. Each stream starts with a full frame and accepts later frames only in order; a replacement starts a new sequence. Closing or replacing a browser session cancels and collects the exact child it started.
 
-The renderer comparison lab is development-only. Its page, assets, and APIs are unavailable unless Shepherdr starts with the explicit terminal-lab flag.
+The renderer comparison lab is development-only and unavailable without its explicit flag. Shepherdr has no durable terminal or conversation store and does not parse terminal output into Home, agent state, authorization, application actions, or Chat.
 
-There is no durable terminal store or conversation store. Terminal output is not parsed or reconstructed as Chat and never drives Home organization, agent state, authorization, or application actions. Terminal output, ANSI data, names, identities, repository content, attachments, selected text, and pasted text are untrusted.
+Existing product scope, private-network requirements, and untrusted-content rules in `north-star.md` and `architecture-proposal.md` remain unchanged.
 
-## Scope kept separate
+## Real-phone gate
 
-The approved Home and workspace-management direction continues independently. Sign-in and device trust, notifications, and Chat remain later work. When sign-in is off, anyone who can reach Shepherdr has operator authority, so the trusted-private-network requirement remains unchanged.
+Status: **PASS**
 
-No team accounts, roles, organizations, public hosting, provider-specific prompt handling, new Herdr interface, or second agent runtime is introduced here.
+The human gate confirmed mobile rendering, sending, native selection, scrolling and loading older output, continued live output, and shortcut commands.
 
-## Acceptance
+## Ongoing acceptance guidance
 
-The implementation and independent code review are complete, but product acceptance still requires the human real-phone gate. On the real device, verify that Reader remains an observer between sends, sends one text or shortcut batch and releases, sends nothing when occupied, confirms **Take over and send**, permits useful reading and selection, and never exposes persistent mobile ownership controls. Also check ordinary phone viewport, rotation, keyboard, reconnect, and return-to-Home behavior.
-
-Automated tests, a desktop browser's mobile emulation, and an Android emulator may support confidence. None replaces the real-device gate.
+Future terminal changes still require checks proportionate to the behavior they affect. A real-device acceptance report must name only the cases actually exercised. Automated tests, desktop mobile emulation, and Android emulators may support confidence but do not replace a required real-device check.

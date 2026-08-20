@@ -1,6 +1,6 @@
 # Shepherdr
 
-Shepherdr is a mobile-first web tool for viewing and managing Herdr. From a phone, you can see every real Herdr terminal, check which agents need attention, and open any current terminal. Shepherdr does not replace Herdr.
+Shepherdr is a mobile-first web tool for viewing and managing Herdr. From a phone, you can see every real Herdr terminal, check which agents need attention, and open and use any current terminal. Shepherdr does not replace Herdr.
 
 ## Start Shepherdr
 
@@ -34,7 +34,7 @@ Or select the Unix socket for one other configured Herdr session:
 
 Shepherdr prints its localhost address. Open that address directly on the machine, or publish it through a trusted private-network route as described below.
 
-Sign-in is off. Anyone who can reach Shepherdr can view the configured Herdr terminals.
+Sign-in is off. Anyone who can reach Shepherdr can view the configured Herdr terminals and send terminal input.
 
 ## Keep it on a private network
 
@@ -57,6 +57,7 @@ Do not use `tailscale funnel`. Funnel makes the service public.
 - Keep a single-terminal workspace compact and make the whole terminal row the open action.
 - Add small displayed-order numbers only to same-named single-terminal workspaces across Home or same-titled terminal rows in the same workspace and, when shown, tab. Matching titles in unrelated workspace/tab contexts stay unnumbered, and filtering never renumbers them.
 - Open any current real Herdr terminal, whether or not it has an agent.
+- From a phone, send one text or shortcut batch and release control after it is acknowledged. See [Terminal direction](docs/terminal-direction.md).
 - Keep Home up to date after a connection drops. Shepherdr shows clearly labelled last-known values without presenting them as openable until it reconnects.
 
 If Herdr stops, start it again and Shepherdr will reconnect automatically.
@@ -75,5 +76,6 @@ npm run build --prefix web
 
 - [Product direction](docs/north-star.md)
 - [Interface direction](docs/ui-direction.md)
+- [Terminal direction](docs/terminal-direction.md)
 
 Apache License 2.0.

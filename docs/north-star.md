@@ -4,7 +4,7 @@ Status: proposed
 
 Scope: the current product
 
-The current product includes read-only Home and Terminal. The active non-terminal stream covers Home workspace organization and, in later slices, workspace management. Sign-in, devices, notifications, and Chat remain later work.
+The current product includes read-only Home discovery and Terminal, which can send input. Workspace management, sign-in, devices, notifications, and Chat remain later work.
 
 ## The promise
 
@@ -24,7 +24,7 @@ The broader product direction remains:
 6. Choose whether this device receives blocked-agent notifications.
 7. Tap a blocked-agent notification and open that agent's terminal.
 
-The daily return path is short: open Shepherdr, see who is blocked, and reach that work. This is the product bar, not an implementation order. The current product implements read-only Home and Terminal; workspace management, sign-in, devices, notifications, and Chat remain separate or later work.
+The daily return path is short: open Shepherdr, see who is blocked, and reach that work. This is the product bar, not an implementation order. The current product implements Home discovery and Terminal; Home discovery is read-only. Workspace management, sign-in, devices, notifications, and Chat remain later work.
 
 ## Home and attention
 
@@ -64,9 +64,7 @@ Later slices add one operation at a time: create a workspace in a new worktree f
 
 Home offers **Open** only for a current real terminal it can resolve exactly and truthfully. Terminal keeps observing without requiring control.
 
-On a phone, sending text or a shortcut requests ordinary control for that one batch, forwards it only after acquisition, waits for the matching acknowledgement, and releases immediately. If the terminal is occupied, nothing is sent; the only takeover path for that batch is confirmed **Take over and send**. Persistent **Control**, **Take over**, and **Release** controls are desktop-only and must never appear in mobile Reader.
-
-The current behavior and trust boundary are recorded in `terminal-direction.md`. Real-device product acceptance remains pending.
+On a phone, Terminal observes between sends. Phone sending, takeover behavior, desktop controls, and the completed real-phone gate are recorded in `terminal-direction.md`.
 
 Use only terminal capabilities Herdr already exposes. Do not build another agent runtime or infer product state from terminal output.
 
@@ -109,4 +107,4 @@ The current product uses only capabilities Herdr already exposes. Do not invent 
 
 ## How we will know it works
 
-Use production Shepherdr with a real Herdr server and a real phone. Compare flat and worktree-nested Home with Herdr, check every terminal and exact agent total, exercise expansion and Blocked place restoration, and verify connection and coherent-update states without flicker or stale actions. In Terminal, verify phone observation, single-batch transient control and release, occupied no-send and confirmed takeover retry, reading and selection, and the absence of persistent mobile ownership controls. For each later management slice, perform its real named, blank, clean, dirty, interrupted, and hostile-input cases. Tests and emulator checks support confidence, but the real phone workflow is the gate.
+Use production Shepherdr with a real Herdr server and a real phone. Compare flat and worktree-nested Home with Herdr, check every terminal and exact agent total, exercise expansion and Blocked place restoration, and verify connection and coherent-update states without flicker or stale actions. Terminal acceptance follows `terminal-direction.md`; record only the behavior actually exercised. For each later management slice, perform its real named, blank, clean, dirty, interrupted, and hostile-input cases. Tests and emulator checks support confidence, but the real phone workflow is the gate.
