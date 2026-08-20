@@ -136,6 +136,9 @@ func (validator *terminalFrameValidator) Accept(line []byte) (string, error) {
 	if validator.started && *frame.Seq <= validator.lastSeq {
 		return "", fmt.Errorf("sequence %d does not follow %d", *frame.Seq, validator.lastSeq)
 	}
+	if validator.started && !*frame.Full && *frame.Seq != validator.lastSeq+1 {
+		return "", fmt.Errorf("delta sequence %d has a gap after %d", *frame.Seq, validator.lastSeq)
+	}
 	decoded, err := base64.StdEncoding.DecodeString(*frame.Bytes)
 	if err != nil || len(decoded) > terminalBridgeMaxFrameBytes {
 		return "", errors.New("frame bytes are not valid base64 within the size limit")

@@ -1,6 +1,6 @@
 .reader-surface {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto auto;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -64,11 +64,13 @@
 }
 
 .reader-send-feedback {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.4rem;
+  border-top: 1px solid #37463f;
+  padding: 0.4rem;
+  background: #101715;
   color: #efcb82;
   font-size: 0.82rem;
 }

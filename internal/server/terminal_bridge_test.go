@@ -204,6 +204,20 @@ func TestTerminalFrameValidatorRequiresFullFirstAndIncreasingSequence(t *testing
 	if err != nil || reason != "already attached" {
 		t.Fatalf("terminal closure = %q, %v", reason, err)
 	}
+
+	gap := terminalFrameValidator{}
+	if _, err := gap.Accept(terminalFrame(true, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gap.Accept(terminalFrame(false, 3)); err == nil {
+		t.Fatal("delta frame after a missing sequence was accepted")
+	}
+	if _, err := gap.Accept(terminalFrame(true, 3)); err != nil {
+		t.Fatalf("full frame did not reset after a sequence gap: %v", err)
+	}
+	if _, err := gap.Accept(terminalFrame(false, 4)); err != nil {
+		t.Fatalf("ordered delta after full reset failed: %v", err)
+	}
 }
 
 func TestTerminalInputBatchPreservesAcknowledgementIDAndRejectsExtraFields(t *testing.T) {

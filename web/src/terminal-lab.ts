@@ -112,14 +112,11 @@ async function activateRenderer(kind: RendererKind): Promise<void> {
   setStatus(`Loading ${kind}`);
   if (kind === "reader") {
     readerInput = new ReaderInputQueue({
-      onBlocked(message) {
-        reader?.inputBlocked(
-          message,
-          () => readerInput?.retry(false),
-          () => readerInput?.retry(true),
-        );
-      },
+      onFailed: (message) => reader?.inputFailed(message, () => readerInput?.retry(false)),
       onLog: log,
+      onOccupied: (message) => reader?.inputOccupied(message, () => {
+        if (window.confirm("Take control? The current controller will lose input.")) readerInput?.retry(true);
+      }),
       onSending: (chunks) => reader?.inputSending(chunks),
       onForwarded: () => reader?.inputForwarded(false),
       onUncertain: (message) => reader?.inputUncertain(message),

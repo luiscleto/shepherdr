@@ -39,6 +39,7 @@ export class ReaderView {
   #dimensions: TerminalDimensions = { cols: 80, rows: 24 };
   #events: ReaderEvents;
   #historyLines = historyPageLines;
+  #historyRefreshPending = false;
   #host: HTMLElement;
   #input: HTMLTextAreaElement;
   #intersectionObserver: IntersectionObserver;
@@ -122,8 +123,7 @@ export class ReaderView {
       this.#composer.append(close);
       this.#composer.hidden = true;
     }
-    this.#composer.append(this.#sendFeedback);
-    host.replaceChildren(this.#scroll, this.#composer);
+    host.replaceChildren(this.#scroll, this.#composer, this.#sendFeedback);
 
     this.#intersectionObserver = new IntersectionObserver((entries) => {
       if (!entries.some((entry) => entry.isIntersecting) || !this.#pane || !this.#lastANSI || this.#allHistoryLoaded || this.#hasSelection()) return;
@@ -136,7 +136,13 @@ export class ReaderView {
     }, { root: this.#scroll, rootMargin: "160px 0px 0px" });
     this.#intersectionObserver.observe(this.#topSentinel);
     this.#selectionChange = () => {
-      if (this.#newOutput && !this.#hasSelection() && this.#atLatest()) {
+      if (this.#hasSelection()) return;
+      if (this.#historyRefreshPending) {
+        this.#historyRefreshPending = false;
+        void this.refresh(true, true);
+        return;
+      }
+      if (this.#newOutput && this.#atLatest()) {
         this.#setNewOutput(false);
         this.refreshSoon();
       }
@@ -166,6 +172,7 @@ export class ReaderView {
     this.#pane = pane;
     this.#terminalID = terminalID;
     this.#historyLines = historyPageLines;
+    this.#historyRefreshPending = false;
     this.#lastANSI = "";
     this.#generation = undefined;
     this.#setNewOutput(false);
@@ -188,6 +195,11 @@ export class ReaderView {
 
   async refresh(force: boolean, preserveTop: boolean): Promise<void> {
     if (!this.#pane) return;
+    if (this.#hasSelection()) {
+      if (preserveTop) this.#historyRefreshPending = true;
+      else this.#setNewOutput(true);
+      return;
+    }
     if (this.#loading) {
       const queued = this.#refreshQueued;
       this.#refreshQueued = { force: force || queued?.force === true, preserveTop: preserveTop || queued?.preserveTop === true };
@@ -208,6 +220,11 @@ export class ReaderView {
       if (preserveTop && snapshot.ansi === this.#lastANSI) {
         this.#allHistoryLoaded = true;
         this.#events.onStatus("All retained output is loaded");
+        return;
+      }
+      if (this.#hasSelection()) {
+        if (preserveTop) this.#historyRefreshPending = true;
+        else this.#setNewOutput(true);
         return;
       }
       if (!force && pauseReaderLiveRefresh(this.#atLatest(), this.#hasSelection())) {
@@ -269,28 +286,25 @@ export class ReaderView {
     this.#takeoverAction = undefined;
   }
 
-  inputBlocked(message: string, retry: () => void, takeover: () => void): void {
+  inputFailed(message: string, retry: () => void): void {
     this.#blocked = true;
     this.#sending = false;
     this.#syncInputState();
-    this.#sendFeedback.hidden = false;
-    this.#sendFeedbackMessage.textContent = message;
-    this.#retrySend.hidden = false;
-    this.#takeoverSend.hidden = false;
-    this.#retryAction = retry;
-    this.#takeoverAction = takeover;
+    this.#showRecovery(message, retry, undefined);
+  }
+
+  inputOccupied(message: string, takeover: () => void): void {
+    this.#blocked = true;
+    this.#sending = false;
+    this.#syncInputState();
+    this.#showRecovery(message, undefined, takeover);
   }
 
   inputUncertain(message: string): void {
     this.#blocked = false;
     this.#sending = false;
     this.#syncInputState();
-    this.#sendFeedback.hidden = false;
-    this.#sendFeedbackMessage.textContent = message;
-    this.#retrySend.hidden = true;
-    this.#takeoverSend.hidden = true;
-    this.#retryAction = undefined;
-    this.#takeoverAction = undefined;
+    this.#showRecovery(message, undefined, undefined);
   }
 
   connectionReset(): void {
@@ -331,6 +345,7 @@ export class ReaderView {
     this.#pane = "";
     this.#terminalID = undefined;
     this.#generation = undefined;
+    this.#historyRefreshPending = false;
     this.#refreshQueued = undefined;
     this.#abort?.abort();
     this.#intersectionObserver.disconnect();
@@ -358,6 +373,15 @@ export class ReaderView {
   #syncInputState(): void {
     this.#input.disabled = !this.#interactive || this.#sending || this.#blocked;
     this.#send.disabled = !this.#interactive || this.#sending || this.#blocked;
+  }
+
+  #showRecovery(message: string, retry: (() => void) | undefined, takeover: (() => void) | undefined): void {
+    this.#sendFeedback.hidden = false;
+    this.#sendFeedbackMessage.textContent = message;
+    this.#retrySend.hidden = retry === undefined;
+    this.#takeoverSend.hidden = takeover === undefined;
+    this.#retryAction = retry;
+    this.#takeoverAction = takeover;
   }
 
   #validSnapshot(snapshot: ReaderSnapshot): boolean {

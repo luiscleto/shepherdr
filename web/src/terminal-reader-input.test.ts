@@ -77,9 +77,10 @@ test("Reader input matches the forwarded request ID before releasing control", (
   const sessions: FakeTerminalSession[] = [];
   let forwarded = 0;
   const queue = new ReaderInputQueue({
-    onBlocked: () => assert.fail("input was unexpectedly blocked"),
+    onFailed: () => assert.fail("input unexpectedly failed"),
     onForwarded: (count) => forwarded += count,
     onLog: () => undefined,
+    onOccupied: () => assert.fail("input was unexpectedly occupied"),
     onSending: () => undefined,
     onUncertain: () => assert.fail("input unexpectedly became uncertain"),
   }, {
@@ -102,15 +103,16 @@ test("Reader input matches the forwarded request ID before releasing control", (
   assert.equal(sessions[0].disconnected, true, "transient Reader control must release after forwarding");
 });
 
-test("Reader input stays queued when occupied and takeover happens only on explicit retry", (t) => {
+test("Reader input stays queued when occupied and offers only explicit takeover", (t) => {
   withBrowser(t);
   const sessions: FakeTerminalSession[] = [];
-  let blocked = "";
+  let occupied = "";
   let forwarded = 0;
   const queue = new ReaderInputQueue({
-    onBlocked: (message) => blocked = message,
+    onFailed: () => assert.fail("occupied control is not an ordinary failure"),
     onForwarded: (count) => forwarded += count,
     onLog: () => undefined,
+    onOccupied: (message) => occupied = message,
     onSending: () => undefined,
     onUncertain: () => assert.fail("occupied input is not ambiguous"),
   }, {
@@ -125,7 +127,7 @@ test("Reader input stays queued when occupied and takeover happens only on expli
   queue.enqueue("\x03");
   assert.equal(sessions[0].mode, "control");
   sessions[0].close("another terminal already has an attached client");
-  assert.match(blocked, /Someone else/);
+  assert.match(occupied, /Someone else/);
   assert.equal(sessions.length, 1, "ordinary failure must not steal control");
   assert.equal(queue.enqueue("\x03"), false, "the queued batch cannot be duplicated while awaiting a decision");
 
@@ -141,9 +143,10 @@ test("ambiguous Reader input is never automatically queued or sent again", (t) =
   const sessions: FakeTerminalSession[] = [];
   let uncertain = "";
   const queue = new ReaderInputQueue({
-    onBlocked: () => assert.fail("ambiguous input must not be described as unsent"),
+    onFailed: () => assert.fail("ambiguous input must not be described as unsent"),
     onForwarded: () => assert.fail("input was not acknowledged"),
     onLog: () => undefined,
+    onOccupied: () => assert.fail("ambiguous input must not be described as occupied"),
     onSending: () => undefined,
     onUncertain: (message) => uncertain = message,
   }, {
@@ -155,12 +158,44 @@ test("ambiguous Reader input is never automatically queued or sent again", (t) =
     },
   });
   queue.setTarget("pane-1", { cols: 80, rows: 24 }, "term-1");
-  queue.enqueueBatch(["paste", "\r"]);
+  assert.equal(queue.enqueueBatch(["paste", "\r"]), true);
+  assert.equal(queue.enqueue("\x03"), false, "a second batch cannot enter while control is unresolved");
   sessions[0].acquire();
+  assert.equal(queue.enqueue("\x04"), false, "a second batch cannot enter while acknowledgement is unresolved");
   sessions[0].close("connection lost");
   assert.match(uncertain, /could not be confirmed/);
 
   queue.retry(false);
   queue.retry(true);
   assert.equal(sessions.length, 1, "an ambiguous batch must require a new human send action");
+});
+
+test("ordinary acquisition failure offers only an ordinary retry", (t) => {
+  withBrowser(t);
+  const sessions: FakeTerminalSession[] = [];
+  let failed = "";
+  const queue = new ReaderInputQueue({
+    onFailed: (message) => failed = message,
+    onForwarded: () => undefined,
+    onLog: () => undefined,
+    onOccupied: () => assert.fail("ordinary failure must not claim another controller exists"),
+    onSending: () => undefined,
+    onUncertain: () => assert.fail("input was never handed to the connection"),
+  }, {
+    endpoint: "/api/terminal",
+    createSession: (mode, events) => {
+      const session = new FakeTerminalSession(mode, events);
+      sessions.push(session);
+      return session;
+    },
+  });
+  queue.setTarget("pane-1", { cols: 80, rows: 24 }, "term-1");
+  assert.equal(queue.enqueue("\x03"), true);
+  sessions[0].close("connection failed");
+  assert.match(failed, /not sent/);
+
+  queue.retry(false);
+  assert.equal(sessions[1].mode, "control");
+  sessions[1].acquire();
+  sessions[1].forward();
 });

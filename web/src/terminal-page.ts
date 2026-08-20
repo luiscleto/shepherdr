@@ -135,27 +135,23 @@ export class TerminalPage {
     }, { collapsibleComposer: true, endpoint: "/api/terminal/read" });
     this.#reader = reader;
     const input = new ReaderInputQueue({
-      onBlocked: (message) => {
-        reader.inputBlocked(
-          message,
-          () => input.retry(false),
-          () => {
-            if (window.confirm("Take control? The current controller will lose input.")) input.retry(true);
-          },
-        );
-        reader.showComposer();
-      },
+      onFailed: (message) => reader.inputFailed(message, () => input.retry(false)),
       onForwarded: () => {
         reader.inputForwarded(this.#readerTextQueued);
         this.#readerTextQueued = false;
         reader.hideComposer();
       },
       onLog: () => undefined,
+      onOccupied: (message) => reader.inputOccupied(message, () => {
+        if (window.confirm("Take control? The current controller will lose input.")) input.retry(true);
+      }),
       onSending: (count) => reader.inputSending(count),
       onState: (state) => {
+        this.#setReaderCommandsEnabled(state === "observing" && this.#observerReady);
         if (state === "requesting") this.#setStatus("Requesting control");
         else if (state === "forwarding") this.#setStatus("Forwarding input");
         else if (state === "occupied") this.#setStatus("Controlled elsewhere · observing");
+        else if (state === "failed") this.#setStatus("Could not send · observing");
         else this.#setStatus("Observing");
       },
       onUncertain: (message) => {
@@ -201,7 +197,11 @@ export class TerminalPage {
 
   #setReaderInteractive(interactive: boolean): void {
     this.#reader?.setInteractive(interactive);
-    for (const button of this.#commandButtons) button.disabled = !interactive;
+    this.#setReaderCommandsEnabled(interactive);
+  }
+
+  #setReaderCommandsEnabled(enabled: boolean): void {
+    for (const button of this.#commandButtons) button.disabled = !enabled;
   }
 
   async #startDesktop(): Promise<void> {

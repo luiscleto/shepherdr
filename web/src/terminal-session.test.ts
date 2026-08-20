@@ -26,6 +26,14 @@ test("terminal frames require a full first frame and a strictly increasing seque
   assert.throws(() => sequence.accept(frame(false, 1)), /not monotonic/);
 });
 
+test("only a full frame may recover a missing sequence", () => {
+  const sequence = new TerminalFrameSequence();
+  sequence.accept(frame(true, 1));
+  assert.throws(() => sequence.accept(frame(false, 3)), /sequence gap/);
+  assert.equal(sequence.accept(frame(true, 3)).frame.seq, 3);
+  assert.equal(sequence.accept(frame(false, 4)).frame.seq, 4);
+});
+
 test("a reconnect has a fresh frame fence while hostile frame shapes are rejected", () => {
   const firstConnection = new TerminalFrameSequence();
   firstConnection.accept(frame(true, 40));

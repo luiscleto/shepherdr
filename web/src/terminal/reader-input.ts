@@ -7,11 +7,12 @@ import {
 } from "./session";
 
 interface ReaderInputEvents {
-  onBlocked(message: string): void;
+  onFailed(message: string): void;
   onForwarded(count: number): void;
   onLog(event: string, detail?: unknown): void;
+  onOccupied(message: string): void;
   onSending(count: number): void;
-  onState?(state: "forwarding" | "observing" | "occupied" | "requesting"): void;
+  onState?(state: "failed" | "forwarding" | "observing" | "occupied" | "requesting"): void;
   onUncertain(message: string): void;
 }
 
@@ -31,10 +32,9 @@ export class ReaderInputQueue {
   #dimensions: TerminalDimensions = { cols: 80, rows: 24 };
   #events: ReaderInputEvents;
   #endpoint: string;
-  #forwardedBatches = 0;
   #lastStatus = "";
   #pane = "";
-  #pending: string[][] = [];
+  #pendingBatch: string[] | undefined;
   #session: TerminalSessionLike | undefined;
   #takeover = false;
   #terminalID: string | undefined;
@@ -58,11 +58,10 @@ export class ReaderInputQueue {
     this.#session?.disconnect();
     this.#session = undefined;
     this.#pane = "";
-    this.#pending = [];
+    this.#pendingBatch = undefined;
     this.#activeBatch = undefined;
     this.#currentRequestID = undefined;
     this.#acquired = false;
-    this.#forwardedBatches = 0;
     this.#lastStatus = "";
     this.#terminalID = undefined;
   }
@@ -73,10 +72,9 @@ export class ReaderInputQueue {
 
   enqueueBatch(chunks: string[]): boolean {
     const batch = chunks.filter(Boolean);
-    if (!this.#pane || batch.length === 0 || (!this.#session && this.#pending.length > 0)) return false;
-    this.#pending.push(batch);
+    if (!this.#pane || batch.length === 0 || this.#session || this.#pendingBatch || this.#activeBatch) return false;
+    this.#pendingBatch = batch;
     this.#events.onLog("reader.input-queued", {
-      batches: this.#pending.length,
       chunks: batch.length,
       characters: batch.reduce((total, text) => total + text.length, 0),
     });
@@ -85,12 +83,12 @@ export class ReaderInputQueue {
   }
 
   retry(takeover: boolean): void {
-    if (this.#session || this.#pending.length === 0) return;
+    if (this.#session || !this.#pendingBatch) return;
     this.#start(takeover);
   }
 
   #start(takeover: boolean): void {
-    if (this.#session || !this.#pane || this.#pending.length === 0) return;
+    if (this.#session || !this.#pane || !this.#pendingBatch) return;
     this.#lastStatus = "";
     this.#takeover = takeover;
     this.#acquired = false;
@@ -108,9 +106,9 @@ export class ReaderInputQueue {
       },
     }, this.#endpoint, this.#terminalID);
     this.#session = session;
-    this.#events.onSending(this.#pending.length);
+    this.#events.onSending(1);
     this.#events.onState?.("requesting");
-    this.#events.onLog("reader.control.acquire", { mode, batches: this.#pending.length, ...this.#dimensions });
+    this.#events.onLog("reader.control.acquire", { mode, ...this.#dimensions });
     session.connect(this.#pane, this.#dimensions);
     this.#armTimer(session, "Timed out while waiting for terminal control");
   }
@@ -128,21 +126,18 @@ export class ReaderInputQueue {
     this.#clearTimer();
     this.#currentRequestID = undefined;
     this.#activeBatch = undefined;
-    this.#forwardedBatches += 1;
-    this.#sendNext(session);
+    this.#finished(session);
   }
 
   #sendNext(session: TerminalSessionLike): void {
     if (this.#session !== session || this.#currentRequestID !== undefined) return;
-    const next = this.#pending.shift();
-    if (!next) {
-      this.#finished(session);
-      return;
-    }
+    const next = this.#pendingBatch;
+    if (!next) return;
+    this.#pendingBatch = undefined;
     this.#activeBatch = next;
     const requestID = session.inputBatch(next);
     if (requestID === undefined) {
-      this.#pending.unshift(next);
+      this.#pendingBatch = next;
       this.#activeBatch = undefined;
       this.#lastStatus = "The terminal input stream was not available";
       this.#failed(session);
@@ -154,17 +149,14 @@ export class ReaderInputQueue {
 
   #finished(session: TerminalSessionLike): void {
     if (this.#session !== session) return;
-    const forwardedBatches = this.#forwardedBatches;
     this.#session = undefined;
     session.disconnect();
     this.#events.onLog("reader.control.forwarded", {
       takeover: this.#takeover,
-      batches: forwardedBatches,
     });
-    this.#forwardedBatches = 0;
     this.#acquired = false;
     this.#events.onState?.("observing");
-    this.#events.onForwarded(forwardedBatches);
+    this.#events.onForwarded(1);
   }
 
   #armTimer(session: TerminalSessionLike, message: string): void {
@@ -182,27 +174,27 @@ export class ReaderInputQueue {
     this.#session = undefined;
     session.disconnect();
     const ambiguous = this.#currentRequestID !== undefined;
-    if (!ambiguous && this.#activeBatch) this.#pending.unshift(this.#activeBatch);
+    if (!ambiguous && this.#activeBatch) this.#pendingBatch = this.#activeBatch;
     this.#activeBatch = undefined;
     this.#currentRequestID = undefined;
     this.#acquired = false;
-    this.#forwardedBatches = 0;
-    const occupied = this.#lastStatus.includes("already has an attached client");
-    if (occupied) {
-      this.#events.onState?.("occupied");
-      this.#events.onLog("reader.control.blocked", { message: this.#lastStatus, queuedBatches: this.#pending.length });
-      this.#events.onBlocked("Someone else is controlling this terminal, so your input was not sent.");
-      return;
-    }
-    this.#events.onState?.("observing");
     if (ambiguous) {
-      this.#pending = [];
-      this.#events.onLog("reader.control.uncertain", { message: this.#lastStatus, queuedBatches: this.#pending.length });
+      this.#pendingBatch = undefined;
+      this.#events.onState?.("observing");
+      this.#events.onLog("reader.control.uncertain", { message: this.#lastStatus });
       this.#events.onUncertain("The input was handed to the connection, but delivery could not be confirmed. Check the terminal before sending it again.");
       return;
     }
-    this.#events.onLog("reader.control.blocked", { message: this.#lastStatus, queuedBatches: this.#pending.length });
-    this.#events.onBlocked("Could not acquire terminal control, so your input was not sent.");
+    const occupied = this.#lastStatus.includes("already has an attached client");
+    if (occupied) {
+      this.#events.onState?.("occupied");
+      this.#events.onLog("reader.control.occupied", { message: this.#lastStatus });
+      this.#events.onOccupied("Someone else is controlling this terminal, so your input was not sent.");
+      return;
+    }
+    this.#events.onState?.("failed");
+    this.#events.onLog("reader.control.failed", { message: this.#lastStatus });
+    this.#events.onFailed("Could not acquire terminal control, so your input was not sent.");
   }
 
   #clearTimer(): void {

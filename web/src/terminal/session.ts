@@ -84,6 +84,9 @@ export class TerminalFrameSequence {
     }
     if (this.#lastSequence === 0 && frame.full !== true) throw new Error("first terminal frame is not full");
     if (this.#lastSequence > 0 && frame.seq <= this.#lastSequence) throw new Error("terminal frame sequence is not monotonic");
+    if (this.#lastSequence > 0 && frame.full !== true && frame.seq !== this.#lastSequence + 1) {
+      throw new Error("terminal delta frame has a sequence gap");
+    }
     const bytes = decodeBase64(frame.bytes);
     this.#lastSequence = frame.seq;
     return { frame: frame as unknown as TerminalFrame, bytes };
