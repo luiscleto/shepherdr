@@ -39,10 +39,17 @@ func TestRealProductionHome(t *testing.T) {
 		t.Fatal("Home publication did not identify its server epoch")
 	}
 	terminalCount := 0
-	for _, workspace := range state.Home.Workspaces {
+	var countWorkspace func(herdr.Workspace)
+	countWorkspace = func(workspace herdr.Workspace) {
 		for _, tab := range workspace.Tabs {
 			terminalCount += len(tab.Terminals)
 		}
+		for _, worktree := range workspace.Worktrees {
+			countWorkspace(worktree)
+		}
+	}
+	for _, workspace := range state.Home.Workspaces {
+		countWorkspace(workspace)
 	}
 	t.Logf("Home is live: %d workspaces, %d terminals, %d working, %d blocked", len(state.Home.Workspaces), terminalCount, state.Home.WorkingCount, state.Home.BlockedCount)
 }

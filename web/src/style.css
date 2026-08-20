@@ -74,6 +74,11 @@ button:disabled {
   align-items: center;
 }
 
+.masthead {
+  align-items: flex-start;
+  gap: 1rem;
+}
+
 .masthead,
 .tab-heading,
 .terminal-row,
@@ -148,12 +153,17 @@ h3 {
 
 .home-connection {
   display: flex;
-  min-height: 66px;
-  align-items: center;
+  min-width: 9.5rem;
+  min-height: 44px;
+  flex: 0 1 19rem;
+  align-items: flex-start;
+  justify-content: flex-end;
   gap: 0.45rem 0.75rem;
   flex-wrap: wrap;
-  margin-block: 1rem;
-  padding-block: 0.55rem;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  text-align: right;
 }
 
 .home-connection strong,
@@ -161,8 +171,15 @@ h3 {
   margin: 0;
 }
 
+.home-connection strong {
+  min-width: 9.5rem;
+  border: 1px solid #817d72;
+  padding: 0.7rem 0.75rem;
+  text-align: center;
+}
+
 .home-connection p {
-  flex: 1 1 12rem;
+  flex-basis: 100%;
 }
 
 .home-connection details {
@@ -174,6 +191,77 @@ h3 {
   margin-top: 1.5rem;
   padding-top: 1rem;
   scroll-margin-top: 1rem;
+}
+
+.workspace-expand-action {
+  display: block;
+  margin: 1rem 0 0 auto;
+  border: 0;
+  color: #8d3f22;
+}
+
+.workspace-set {
+  border-top: 1px solid #817d72;
+  margin-top: 1.5rem;
+}
+
+.workspace-set-heading {
+  margin: 0;
+}
+
+.workspace-set-disclosure {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+  min-height: 60px;
+  border: 0;
+  border-radius: 0;
+  padding: 0.7rem 0;
+  text-align: left;
+}
+
+.workspace-set-title,
+.workspace-set-meta {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workspace-set-title {
+  align-self: end;
+  font-size: 1.15rem;
+}
+
+.workspace-set-meta {
+  grid-column: 1;
+  color: #6b675f;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.workspace-set-marker {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  align-self: center;
+  margin-left: 0.75rem;
+  color: #8d3f22;
+  font-size: 1.3rem;
+}
+
+.workspace-set-disclosure[aria-expanded="false"] .workspace-set-marker {
+  transform: rotate(-90deg);
+}
+
+.workspace-set-contents {
+  border-left: 2px solid #d1cabd;
+  padding-left: 0.8rem;
+}
+
+.workspace-set-contents > .workspace {
+  margin-top: 0;
+}
+
+.workspace-set-contents > .workspace + .workspace {
+  margin-top: 0.65rem;
 }
 
 .count {

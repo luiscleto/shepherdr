@@ -28,7 +28,7 @@ function isCompleteHomeState(message: unknown): message is HomeState {
   const home = value.home;
   return typeof value.epoch === "string" && serverEpochPattern.test(value.epoch) &&
     ["reconnecting", "live", "not_running", "incompatible"].includes(String(value.connection)) &&
-    Number.isSafeInteger(value.gap) && typeof value.last_known === "boolean" &&
+    Number.isSafeInteger(value.gap) && typeof value.has_home === "boolean" && typeof value.last_known === "boolean" &&
     typeof home === "object" && home !== null &&
     Number.isSafeInteger((home as Record<string, unknown>).blocked_count) &&
     Number.isSafeInteger((home as Record<string, unknown>).working_count) &&
@@ -42,6 +42,7 @@ const app: HTMLElement = appNode;
 let state: HomeState = {
   connection: "reconnecting",
   gap: 0,
+  has_home: false,
   home: { blocked_count: 0, working_count: 0, workspaces: [] },
   last_known: false,
 };
@@ -58,7 +59,6 @@ let allTerminalsScroll = 0;
 let allTerminalsFocusPane: string | undefined;
 let homeMode: "all" | "blocked" = "all";
 let restoreHomePlace = false;
-let hasConnectedHome = false;
 let publishedStateSignature = "";
 let renderedTerminalPane: string | undefined;
 let terminalPage: TerminalPage | undefined;
@@ -116,11 +116,8 @@ function connectHome(): void {
       const now = performance.now();
       const wasCurrent = homeEvidenceCurrent();
       if (isHomeHeartbeat(parsed)) {
-        if (!wasCurrent && state.connection === "live") {
-          state = { ...state, connection: "reconnecting", last_known: true };
-          render();
-        }
         lastValidHomeFrameAt = now;
+        if (!wasCurrent) render();
         scheduleHomeCheck();
         return;
       }
@@ -131,7 +128,6 @@ function connectHome(): void {
         state.connection !== next.connection || state.last_known !== next.last_known;
       state = next;
       publishedStateSignature = raw;
-      hasConnectedHome = true;
       if (changed || !wasCurrent) render();
       scheduleHomeCheck();
     } catch {
@@ -147,7 +143,7 @@ function connectHome(): void {
 }
 
 function liveActionsAvailable(): boolean {
-  return homeEvidenceCurrent() && state.connection === "live" && !state.last_known;
+  return state.has_home && homeEvidenceCurrent() && state.connection === "live" && !state.last_known;
 }
 
 function homeReachability(): HomeReachability {
@@ -165,7 +161,7 @@ function homeSocketActive(): boolean {
 function reconnectHome(): void {
   if (homeReachability() !== "offline") return;
   lastValidHomeFrameAt = performance.now();
-  state = { ...state, connection: "reconnecting", last_known: hasConnectedHome || state.last_known };
+  state = { ...state, connection: "reconnecting", last_known: state.has_home };
   publishedStateSignature = "";
   render();
   connectHome();
@@ -190,10 +186,7 @@ function checkHomeConnection(): void {
     render();
     return;
   }
-  if (reachability === "reconnecting" && state.connection === "live") {
-    state = { ...state, connection: "reconnecting", last_known: true };
-    render();
-  }
+  if (reachability === "reconnecting") render();
   if (reachability === "reconnecting" && homeSocketActive()) {
     const stale = homeSocket;
     homeSocket = undefined;
@@ -235,7 +228,6 @@ function renderHome(): void {
     actionsAvailable: liveActionsAvailable(),
     mode: homeMode,
     reachability: homeReachability(),
-    receivedHome: hasConnectedHome,
     restore: restoreHomePlace
       ? {
           anchorTop: homeAnchorTop,

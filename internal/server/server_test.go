@@ -5,7 +5,23 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
+
+func TestApplicationAssetsAlwaysRevalidate(t *testing.T) {
+	application := New(fstest.MapFS{
+		"index.html": {Data: []byte("home")},
+		"app.js":     {Data: []byte("application")},
+	}, nil, nil, false)
+	for _, target := range []string{"/", "/app.js"} {
+		request := httptest.NewRequest("GET", "http://localhost"+target, nil)
+		response := httptest.NewRecorder()
+		application.Handler().ServeHTTP(response, request)
+		if got := response.Header().Get("Cache-Control"); got != "no-cache" {
+			t.Errorf("GET %s Cache-Control = %q, want no-cache", target, got)
+		}
+	}
+}
 
 func TestValidateListenAddressAllowsOnlyLocalhost(t *testing.T) {
 	for _, address := range []string{"127.0.0.1:8787", "[::1]:0", "localhost:9000"} {

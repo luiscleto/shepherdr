@@ -1,9 +1,12 @@
 import {
   accessibleTerminalName,
   allTerminals,
+  allWorkspaces,
   showTabHeadings,
   terminalCount,
   visibleTabs,
+  workspaceSets,
+  type AgentCounts,
   type HomeState,
   type Tab,
   type TerminalEntry,
@@ -25,7 +28,6 @@ export interface HomeViewRender {
   actionsAvailable: boolean;
   mode: HomeMode;
   reachability: HomeReachability;
-  receivedHome: boolean;
   restore?: { anchorTop?: number; focusPane?: string; pane?: string; scroll: number };
   state: HomeState;
 }
@@ -33,6 +35,15 @@ export interface HomeViewRender {
 interface WorkspaceNodes {
   heading: HTMLHeadingElement;
   section: HTMLElement;
+}
+
+interface WorkspaceSetNodes {
+  contents: HTMLElement;
+  disclosure: HTMLButtonElement;
+  heading: HTMLHeadingElement;
+  meta: HTMLElement;
+  section: HTMLElement;
+  title: HTMLElement;
 }
 
 interface TabNodes {
@@ -111,13 +122,19 @@ export class HomeView {
   readonly #connectionSummary: HTMLElement;
   readonly #document: Document;
   readonly #empty: HTMLElement;
+  readonly #expandAction: HTMLButtonElement;
+  readonly #expandedSets = new Map<string, boolean>();
   readonly #header: HTMLElement;
   readonly #headerHeading: HTMLElement;
+  readonly #loading: HTMLElement;
+  readonly #loadingHeading: HTMLElement;
   readonly #rows = new Map<string, RowNodes>();
   readonly #items = new Map<string, HTMLLIElement>();
   readonly #tabs = new Map<string, TabNodes>();
   readonly #workspaces = new Map<string, WorkspaceNodes>();
+  readonly #workspaceSets = new Map<string, WorkspaceSetNodes>();
   readonly #entries = new Map<string, TerminalEntry>();
+  #lastRender: HomeViewRender | undefined;
   #workspaceHeadingSequence = 0;
 
   constructor(app: HTMLElement, actions: HomeViewActions) {
@@ -133,8 +150,6 @@ export class HomeView {
       this.#headerHeading,
       element(this.#document, "p", "quiet", "Sign-in is off."),
     );
-    this.#header.append(heading);
-
     this.#connectionPanel = element(this.#document, "section", "state-panel home-connection");
     this.#connectionPanel.setAttribute("role", "status");
     this.#connectionHeading = element(this.#document, "strong");
@@ -150,6 +165,11 @@ export class HomeView {
       this.#connectionAction,
       this.#connectionDetails,
     );
+    this.#header.append(heading, this.#connectionPanel);
+
+    this.#loading = element(this.#document, "section", "state-panel");
+    this.#loadingHeading = element(this.#document, "strong", undefined, "Loading terminals");
+    this.#loading.append(this.#loadingHeading);
 
     this.#empty = element(this.#document, "section", "state-panel");
     this.#empty.append(
@@ -163,9 +183,20 @@ export class HomeView {
     this.#attentionBlocked = this.#button("", actions.onShowBlocked);
     this.#attentionShowAll = this.#button("Show all terminals", actions.onShowAll);
     this.#attention.append(this.#attentionWorking, this.#attentionBlocked, this.#attentionShowAll);
+
+    this.#expandAction = this.#button("", () => {
+      const expand = workspaceSets(this.#lastRender?.state.home ?? { blocked_count: 0, working_count: 0, workspaces: [] })
+        .some((workspace) => !this.#expandedSets.get(workspace.id));
+      for (const workspace of workspaceSets(this.#lastRender?.state.home ?? { blocked_count: 0, working_count: 0, workspaces: [] })) {
+        this.#expandedSets.set(workspace.id, expand);
+      }
+      if (this.#lastRender) this.render(this.#lastRender);
+    });
+    this.#expandAction.className = "workspace-expand-action";
   }
 
   render(model: HomeViewRender): void {
+    this.#lastRender = model.restore ? { ...model, restore: undefined } : model;
     const view = this.#document.defaultView;
     const oldScroll = model.restore?.scroll ?? view?.scrollY ?? 0;
     setClass(this.#app, "home");
@@ -176,36 +207,65 @@ export class HomeView {
     const desired: Node[] = [this.#header];
     const connection = this.#connectionCopy(model);
     this.#updateConnection(connection);
-    desired.push(this.#connectionPanel);
 
-    const total = allTerminals(model.state.home).length;
-    if (live && total === 0) desired.push(this.#empty);
-
-    const usedWorkspaces = new Set(model.state.home.workspaces.map((workspace) => workspace.id));
-    const usedTabs = new Set(
-      model.state.home.workspaces.flatMap((workspace) =>
-        workspace.tabs.map((tab) => `${workspace.id}\u0000${tab.id}`),
-      ),
-    );
+    const allWorkspaceValues = allWorkspaces(model.state.home);
+    const usedWorkspaces = new Set(allWorkspaceValues.map((workspace) => workspace.id));
+    const usedTabs = new Set<string>();
+    const usedSets = new Set<string>();
     const completePaneIDs = new Set(allTerminals(model.state.home).map(({ terminal }) => terminal.pane_id));
-    for (const workspace of model.state.home.workspaces) {
-      const tabs = visibleTabs(workspace, model.mode === "blocked");
-      if (tabs.length === 0) continue;
-      const workspaceNodes = this.#workspace(workspace);
-      this.#updateWorkspace(workspaceNodes, workspace, tabs, model.actionsAvailable, usedTabs);
-      desired.push(workspaceNodes.section);
+
+    if (!model.state.has_home) {
+      setText(
+        this.#loadingHeading,
+        model.state.connection === "reconnecting" && model.reachability !== "offline"
+          ? "Loading terminals"
+          : "Home unavailable",
+      );
+      desired.push(this.#loading);
+    } else {
+      const total = allTerminals(model.state.home).length;
+      if (live && total === 0) desired.push(this.#empty);
+
+      if (model.mode === "blocked") {
+        for (const workspace of allWorkspaceValues) {
+          const section = this.#renderWorkspace(workspace, true, model.actionsAvailable, usedTabs);
+          if (section) desired.push(section);
+        }
+      } else {
+        const sets = workspaceSets(model.state.home);
+        for (const workspace of sets) {
+          if (!this.#expandedSets.has(workspace.id)) {
+            const counts = workspace.agent_counts ?? {};
+            this.#expandedSets.set(workspace.id, (counts.working ?? 0) > 0 || (counts.blocked ?? 0) > 0);
+          }
+        }
+        if (sets.length > 0) {
+          const expand = sets.some((workspace) => !this.#expandedSets.get(workspace.id));
+          setText(this.#expandAction, expand ? "Expand all" : "Collapse all");
+          desired.push(this.#expandAction);
+        }
+        for (const workspace of model.state.home.workspaces) {
+          if ((workspace.worktrees?.length ?? 0) > 0) {
+            usedSets.add(workspace.id);
+            desired.push(this.#renderWorkspaceSet(workspace, model.actionsAvailable, usedTabs));
+            continue;
+          }
+          const section = this.#renderWorkspace(workspace, false, model.actionsAvailable, usedTabs);
+          if (section) desired.push(section);
+        }
+      }
+
+      setText(this.#attentionWorking, `${model.state.home.working_count} working`);
+      const showAll = model.mode === "blocked";
+      const showBlocked = !showAll && model.state.home.blocked_count > 0;
+      setText(this.#attentionBlocked, `${model.state.home.blocked_count} blocked`);
+      setHidden(this.#attentionBlocked, !showBlocked);
+      setHidden(this.#attentionShowAll, !showAll);
+      desired.push(this.#attention);
     }
 
-    setText(this.#attentionWorking, `${model.state.home.working_count} working`);
-    const showAll = model.mode === "blocked";
-    const showBlocked = !showAll && model.state.home.blocked_count > 0;
-    setText(this.#attentionBlocked, `${model.state.home.blocked_count} blocked`);
-    setHidden(this.#attentionBlocked, !showBlocked);
-    setHidden(this.#attentionShowAll, !showAll);
-    desired.push(this.#attention);
-
     reconcileChildren(this.#app, desired);
-    this.#prune(usedWorkspaces, usedTabs, completePaneIDs);
+    this.#prune(usedWorkspaces, usedTabs, usedSets, completePaneIDs);
 
     view?.scrollTo(0, oldScroll);
     if (model.restore?.anchorTop !== undefined && model.restore.pane) {
@@ -229,26 +289,6 @@ export class HomeView {
   }
 
   #connectionCopy(model: HomeViewRender): ConnectionCopy {
-    if (!model.receivedHome && model.reachability === "current") {
-      return { heading: "", body: "" };
-    }
-    if (model.reachability === "offline") {
-      return {
-        heading: "Offline",
-        body: model.receivedHome || model.state.last_known
-          ? "State below may be stale."
-          : "Shepherdr isn't connected.",
-        action: "Reconnect",
-      };
-    }
-    if (model.reachability === "reconnecting" || model.state.connection === "reconnecting") {
-      return {
-        heading: "Reconnecting",
-        body: model.receivedHome || model.state.last_known
-          ? "State below may be stale."
-          : "Getting a fresh view from Herdr.",
-      };
-    }
     if (model.state.connection === "not_running") {
       return {
         heading: "Herdr is not running",
@@ -266,6 +306,19 @@ export class HomeView {
         detail: model.state.detail,
       };
     }
+    if (model.reachability === "offline") {
+      return {
+        heading: "Offline",
+        body: model.state.has_home ? "State below may be stale." : "Shepherdr isn't connected.",
+        action: "Reconnect",
+      };
+    }
+    if (model.reachability === "reconnecting" || model.state.connection === "reconnecting") {
+      return {
+        heading: "Reconnecting",
+        body: model.state.has_home ? "State below may be stale." : "Getting a fresh view from Herdr.",
+      };
+    }
     return { heading: "Live", body: "" };
   }
 
@@ -280,6 +333,71 @@ export class HomeView {
     } else {
       setHidden(this.#connectionDetails, true);
     }
+  }
+
+  #renderWorkspace(
+    workspace: Workspace,
+    blockedOnly: boolean,
+    actionsAvailable: boolean,
+    usedTabs: Set<string>,
+    hideTitle = false,
+  ): HTMLElement | undefined {
+    const tabs = visibleTabs(workspace, blockedOnly);
+    if (tabs.length === 0) return undefined;
+    const nodes = this.#workspace(workspace);
+    this.#updateWorkspace(nodes, workspace, tabs, actionsAvailable, usedTabs, hideTitle);
+    return nodes.section;
+  }
+
+  #renderWorkspaceSet(workspace: Workspace, actionsAvailable: boolean, usedTabs: Set<string>): HTMLElement {
+    const nodes = this.#workspaceSet(workspace);
+    const expanded = this.#expandedSets.get(workspace.id) ?? false;
+    setAttribute(nodes.disclosure, "aria-expanded", String(expanded));
+    setText(nodes.title, workspace.label);
+    setText(nodes.meta, this.#setSummary(workspace.agent_counts ?? {}, 1 + (workspace.worktrees?.length ?? 0)));
+    setHidden(nodes.contents, !expanded);
+
+    const contents: Node[] = [];
+    const parent = this.#renderWorkspace(workspace, false, actionsAvailable, usedTabs, true);
+    if (parent) contents.push(parent);
+    for (const worktree of workspace.worktrees ?? []) {
+      const section = this.#renderWorkspace(worktree, false, actionsAvailable, usedTabs);
+      if (section) contents.push(section);
+    }
+    reconcileChildren(nodes.contents, contents);
+    return nodes.section;
+  }
+
+  #workspaceSet(workspace: Workspace): WorkspaceSetNodes {
+    const existing = this.#workspaceSets.get(workspace.id);
+    if (existing) return existing;
+    const section = element(this.#document, "section", "workspace-set");
+    const heading = element(this.#document, "h2", "workspace-set-heading");
+    const disclosure = this.#button("", () => {
+      this.#expandedSets.set(workspace.id, !this.#expandedSets.get(workspace.id));
+      if (this.#lastRender) this.render(this.#lastRender);
+    });
+    const title = element(this.#document, "span", "workspace-set-title");
+    const meta = element(this.#document, "span", "workspace-set-meta");
+    const marker = element(this.#document, "span", "workspace-set-marker", "⌄");
+    marker.setAttribute("aria-hidden", "true");
+    disclosure.className = "workspace-set-disclosure";
+    disclosure.append(title, meta, marker);
+    heading.append(disclosure);
+    const contents = element(this.#document, "div", "workspace-set-contents");
+    section.append(heading, contents);
+    const nodes = { contents, disclosure, heading, meta, section, title };
+    this.#workspaceSets.set(workspace.id, nodes);
+    return nodes;
+  }
+
+  #setSummary(counts: AgentCounts, workspaceCount: number): string {
+    const parts = [`${workspaceCount} workspaces`];
+    for (const status of ["working", "blocked", "idle", "done", "unknown"] as const) {
+      const count = counts[status] ?? 0;
+      if (count > 0) parts.push(`${count} ${status}`);
+    }
+    return parts.join(" · ");
   }
 
   #workspace(workspace: Workspace): WorkspaceNodes {
@@ -301,6 +419,7 @@ export class HomeView {
     tabs: ReturnType<typeof visibleTabs>,
     actionsAvailable: boolean,
     usedTabs: Set<string>,
+    hideTitle: boolean,
   ): void {
     const flattened = terminalCount(workspace) === 1;
     const tabsShown = showTabHeadings(workspace);
@@ -313,7 +432,7 @@ export class HomeView {
       return;
     }
 
-    setClass(nodes.heading, "workspace-title");
+    setClass(nodes.heading, hideTitle ? "visually-hidden" : "workspace-title");
     setText(nodes.heading, workspace.label);
     const children: Node[] = [nodes.heading];
     for (const group of tabs) {
@@ -415,8 +534,9 @@ export class HomeView {
     return nodes;
   }
 
-  #prune(usedWorkspaces: Set<string>, usedTabs: Set<string>, paneIDs: Set<string>): void {
+  #prune(usedWorkspaces: Set<string>, usedTabs: Set<string>, usedSets: Set<string>, paneIDs: Set<string>): void {
     for (const key of this.#workspaces.keys()) if (!usedWorkspaces.has(key)) this.#workspaces.delete(key);
+    for (const key of this.#workspaceSets.keys()) if (!usedSets.has(key)) this.#workspaceSets.delete(key);
     for (const key of this.#tabs.keys()) if (!usedTabs.has(key)) this.#tabs.delete(key);
     for (const key of this.#rows.keys()) {
       if (!paneIDs.has(key)) {

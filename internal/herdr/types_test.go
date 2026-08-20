@@ -1,6 +1,7 @@
 package herdr
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -36,8 +37,8 @@ func TestProjectUsesCanonicalPanesAndExactAgentDecoration(t *testing.T) {
 	if home.WorkingCount != 1 || home.BlockedCount != 1 {
 		t.Fatalf("counts = working %d blocked %d, want 1 and 1", home.WorkingCount, home.BlockedCount)
 	}
-	if got := home.Workspaces[0].ID; got != "w1" {
-		t.Fatalf("first workspace = %q, want w1", got)
+	if got := home.Workspaces[0].ID; got != "w2" {
+		t.Fatalf("first workspace = %q, want Herdr's first workspace w2", got)
 	}
 	terminals := projectedTerminals(home)
 	if len(terminals) != len(snapshot.Panes) {
@@ -50,6 +51,98 @@ func TestProjectUsesCanonicalPanesAndExactAgentDecoration(t *testing.T) {
 	blocked := findProjectedTerminal(home, "w2:p1")
 	if blocked == nil || blocked.Agent == nil || blocked.Agent.Status != StatusBlocked {
 		t.Fatalf("exact agent decoration was not preserved: %+v", blocked)
+	}
+}
+
+func TestProjectGroupsOnlyExactWorktreeProvenanceAtTheParentPlace(t *testing.T) {
+	kind := "codex"
+	statusByWorkspace := map[string]Status{
+		"child-before": StatusBlocked,
+		"flat":         StatusUnknown,
+		"parent":       StatusWorking,
+		"child-after":  StatusDone,
+		"malformed":    StatusIdle,
+	}
+	workspaceSources := []WorkspaceInfo{
+		{WorkspaceID: "child-before", Label: "Before", Worktree: worktree("repo", true)},
+		{WorkspaceID: "flat", Label: "Flat"},
+		{WorkspaceID: "parent", Label: "Parent", Worktree: worktree("repo", false)},
+		{WorkspaceID: "child-after", Label: "After", Worktree: worktree("repo", true)},
+		{WorkspaceID: "malformed", Label: "Malformed", Worktree: &WorktreeInfo{RepoKey: "repo", IsLinkedWorktree: true}},
+	}
+	snapshot := Snapshot{Workspaces: workspaceSources}
+	for index := range workspaceSources {
+		workspaceID := workspaceSources[index].WorkspaceID
+		tabID := workspaceID + ":tab"
+		paneID := workspaceID + ":pane"
+		terminalID := workspaceID + ":terminal"
+		snapshot.Workspaces[index].ActiveTabID = tabID
+		snapshot.Tabs = append(snapshot.Tabs, TabInfo{TabID: tabID, WorkspaceID: workspaceID})
+		snapshot.Panes = append(snapshot.Panes, PaneInfo{PaneID: paneID, TabID: tabID, TerminalID: terminalID, WorkspaceID: workspaceID})
+		snapshot.Agents = append(snapshot.Agents, AgentInfo{
+			Agent: &kind, AgentStatus: statusByWorkspace[workspaceID], PaneID: paneID, TabID: tabID,
+			TerminalID: terminalID, WorkspaceID: workspaceID,
+		})
+	}
+
+	home, err := Project(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := workspaceIDs(home.Workspaces), []string{"flat", "parent", "malformed"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("top-level workspaces = %v, want %v", got, want)
+	}
+	parent := home.Workspaces[1]
+	if got, want := workspaceIDs(parent.Worktrees), []string{"child-before", "child-after"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("nested workspaces = %v, want Herdr order %v", got, want)
+	}
+	if parent.AgentCounts == nil || *parent.AgentCounts != (AgentCounts{Working: 1, Blocked: 1, Done: 1}) {
+		t.Fatalf("group agent counts = %+v", parent.AgentCounts)
+	}
+	if len(projectedTerminals(home)) != len(snapshot.Panes) {
+		t.Fatalf("projected %d terminals, want %d exactly once", len(projectedTerminals(home)), len(snapshot.Panes))
+	}
+}
+
+func TestProjectLeavesAmbiguousAndLinkedOnlyProvenanceFlat(t *testing.T) {
+	snapshot := Snapshot{Workspaces: []WorkspaceInfo{
+		{WorkspaceID: "ordinary-one", Worktree: worktree("ambiguous", false)},
+		{WorkspaceID: "ordinary-two", Worktree: worktree("ambiguous", false)},
+		{WorkspaceID: "ambiguous-child", Worktree: worktree("ambiguous", true)},
+		{WorkspaceID: "linked-only", Worktree: worktree("linked", true)},
+	}}
+	home, err := Project(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := workspaceIDs(home.Workspaces), []string{"ordinary-one", "ordinary-two", "ambiguous-child", "linked-only"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("flat workspaces = %v, want %v", got, want)
+	}
+	for _, workspace := range home.Workspaces {
+		if len(workspace.Worktrees) != 0 || workspace.AgentCounts != nil {
+			t.Fatalf("workspace %q was unexpectedly grouped", workspace.ID)
+		}
+	}
+}
+
+func TestMalformedWorktreeProvenanceStaysFlatWithoutRejectingHome(t *testing.T) {
+	var snapshot Snapshot
+	err := json.Unmarshal([]byte(`{
+		"workspaces": [
+			{"workspace_id":"ordinary","worktree":{"repo_key":"repo","is_linked_worktree":false}},
+			{"workspace_id":"missing-flag","worktree":{"repo_key":"repo"}},
+			{"workspace_id":"wrong-type","worktree":{"repo_key":"repo","is_linked_worktree":"yes"}}
+		]
+	}`), &snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := Project(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := workspaceIDs(home.Workspaces), []string{"ordinary", "missing-flag", "wrong-type"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("workspaces = %v, want malformed provenance flat in %v", got, want)
 	}
 }
 
@@ -218,12 +311,31 @@ func layoutSnapshot() Snapshot {
 
 func projectedTerminals(home Home) []Terminal {
 	var terminals []Terminal
-	for _, workspace := range home.Workspaces {
+	var appendWorkspace func(Workspace)
+	appendWorkspace = func(workspace Workspace) {
 		for _, tab := range workspace.Tabs {
 			terminals = append(terminals, tab.Terminals...)
 		}
+		for _, worktree := range workspace.Worktrees {
+			appendWorkspace(worktree)
+		}
+	}
+	for _, workspace := range home.Workspaces {
+		appendWorkspace(workspace)
 	}
 	return terminals
+}
+
+func workspaceIDs(workspaces []Workspace) []string {
+	ids := make([]string, 0, len(workspaces))
+	for _, workspace := range workspaces {
+		ids = append(ids, workspace.ID)
+	}
+	return ids
+}
+
+func worktree(repoKey string, linked bool) *WorktreeInfo {
+	return &WorktreeInfo{RepoKey: repoKey, IsLinkedWorktree: linked, Valid: true}
 }
 
 func projectedPaneIDs(home Home) []string {

@@ -23,10 +23,20 @@ export interface Tab {
 }
 
 export interface Workspace {
+  agent_counts?: AgentCounts;
   id: string;
   label: string;
   number: number;
   tabs: Tab[];
+  worktrees?: Workspace[];
+}
+
+export interface AgentCounts {
+  working?: number;
+  blocked?: number;
+  idle?: number;
+  done?: number;
+  unknown?: number;
 }
 
 export interface Home {
@@ -40,6 +50,7 @@ export interface HomeState {
   detail?: string;
   epoch?: unknown;
   gap: number;
+  has_home: boolean;
   home: Home;
   last_known: boolean;
 }
@@ -51,9 +62,17 @@ export interface TerminalEntry {
 }
 
 export function allTerminals(home: Home): TerminalEntry[] {
-  return home.workspaces.flatMap((workspace) =>
+  return allWorkspaces(home).flatMap((workspace) =>
     workspace.tabs.flatMap((tab) => tab.terminals.map((terminal) => ({ tab, terminal, workspace }))),
   );
+}
+
+export function allWorkspaces(home: Home): Workspace[] {
+  return home.workspaces.flatMap((workspace) => [workspace, ...(workspace.worktrees ?? [])]);
+}
+
+export function workspaceSets(home: Home): Workspace[] {
+  return home.workspaces.filter((workspace) => (workspace.worktrees?.length ?? 0) > 0);
 }
 
 export function findTerminal(home: Home, paneID: string): TerminalEntry | undefined {

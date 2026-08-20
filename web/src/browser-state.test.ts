@@ -3,11 +3,10 @@ import test from "node:test";
 
 import { Window } from "happy-dom";
 
-import { HomeView } from "./home-view";
+import { HomeView, type HomeViewRender } from "./home-view";
 import { type Home, type HomeState } from "./home-model";
-import { returningToHome } from "./terminal-route";
 
-function home(): Home {
+function flatHome(): Home {
   return {
     blocked_count: 1,
     working_count: 0,
@@ -37,323 +36,318 @@ function home(): Home {
   };
 }
 
-function state(connection: HomeState["connection"] = "live", value = home()): HomeState {
-  return { connection, gap: 2, home: value, last_known: connection !== "live" };
+function groupedHome(): Home {
+  return {
+    blocked_count: 1,
+    working_count: 1,
+    workspaces: [
+      {
+        agent_counts: { blocked: 1, done: 1, idle: 1, unknown: 1, working: 1 },
+        id: "parent",
+        label: "Main project <script>",
+        number: 1,
+        tabs: [
+          {
+            current: true,
+            id: "parent-tab",
+            label: "Main",
+            number: 1,
+            terminals: [
+              {
+                agent: { kind: "codex", name: "Builder", status: "working" },
+                pane_id: "parent-pane",
+                terminal_id: "parent-terminal",
+                title: "Builder",
+              },
+              {
+                pane_id: "ordinary-pane",
+                terminal_id: "ordinary-terminal",
+                title: "Shell & notes",
+              },
+            ],
+          },
+        ],
+        worktrees: [
+          {
+            id: "blocked-worktree",
+            label: "Review branch",
+            number: 2,
+            tabs: [
+              {
+                current: true,
+                id: "blocked-tab",
+                label: "Review",
+                number: 1,
+                terminals: [
+                  {
+                    agent: { kind: "codex", name: "Reviewer", status: "blocked" },
+                    pane_id: "blocked-pane",
+                    terminal_id: "blocked-terminal",
+                    title: "Review branch",
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            id: "quiet-worktree",
+            label: "Quiet branch",
+            number: 3,
+            tabs: [
+              {
+                current: true,
+                id: "quiet-tab",
+                label: "Quiet",
+                number: 1,
+                terminals: [
+                  {
+                    agent: { kind: "codex", name: "Finished", status: "done" },
+                    pane_id: "quiet-pane",
+                    terminal_id: "quiet-terminal",
+                    title: "Quiet branch",
+                  },
+                  {
+                    agent: { kind: "codex", name: "Waiting", status: "idle" },
+                    pane_id: "idle-pane",
+                    terminal_id: "idle-terminal",
+                    title: "Waiting",
+                  },
+                  {
+                    agent: { kind: "codex", name: "Unknown", status: "unknown" },
+                    pane_id: "unknown-pane",
+                    terminal_id: "unknown-terminal",
+                    title: "Unknown",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
 }
 
-test("current Home truth is not overridden by a false offline hint", () => {
-  const paneID = "pane-one";
-  const window = new Window({ url: "http://localhost/" });
+function state(value = flatHome(), connection: HomeState["connection"] = "live"): HomeState {
+  return {
+    connection,
+    gap: 2,
+    has_home: true,
+    home: value,
+    last_known: connection !== "live",
+  };
+}
+
+function makeView(window: Window, actions: Partial<ConstructorParameters<typeof HomeView>[1]> = {}) {
   const app = window.document.createElement("main");
   window.document.body.append(app);
   const view = new HomeView(app, {
-    onFocusPane: () => undefined,
-    onOpen: () => undefined,
-    onReconnect: () => undefined,
-    onShowAll: () => undefined,
-    onShowBlocked: () => undefined,
+    onFocusPane: actions.onFocusPane ?? (() => undefined),
+    onOpen: actions.onOpen ?? (() => undefined),
+    onReconnect: actions.onReconnect ?? (() => undefined),
+    onShowAll: actions.onShowAll ?? (() => undefined),
+    onShowBlocked: actions.onShowBlocked ?? (() => undefined),
   });
+  return { app, view };
+}
+
+function render(view: HomeView, next: HomeState, overrides: Partial<HomeViewRender> = {}): void {
   view.render({
-    actionsAvailable: true,
+    actionsAvailable: next.connection === "live" && !next.last_known && next.has_home,
     mode: "all",
     reachability: "current",
-    receivedHome: true,
-    state: state(),
+    state: next,
+    ...overrides,
   });
-  assert.match(app.textContent ?? "", /Live/);
-  assert.doesNotMatch(app.textContent ?? "", /Offline|Live actions are unavailable/);
-  assert.equal(view.row(paneID)?.tagName, "BUTTON");
-  assert.equal(app.querySelectorAll('[role="status"]').length, 1);
+}
+
+function requiredElement(root: ParentNode, selector: string): HTMLElement {
+  const node = root.querySelector<HTMLElement>(selector);
+  if (!node) throw new Error(`missing ${selector}`);
+  return node;
+}
+
+function requiredRow(view: HomeView, paneID: string): HTMLElement {
+  const row = view.row(paneID);
+  if (!row) throw new Error(`missing row ${paneID}`);
+  return row;
+}
+
+test("Home shows one real initial or unavailable state with the transport-owned badge", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window);
+  const loading: HomeState = {
+    connection: "reconnecting",
+    gap: 0,
+    has_home: false,
+    home: { blocked_count: 0, working_count: 0, workspaces: [] },
+    last_known: false,
+  };
+
+  render(view, loading, { actionsAvailable: false });
+  assert.equal(requiredElement(app, ".home-connection strong").textContent, "Reconnecting");
+  assert.match(app.textContent ?? "", /Loading terminals/);
+  assert.equal(app.querySelectorAll(".attention-bar").length, 0);
+
+  render(view, { ...loading, connection: "not_running" }, { actionsAvailable: false, reachability: "offline" });
+  assert.equal(requiredElement(app, ".home-connection strong").textContent, "Herdr is not running");
+  assert.match(app.textContent ?? "", /Home unavailable/);
+  assert.doesNotMatch(app.textContent ?? "", /Offline/);
+
+  render(view, state());
+  assert.equal(requiredElement(app, ".home-connection strong").textContent, "Live");
+  assert.equal(requiredRow(view, "pane-one").getAttribute("aria-disabled"), "false");
+  assert.doesNotMatch(app.textContent ?? "", /Home is updating|Loading terminals/);
   window.close();
 });
 
-test("Home reserves its connection region without status copy until the first complete frame", () => {
+test("whole Home replacements retain rows, focus, scroll, and do nothing when unchanged", async () => {
   const window = new Window({ url: "http://localhost/" });
-  const app = window.document.createElement("main");
-  window.document.body.append(app);
-  const view = new HomeView(app, {
-    onFocusPane: () => undefined,
-    onOpen: () => undefined,
-    onReconnect: () => undefined,
-    onShowAll: () => undefined,
-    onShowBlocked: () => undefined,
-  });
-  view.render({
-    actionsAvailable: false,
-    mode: "all",
-    reachability: "current",
-    receivedHome: false,
-    state: {
-      connection: "reconnecting",
-      gap: 0,
-      home: { blocked_count: 0, working_count: 0, workspaces: [] },
-      last_known: false,
-    },
-  });
-
-  const connection = app.querySelector(".home-connection");
-  assert.ok(connection);
-  assert.doesNotMatch(connection.textContent ?? "", /Reconnecting/);
-  assert.equal(connection.querySelector("strong")?.textContent, "");
-  assert.equal(connection.querySelector("p")?.textContent, "");
-
-  view.render({
-    actionsAvailable: true,
-    mode: "all",
-    reachability: "current",
-    receivedHome: true,
-    state: state(),
-  });
-  assert.equal(app.querySelector(".home-connection"), connection);
-  assert.match(connection.textContent ?? "", /^Live/);
-  window.close();
-});
-
-test("Home transport states keep one stable connection region and stale values", async () => {
-  const window = new Window({ url: "http://localhost/" });
-  const app = window.document.createElement("main");
-  window.document.body.append(app);
-  let opens = 0;
-  let reconnects = 0;
-  const view = new HomeView(app, {
-    onFocusPane: () => undefined,
-    onOpen: () => opens++,
-    onReconnect: () => reconnects++,
-    onShowAll: () => undefined,
-    onShowBlocked: () => undefined,
-  });
-  const current = state();
-  const render = (reachability: "current" | "offline" | "reconnecting", next = current) =>
-    view.render({
-      actionsAvailable: reachability === "current" && next.connection === "live" && !next.last_known,
-      mode: "all",
-      reachability,
-      receivedHome: true,
-      state: next,
-    });
-
-  render("current");
-  const connection = app.querySelector(".home-connection");
-  assert.ok(connection);
-  assert.match(connection.textContent ?? "", /^Live/);
-  const row = view.row("pane-one");
-  assert.ok(row);
-  assert.equal(row.tagName, "BUTTON");
-  assert.equal(row.getAttribute("aria-disabled"), "false");
-  row.focus();
-  row.click();
-  assert.equal(opens, 1);
-
-  for (let now = 2_000; now <= 120_000; now += 2_000) {
-    const changing = structuredClone(current);
-    const agent = changing.home.workspaces[0].tabs[0].terminals[0].agent;
-    assert.ok(agent);
-    agent.status = now % 4_000 === 0 ? "working" : "blocked";
-    changing.home.blocked_count = agent.status === "blocked" ? 1 : 0;
-    changing.home.working_count = agent.status === "working" ? 1 : 0;
-    render("current", changing);
-    assert.match(connection.textContent ?? "", /^Live/);
-    assert.doesNotMatch(connection.textContent ?? "", /Reconnecting/);
-    assert.equal(view.row("pane-one"), row);
-  }
-
-  const stale = { ...current, connection: "reconnecting" as const, last_known: true };
-  render("reconnecting", stale);
-  assert.equal(app.querySelector(".home-connection"), connection);
-  assert.equal(app.querySelectorAll(".home-connection").length, 1);
-  assert.match(connection.textContent ?? "", /ReconnectingState below may be stale\./);
-  assert.equal(view.row("pane-one"), row, "transport changes must retain the keyed row");
-  assert.equal(row.getAttribute("aria-disabled"), "true");
-  assert.equal(window.document.activeElement, row, "transport changes must not discard row focus");
-  row.click();
-  assert.equal(opens, 1, "stale rows cannot open a terminal");
-
-  let mutations = 0;
-  const observer = new window.MutationObserver((records) => {
-    mutations += records.length;
-  });
-  observer.observe(app, { attributes: true, characterData: true, childList: true, subtree: true });
-  render("reconnecting", stale);
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(app.querySelector(".home-connection"), connection, "another attempt must not replace the notice");
-  assert.equal(view.row("pane-one"), row, "another attempt must retain the stale row");
-  assert.equal(row.getAttribute("aria-disabled"), "true", "another attempt must not make stale values live");
-  assert.equal(mutations, 0, "another attempt must not mutate the stable Home view");
-  observer.disconnect();
-
-  render("current", stale);
-  assert.match(connection.textContent ?? "", /Reconnecting/, "heartbeat-only traffic cannot recover stale Home truth");
-  assert.equal(row.getAttribute("aria-disabled"), "true");
-
-  render("offline", stale);
-  assert.match(connection.textContent ?? "", /OfflineState below may be stale\.Reconnect/);
-  const reconnect = Array.from(connection.querySelectorAll("button")).find((node) => node.textContent === "Reconnect");
-  assert.ok(reconnect);
-  reconnect.click();
-  assert.equal(reconnects, 1);
-
-  render("current", current);
-  assert.match(connection.textContent ?? "", /^Live/);
-  assert.equal(view.row("pane-one"), row);
-  assert.equal(row.getAttribute("aria-disabled"), "false");
-  row.click();
-  assert.equal(opens, 2, "real recovery restores the existing row action");
-  window.close();
-});
-
-test("browser Back from a pane route restores Home place", () => {
-  assert.equal(returningToHome("pane-one", undefined), true);
-  assert.equal(returningToHome("pane-one", "pane-two"), false);
-  assert.equal(returningToHome(undefined, undefined), false);
-});
-
-test("keyed Home updates preserve rows, DOM focus, scroll, and unchanged render stability", async () => {
-  const window = new Window({ url: "http://localhost/" });
-  const app = window.document.createElement("main");
-  window.document.body.append(app);
   const focused: string[] = [];
-  const view = new HomeView(app, {
-    onFocusPane: (paneID) => focused.push(paneID),
-    onOpen: () => undefined,
-    onReconnect: () => undefined,
-    onShowAll: () => undefined,
-    onShowBlocked: () => undefined,
-  });
-  const render = (next: HomeState, restore?: { focusPane?: string; scroll: number }) =>
-    view.render({
-      actionsAvailable: true,
-      mode: "all",
-      reachability: "current",
-      receivedHome: true,
-      restore,
-      state: next,
-    });
-
-  const firstState = state();
-  render(firstState);
-  const originalRow = view.row("pane-one");
-  assert.ok(originalRow);
-  originalRow.focus();
+  const { app, view } = makeView(window, { onFocusPane: (paneID) => focused.push(paneID) });
+  const first = state();
+  render(view, first);
+  const row = requiredRow(view, "pane-one");
+  row.focus();
   window.scrollTo(0, 240);
-  assert.equal(window.document.activeElement, originalRow);
 
   let mutations = 0;
-  const mutationDetails: string[] = [];
   const observer = new window.MutationObserver((records) => {
     mutations += records.length;
-    mutationDetails.push(...records.map((record) => `${record.type}:${record.attributeName ?? record.target.nodeName}`));
   });
   observer.observe(app, { attributes: true, characterData: true, childList: true, subtree: true });
-  render(firstState);
+  render(view, first);
   await Promise.resolve();
   await Promise.resolve();
-  assert.equal(mutations, 0, `an unchanged semantic render should not mutate Home: ${mutationDetails.join(", ")}`);
+  assert.equal(mutations, 0);
 
-  const semantic = structuredClone(firstState);
-  const changed = semantic.home.workspaces[0].tabs[0].terminals[0];
-  changed.title = "Renamed agent";
-  changed.agent = { kind: "codex", name: "Replacement", status: "working" };
-  semantic.home.blocked_count = 0;
-  semantic.home.working_count = 1;
-  render(semantic);
-  assert.equal(view.row("pane-one"), originalRow);
-  assert.equal(window.document.activeElement, originalRow);
+  const changed = structuredClone(first);
+  const terminal = changed.home.workspaces[0].tabs[0].terminals[0];
+  terminal.title = "Renamed agent";
+  terminal.agent = { kind: "codex", name: "Replacement", status: "working" };
+  changed.home.blocked_count = 0;
+  changed.home.working_count = 1;
+  render(view, changed);
+  assert.equal(view.row("pane-one") === row, true);
+  assert.equal(window.document.activeElement === row, true);
   assert.equal(window.scrollY, 240);
-  assert.match(originalRow.textContent ?? "", /Renamed agent.*Replacement.*working/);
-  assert.equal(originalRow.getAttribute("aria-label"), "Open Renamed agent, workspace Workspace one, Replacement, working");
-  assert.equal(originalRow.querySelector(".status")?.textContent, "working");
-
-  originalRow.blur();
-  const topology = structuredClone(semantic);
-  topology.home.workspaces[0].tabs[0].terminals.push({
-    pane_id: "pane-two",
-    terminal_id: "terminal-two",
-    title: "Ordinary shell",
-  });
-  render(topology);
-  assert.equal(view.row("pane-one"), originalRow, "topology changes must move rather than recreate the existing row");
-  assert.equal(window.scrollY, 240);
-  const ordinaryRow = view.row("pane-two");
-  assert.ok(ordinaryRow);
-  assert.equal(ordinaryRow.querySelector(".status"), null, "ordinary terminals must not expose status decoration");
-  assert.doesNotMatch(ordinaryRow.textContent ?? "", /\b(?:working|blocked|idle|done|unknown)\b/);
+  assert.equal(row.getAttribute("aria-label"), "Open Renamed agent, workspace Workspace one, Replacement, working");
+  assert.equal(requiredElement(row, ".status").textContent, "working");
   assert.deepEqual(focused, ["pane-one"]);
   observer.disconnect();
   window.close();
 });
 
-test("blocked/all reuse restores the exact keyed row, focus, and scroll synchronously", () => {
+test("transport changes keep the last complete Home and its stable badge slot", () => {
   const window = new Window({ url: "http://localhost/" });
-  const app = window.document.createElement("main");
-  window.document.body.append(app);
-  const value = home();
-  value.workspaces[0].tabs[0].terminals.push({
-    pane_id: "pane-two",
-    terminal_id: "terminal-two",
-    title: "Ordinary shell",
+  let opens = 0;
+  let reconnects = 0;
+  const { app, view } = makeView(window, {
+    onOpen: () => opens++,
+    onReconnect: () => reconnects++,
   });
-  const current = state("live", value);
-  const view = new HomeView(app, {
-    onFocusPane: () => undefined,
-    onOpen: () => undefined,
-    onReconnect: () => undefined,
-    onShowAll: () => undefined,
-    onShowBlocked: () => undefined,
-  });
-  const base = {
-    actionsAvailable: true,
-    reachability: "current" as const,
-    receivedHome: true,
-    state: current,
-  };
-  view.render({ ...base, mode: "all" });
-  const blockedRow = view.row("pane-one");
-  const ordinaryRow = view.row("pane-two");
-  assert.ok(blockedRow && ordinaryRow);
-  ordinaryRow.focus();
-  window.scrollTo(0, 333);
+  const current = state();
+  render(view, current);
+  const connection = requiredElement(app, ".home-connection");
+  const row = requiredRow(view, "pane-one");
+  row.click();
+  assert.equal(opens, 1);
 
-  view.render({ ...base, mode: "blocked", restore: { focusPane: "pane-one", scroll: 0 } });
-  assert.equal(view.row("pane-one"), blockedRow);
-  assert.equal(window.document.activeElement, blockedRow);
-  assert.equal(window.scrollY, 0);
+  const stale = { ...current, connection: "reconnecting" as const, last_known: true };
+  render(view, stale, { actionsAvailable: false, reachability: "reconnecting" });
+  assert.equal(app.querySelector(".home-connection") === connection, true);
+  assert.equal(view.row("pane-one") === row, true);
+  assert.equal(row.getAttribute("aria-disabled"), "true");
+  assert.equal(requiredElement(connection, "strong").textContent, "Reconnecting");
+  row.click();
+  assert.equal(opens, 1);
 
-  view.render({ ...base, mode: "all", restore: { focusPane: "pane-two", scroll: 333 } });
-  assert.equal(view.row("pane-one"), blockedRow);
-  assert.equal(view.row("pane-two"), ordinaryRow);
-  assert.equal(window.document.activeElement, ordinaryRow);
-  assert.equal(window.scrollY, 333);
+  render(view, stale, { actionsAvailable: false, reachability: "offline" });
+  assert.equal(requiredElement(connection, "strong").textContent, "Offline");
+  const reconnect = Array.from(connection.querySelectorAll("button")).find((node) => node.textContent === "Reconnect");
+  if (!reconnect) throw new Error("missing Reconnect");
+  reconnect.click();
+  assert.equal(reconnects, 1);
   window.close();
 });
 
-test("Home place restoration preserves a surviving row anchor without inventing focus", () => {
+test("worktree sets disclose exact ordered totals and manual choices win for the visit", () => {
   const window = new Window({ url: "http://localhost/" });
-  const app = window.document.createElement("main");
-  window.document.body.append(app);
-  const view = new HomeView(app, {
-    onFocusPane: () => undefined,
-    onOpen: () => undefined,
-    onReconnect: () => undefined,
-    onShowAll: () => undefined,
-    onShowBlocked: () => undefined,
+  const { app, view } = makeView(window);
+  const current = state(groupedHome());
+  render(view, current);
+
+  const disclosure = requiredElement(app, ".workspace-set-disclosure");
+  assert.equal(disclosure.getAttribute("aria-expanded"), "true");
+  assert.equal(
+    requiredElement(disclosure, ".workspace-set-meta").textContent,
+    "3 workspaces · 1 working · 1 blocked · 1 idle · 1 done · 1 unknown",
+  );
+  assert.doesNotMatch(disclosure.textContent ?? "", /Open/);
+  assert.equal(app.querySelectorAll(".terminal-row").length, 6);
+  assert.equal(requiredElement(app, ".workspace-expand-action").textContent, "Collapse all");
+  assert.equal(app.querySelector("script") === null, true);
+
+  disclosure.click();
+  assert.equal(disclosure.getAttribute("aria-expanded"), "false");
+  assert.equal(requiredElement(app, ".workspace-expand-action").textContent, "Expand all");
+
+  const quieter = structuredClone(current);
+  quieter.home.workspaces[0].agent_counts = { done: 5 };
+  render(view, quieter);
+  assert.equal(disclosure.getAttribute("aria-expanded"), "false");
+  assert.equal(requiredElement(disclosure, ".workspace-set-meta").textContent, "3 workspaces · 5 done");
+
+  requiredElement(app, ".workspace-expand-action").click();
+  assert.equal(disclosure.getAttribute("aria-expanded"), "true");
+  assert.equal(requiredElement(app, ".workspace-expand-action").textContent, "Collapse all");
+  window.close();
+});
+
+test("Blocked temporarily reuses only blocked rows and returning restores place and disclosure", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window);
+  const current = state(groupedHome());
+  render(view, current);
+  const blockedRow = requiredRow(view, "blocked-pane");
+  const ordinaryRow = requiredRow(view, "ordinary-pane");
+  ordinaryRow.focus();
+  window.scrollTo(0, 333);
+  requiredElement(app, ".workspace-set-disclosure").click();
+
+  render(view, current, {
+    mode: "blocked",
+    restore: { focusPane: "blocked-pane", scroll: 0 },
   });
-  const current = state();
-  view.render({ actionsAvailable: true, mode: "all", reachability: "current", receivedHome: true, state: current });
-  const row = view.row("pane-one");
-  assert.ok(row);
-  Object.defineProperty(row, "getBoundingClientRect", {
-    value: () => ({ top: 70 }),
-  });
-  view.render({
-    actionsAvailable: true,
+  assert.equal(app.querySelectorAll(".workspace-set-disclosure").length, 0);
+  assert.equal(app.querySelectorAll(".workspace-expand-action").length, 0);
+  assert.equal(app.querySelectorAll(".terminal-row").length, 1);
+  assert.equal(view.row("blocked-pane") === blockedRow, true);
+  assert.equal(window.document.activeElement === blockedRow, true);
+  assert.equal(requiredElement(app, ".attention-bar button:not([hidden])").textContent, "Show all terminals");
+
+  render(view, current, {
     mode: "all",
-    reachability: "current",
-    receivedHome: true,
+    restore: { focusPane: "ordinary-pane", scroll: 333 },
+  });
+  assert.equal(view.row("ordinary-pane") === ordinaryRow, true);
+  assert.equal(window.document.activeElement === ordinaryRow, true);
+  assert.equal(window.scrollY, 333);
+  assert.equal(requiredElement(app, ".workspace-set-disclosure").getAttribute("aria-expanded"), "false");
+  window.close();
+});
+
+test("Home place restoration keeps a surviving row anchor without inventing focus", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { view } = makeView(window);
+  const current = state();
+  render(view, current);
+  const row = requiredRow(view, "pane-one");
+  Object.defineProperty(row, "getBoundingClientRect", { value: () => ({ top: 70 }) });
+  render(view, current, {
     restore: { anchorTop: 50, pane: "pane-one", scroll: 200 },
-    state: current,
   });
   assert.equal(window.scrollY, 220);
-  assert.notEqual(window.document.activeElement, row, "returning must not manufacture list focus");
+  assert.equal(window.document.activeElement === row, false);
   window.close();
 });

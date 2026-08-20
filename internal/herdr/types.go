@@ -1,6 +1,7 @@
 package herdr
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 )
@@ -68,11 +69,34 @@ type TabInfo struct {
 }
 
 type WorkspaceInfo struct {
-	ActiveTabID string `json:"active_tab_id"`
-	Focused     bool   `json:"focused"`
-	Label       string `json:"label"`
-	Number      uint   `json:"number"`
-	WorkspaceID string `json:"workspace_id"`
+	ActiveTabID string        `json:"active_tab_id"`
+	Focused     bool          `json:"focused"`
+	Label       string        `json:"label"`
+	Number      uint          `json:"number"`
+	WorkspaceID string        `json:"workspace_id"`
+	Worktree    *WorktreeInfo `json:"worktree"`
+}
+
+type WorktreeInfo struct {
+	IsLinkedWorktree bool   `json:"is_linked_worktree"`
+	RepoKey          string `json:"repo_key"`
+	Valid            bool   `json:"-"`
+}
+
+func (w *WorktreeInfo) UnmarshalJSON(data []byte) error {
+	w.Valid = false
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil || fields == nil {
+		return nil
+	}
+	linked, hasLinked := fields["is_linked_worktree"]
+	repoKey, hasRepoKey := fields["repo_key"]
+	if !hasLinked || !hasRepoKey || json.Unmarshal(linked, &w.IsLinkedWorktree) != nil ||
+		json.Unmarshal(repoKey, &w.RepoKey) != nil || w.RepoKey == "" {
+		return nil
+	}
+	w.Valid = true
+	return nil
 }
 
 type Rectangle struct {
@@ -131,10 +155,20 @@ type Tab struct {
 }
 
 type Workspace struct {
-	ID     string `json:"id"`
-	Label  string `json:"label"`
-	Number uint   `json:"number"`
-	Tabs   []Tab  `json:"tabs"`
+	AgentCounts *AgentCounts `json:"agent_counts,omitempty"`
+	ID          string       `json:"id"`
+	Label       string       `json:"label"`
+	Number      uint         `json:"number"`
+	Tabs        []Tab        `json:"tabs"`
+	Worktrees   []Workspace  `json:"worktrees,omitempty"`
+}
+
+type AgentCounts struct {
+	Working int `json:"working,omitempty"`
+	Blocked int `json:"blocked,omitempty"`
+	Idle    int `json:"idle,omitempty"`
+	Done    int `json:"done,omitempty"`
+	Unknown int `json:"unknown,omitempty"`
 }
 
 type Home struct {
@@ -258,14 +292,7 @@ func Project(snapshot Snapshot) (Home, error) {
 		layoutsByTab[layout.TabID] = append(layoutsByTab[layout.TabID], layout)
 	}
 
-	orderedWorkspaces := append([]WorkspaceInfo(nil), snapshot.Workspaces...)
-	sort.Slice(orderedWorkspaces, func(i, j int) bool {
-		if orderedWorkspaces[i].Number != orderedWorkspaces[j].Number {
-			return orderedWorkspaces[i].Number < orderedWorkspaces[j].Number
-		}
-		return orderedWorkspaces[i].WorkspaceID < orderedWorkspaces[j].WorkspaceID
-	})
-	for _, workspaceSource := range orderedWorkspaces {
+	for _, workspaceSource := range snapshot.Workspaces {
 		workspace := Workspace{
 			ID: workspaceSource.WorkspaceID, Label: displayWorkspaceLabel(workspaceSource.Label), Number: workspaceSource.Number, Tabs: []Tab{},
 		}
@@ -300,7 +327,97 @@ func Project(snapshot Snapshot) (Home, error) {
 	}
 
 	assignContextualTitles(&home)
+	home.Workspaces = groupWorktrees(home.Workspaces, snapshot.Workspaces)
 	return home, nil
+}
+
+func groupWorktrees(workspaces []Workspace, sources []WorkspaceInfo) []Workspace {
+	type candidates struct {
+		ordinary []string
+		linked   []string
+	}
+	byRepo := make(map[string]*candidates)
+	for _, source := range sources {
+		if source.Worktree == nil || !source.Worktree.Valid {
+			continue
+		}
+		candidate := byRepo[source.Worktree.RepoKey]
+		if candidate == nil {
+			candidate = &candidates{}
+			byRepo[source.Worktree.RepoKey] = candidate
+		}
+		if source.Worktree.IsLinkedWorktree {
+			candidate.linked = append(candidate.linked, source.WorkspaceID)
+		} else {
+			candidate.ordinary = append(candidate.ordinary, source.WorkspaceID)
+		}
+	}
+
+	parentForChild := make(map[string]string)
+	childrenForParent := make(map[string]map[string]struct{})
+	for _, candidate := range byRepo {
+		if len(candidate.ordinary) != 1 || len(candidate.linked) == 0 {
+			continue
+		}
+		parentID := candidate.ordinary[0]
+		children := make(map[string]struct{}, len(candidate.linked))
+		for _, childID := range candidate.linked {
+			parentForChild[childID] = parentID
+			children[childID] = struct{}{}
+		}
+		childrenForParent[parentID] = children
+	}
+
+	grouped := make([]Workspace, 0, len(workspaces))
+	for _, workspace := range workspaces {
+		if _, isChild := parentForChild[workspace.ID]; isChild {
+			continue
+		}
+		childIDs, isParent := childrenForParent[workspace.ID]
+		if !isParent {
+			grouped = append(grouped, workspace)
+			continue
+		}
+		workspace.Worktrees = make([]Workspace, 0, len(childIDs))
+		members := []Workspace{workspace}
+		for _, candidate := range workspaces {
+			if _, ok := childIDs[candidate.ID]; !ok {
+				continue
+			}
+			workspace.Worktrees = append(workspace.Worktrees, candidate)
+			members = append(members, candidate)
+		}
+		counts := countAgents(members)
+		workspace.AgentCounts = &counts
+		grouped = append(grouped, workspace)
+	}
+	return grouped
+}
+
+func countAgents(workspaces []Workspace) AgentCounts {
+	var counts AgentCounts
+	for _, workspace := range workspaces {
+		for _, tab := range workspace.Tabs {
+			for _, terminal := range tab.Terminals {
+				if terminal.Agent == nil {
+					continue
+				}
+				switch terminal.Agent.Status {
+				case StatusWorking:
+					counts.Working++
+				case StatusBlocked:
+					counts.Blocked++
+				case StatusIdle:
+					counts.Idle++
+				case StatusDone:
+					counts.Done++
+				case StatusUnknown:
+					counts.Unknown++
+				}
+			}
+		}
+	}
+	return counts
 }
 
 func orderPanes(panes []PaneInfo, layouts []LayoutInfo, workspaceID, tabID string) []PaneInfo {

@@ -167,10 +167,10 @@ func (s *Server) asset(writer http.ResponseWriter, request *http.Request) {
 	if contentType != "" {
 		writer.Header().Set("Content-Type", contentType)
 	}
-	if name == "index.html" || isTerminalLabAsset(name) {
+	if isTerminalLabAsset(name) {
 		writer.Header().Set("Cache-Control", "no-store")
 	} else {
-		writer.Header().Set("Cache-Control", "public, max-age=3600")
+		writer.Header().Set("Cache-Control", "no-cache")
 	}
 	_, _ = writer.Write(data)
 }

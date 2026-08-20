@@ -23,6 +23,7 @@ type State struct {
 	Connection Connection `json:"connection"`
 	Detail     string     `json:"detail,omitempty"`
 	Gap        uint64     `json:"gap"`
+	HasHome    bool       `json:"has_home"`
 	Home       Home       `json:"home"`
 	LastKnown  bool       `json:"last_known"`
 	Snapshot   Snapshot   `json:"-"`
@@ -70,69 +71,110 @@ func (p *Projector) Subscribe() (<-chan State, func()) {
 func (p *Projector) Run(ctx context.Context) {
 	retry := time.NewTimer(0)
 	defer retry.Stop()
+	var subscriptionBasis Snapshot
+	haveSubscriptionBasis := false
 
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-retry.C:
-		}
-
-		p.markReconnecting()
-		first, err := p.client.Snapshot(ctx)
-		if err != nil {
-			p.publishError(err)
-			resetTimer(retry, projectorRetryDelay)
-			continue
-		}
-		subscription, err := p.client.Subscribe(ctx, first)
-		if err != nil {
-			p.publishError(err)
-			resetTimer(retry, projectorRetryDelay)
-			continue
-		}
-		current, err := p.client.Snapshot(ctx)
-		if err != nil {
-			subscription.Close()
-			p.publishError(err)
-			resetTimer(retry, projectorRetryDelay)
-			continue
-		}
-		if !subscriptionCoversSnapshot(first, current) {
-			subscription.Close()
-			resetTimer(retry, projectorRetryDelay)
-			continue
-		}
-		p.publishLive(current)
-
-		for {
-			event, err := subscription.Next()
-			if err != nil {
-				subscription.Close()
-				p.markGap()
-				resetTimer(retry, projectorRetryDelay)
-				break
+		if !haveSubscriptionBasis {
+			select {
+			case <-ctx.Done():
+				return
+			case <-retry.C:
 			}
-			if !semanticEvent(event.Event) {
-				subscription.Close()
-				p.markGap()
-				resetTimer(retry, projectorRetryDelay)
-				break
-			}
-			current, err = p.client.Snapshot(ctx)
+
+			setup, err := p.client.Snapshot(ctx)
 			if err != nil {
-				subscription.Close()
 				p.publishError(err)
 				resetTimer(retry, projectorRetryDelay)
-				break
+				continue
 			}
-			if !subscriptionCoversSnapshot(first, current) {
-				subscription.Close()
-				p.markReconnecting()
-				resetTimer(retry, projectorRetryDelay)
-				break
+			subscriptionBasis = setup
+		}
+
+		subscription, err := p.client.Subscribe(ctx, subscriptionBasis)
+		if err != nil {
+			p.publishError(err)
+			haveSubscriptionBasis = false
+			resetTimer(retry, projectorRetryDelay)
+			continue
+		}
+
+		result := p.followSubscription(ctx, subscription, subscriptionBasis)
+		_ = subscription.Close()
+		if result.resubscribe {
+			subscriptionBasis = result.snapshot
+			haveSubscriptionBasis = true
+			continue
+		}
+		haveSubscriptionBasis = false
+		if result.err != nil && ctx.Err() == nil {
+			if result.snapshotFailed {
+				p.publishError(result.err)
+			} else {
+				p.markGap()
 			}
-			p.publishLive(current)
+			resetTimer(retry, projectorRetryDelay)
+		}
+	}
+}
+
+type subscriptionResult struct {
+	err            error
+	resubscribe    bool
+	snapshot       Snapshot
+	snapshotFailed bool
+}
+
+func (p *Projector) followSubscription(ctx context.Context, subscription *Subscription, basis Snapshot) subscriptionResult {
+	changed := make(chan struct{}, 1)
+	lost := make(chan error, 1)
+	go func() {
+		for {
+			event, err := subscription.Next()
+			if err == nil && !semanticEvent(event.Event) {
+				err = errors.New("Herdr subscription returned an unexpected event")
+			}
+			if err != nil {
+				lost <- err
+				return
+			}
+			select {
+			case changed <- struct{}{}:
+			default:
+			}
+		}
+	}()
+
+	readNow := true
+	for {
+		if !readNow {
+			select {
+			case <-ctx.Done():
+				return subscriptionResult{err: ctx.Err()}
+			case err := <-lost:
+				return subscriptionResult{err: err}
+			case <-changed:
+			}
+		}
+
+		candidate, err := p.client.Snapshot(ctx)
+		if err != nil {
+			return subscriptionResult{err: err, snapshotFailed: true}
+		}
+		select {
+		case err := <-lost:
+			return subscriptionResult{err: err}
+		default:
+		}
+		if !subscriptionCoversSnapshot(basis, candidate) {
+			return subscriptionResult{resubscribe: true, snapshot: candidate}
+		}
+		p.publishLive(candidate)
+		select {
+		case <-changed:
+			readNow = true
+		default:
+			readNow = false
 		}
 	}
 }
@@ -164,24 +206,13 @@ func semanticEvent(event string) bool {
 	}
 }
 
-func (p *Projector) markReconnecting() {
-	p.mu.Lock()
-	state := p.state
-	hadKnownState := state.Connection == ConnectionLive || state.LastKnown
-	state.Connection = ConnectionReconnecting
-	state.Detail = ""
-	state.LastKnown = hadKnownState
-	p.publishLocked(state)
-	p.mu.Unlock()
-}
-
 func (p *Projector) markGap() {
 	p.mu.Lock()
 	state := p.state
 	state.Connection = ConnectionReconnecting
 	state.Detail = ""
 	state.Gap++
-	state.LastKnown = true
+	state.LastKnown = state.HasHome
 	p.publishLocked(state)
 	p.mu.Unlock()
 }
@@ -192,7 +223,7 @@ func (p *Projector) publishError(err error) {
 	if state.Connection == ConnectionLive {
 		state.Gap++
 	}
-	state.LastKnown = state.Connection == ConnectionLive || state.LastKnown
+	state.LastKnown = state.HasHome
 	var protocol *ProtocolError
 	switch {
 	case IsNotRunning(err):
@@ -217,8 +248,10 @@ func (p *Projector) publishLive(snapshot Snapshot) {
 	}
 	p.mu.Lock()
 	state := p.state
+	stabilizeOrdinaryTitles(state.Home, &home)
 	state.Connection = ConnectionLive
 	state.Detail = ""
+	state.HasHome = true
 	state.Home = home
 	state.LastKnown = false
 	state.Snapshot = snapshot
@@ -249,8 +282,76 @@ func samePublishedState(left, right State) bool {
 	return left.Connection == right.Connection &&
 		left.Detail == right.Detail &&
 		left.Gap == right.Gap &&
+		left.HasHome == right.HasHome &&
 		left.LastKnown == right.LastKnown &&
 		reflect.DeepEqual(left.Home, right.Home)
+}
+
+type ordinaryTerminalTitle struct {
+	tabLabel       string
+	title          string
+	workspaceLabel string
+}
+
+type terminalIdentity struct {
+	paneID     string
+	terminalID string
+}
+
+func stabilizeOrdinaryTitles(previous Home, candidate *Home) {
+	if !reflect.DeepEqual(terminalPlaces(previous), terminalPlaces(*candidate)) {
+		return
+	}
+	titles := make(map[terminalIdentity]ordinaryTerminalTitle)
+	visitHomeTerminals(previous, func(workspace Workspace, tab Tab, terminal *Terminal) {
+		if terminal.Agent == nil {
+			titles[terminalIdentity{paneID: terminal.PaneID, terminalID: terminal.TerminalID}] = ordinaryTerminalTitle{
+				tabLabel: tab.Label, title: terminal.Title, workspaceLabel: workspace.Label,
+			}
+		}
+	})
+	visitHomeTerminals(*candidate, func(workspace Workspace, tab Tab, terminal *Terminal) {
+		if terminal.Agent != nil {
+			return
+		}
+		stable, ok := titles[terminalIdentity{paneID: terminal.PaneID, terminalID: terminal.TerminalID}]
+		if ok && stable.workspaceLabel == workspace.Label && stable.tabLabel == tab.Label {
+			terminal.Title = stable.title
+		}
+	})
+}
+
+type terminalPlace struct {
+	tabID       string
+	workspaceID string
+}
+
+func terminalPlaces(home Home) map[terminalIdentity]terminalPlace {
+	places := make(map[terminalIdentity]terminalPlace)
+	visitHomeTerminals(home, func(workspace Workspace, tab Tab, terminal *Terminal) {
+		places[terminalIdentity{paneID: terminal.PaneID, terminalID: terminal.TerminalID}] = terminalPlace{
+			tabID: tab.ID, workspaceID: workspace.ID,
+		}
+	})
+	return places
+}
+
+func visitHomeTerminals(home Home, visit func(Workspace, Tab, *Terminal)) {
+	var visitWorkspace func(*Workspace)
+	visitWorkspace = func(workspace *Workspace) {
+		for tabIndex := range workspace.Tabs {
+			tab := &workspace.Tabs[tabIndex]
+			for terminalIndex := range tab.Terminals {
+				visit(*workspace, *tab, &tab.Terminals[terminalIndex])
+			}
+		}
+		for index := range workspace.Worktrees {
+			visitWorkspace(&workspace.Worktrees[index])
+		}
+	}
+	for index := range home.Workspaces {
+		visitWorkspace(&home.Workspaces[index])
+	}
 }
 
 func resetTimer(timer *time.Timer, duration time.Duration) {
