@@ -4,31 +4,31 @@ Status: proposed
 
 Scope: the current product
 
+The active non-terminal stream covers Home workspace organization and, in later slices, workspace management. Terminal implementation is a separate stream. Sign-in, devices, notifications, and Chat remain later work.
+
 ## The promise
 
-Shepherdr is a simple way to check on Herdr from a phone. A person can reach every real Herdr terminal, see what agents are doing when they are present, and open a terminal for attention or direct control.
+Shepherdr is a simple way to check on Herdr from a phone. A person can see Herdr's real workspaces and terminals, understand what agents are doing when they are present, and reach the right work without Shepherdr inventing another organization or runtime.
 
 Shepherdr manages Herdr. It does not replace Herdr.
 
 ## The complete phone loop
 
-From a phone, a person can:
+The broader product direction remains:
 
 1. Open Shepherdr in the chosen sign-in mode.
 2. Trust this device when passkeys are on and the device is new.
-3. See every current terminal under Herdr's workspace and tab structure, with agent identity and status when an agent is present.
+3. See Herdr's current workspaces and terminals, with agent identity and status when an agent is present.
 4. See how many agents are working and which agents are blocked.
-5. Open any current real Herdr terminal.
+5. Open the intended current real terminal.
 6. Choose whether this device receives blocked-agent notifications.
 7. Tap a blocked-agent notification and open that agent's terminal.
 
-The daily return path is short: open Shepherdr, see who is blocked, and open that terminal.
-
-This whole loop is the product bar. This document does not decide the order in which it will be built.
+The daily return path is short: open Shepherdr, see who is blocked, and reach that work. This is the product bar, not an implementation order. The current Home and workspace-management stream does not implement Terminal, sign-in, devices, notifications, or Chat.
 
 ## Home and attention
 
-Home shows every real Herdr terminal exactly once under the workspace and tab that Herdr reports. Agent identity and status are optional metadata on a terminal; they never determine whether the terminal exists. Agent status uses these words unchanged:
+Home shows every real Herdr workspace and terminal exactly once. Agent identity and status are optional terminal information; they never determine whether a terminal exists. Agent status uses these words unchanged:
 
 - **working**
 - **blocked**
@@ -38,41 +38,47 @@ Home shows every real Herdr terminal exactly once under the workspace and tab th
 
 Do not replace them with more precise-sounding words or give an ordinary terminal an invented status.
 
-A persistent attention area shows how many agents are working. When any agent is blocked, its blocked count opens a filtered reuse of those terminal rows with their workspace and tab context. It does not add a second list, show a zero-blocked control, or create another status.
+Ordinary flat Home stays compact. When Herdr establishes a worktree relationship, Home mirrors it as one nested set: one top-level workspace and its worktree workspaces. Shepherdr does not store or invent another organization. A set opens to show every workspace and every terminal. Its heading uses the top-level workspace title once, the workspace total, and only nonzero real agent totals in Herdr's fixed status order. Those totals are information, not controls.
 
-A single-terminal workspace is one compact, full-row destination. Home reveals tab and multi-terminal structure only when it helps distinguish place. It does not repeat agent counts, cards, or large “Open terminal” buttons.
+The set's disclosure and the top-level workspace's current-terminal **Open** action are separate targets. **Open** appears only when that current terminal resolves exactly; Shepherdr never substitutes the first terminal. Every other terminal remains visible in its workspace.
 
-Human titles remain consistent between Home, Terminal, and accessibility. Neutral displayed-order numbers appear only when same-named flattened workspaces collide across Home or same-titled terminal rows collide within their workspace and, when shown, tab. Matching titles in unrelated workspace/tab contexts stay unnumbered. The sets come from the complete all-terminals view, so blocked filtering never renumbers them. Opaque IDs never appear as disambiguation.
+On the first load of a visit, sets with working or blocked agents are expanded and the rest are collapsed. A person's later expand or collapse choice wins for that loaded visit even if agent statuses change. Home offers one compact **Expand all** or **Collapse all** action when useful.
 
-**No terminals**, offline, reconnecting, last-known, and “Herdr is not running” are real states. Show them plainly. An ordinary terminal means Home is not empty.
+A persistent attention area shows the working count. When any agent is blocked, **N blocked** opens a temporary **Blocked** view showing only blocked terminal rows with enough workspace context. It does not add a second stored list or change the person's remembered Home expansion, scroll, or focus. Returning restores that place.
+
+## Truthful connection and content
+
+A stable badge at the top right says **Live**, **Reconnecting**, **Offline**, **Herdr is not running**, or **Cannot use this Herdr**. Internal Home refresh does not turn a healthy connection into **Reconnecting**, and the badge never makes the page jump.
+
+Connection health and a coherent Home are separate truths. Shepherdr never publishes a partial or mixed Home. While a fresh coherent Home is being rebuilt, it may identify prior coherent rows as updating only when that remains honest. Otherwise it replaces them with a clear updating or unavailable state. Open and management actions remain absent until the coherent Home is current.
+
+**No terminals** is a real coherent state. An ordinary terminal means Home is not empty.
+
+## Workspace management
+
+The first slice is read-only Home. It has no management controls, placeholders, or empty menus.
+
+Later slices add one operation at a time: create a workspace in a new worktree folder, close an applicable worktree workspace while retaining its folder and branch, and remove an eligible clean worktree folder without deleting its branch. Each operation checks fresh Herdr state, runs one at a time, preserves focus where required, and reports an interrupted or unconfirmed result as unknown. Shepherdr never fabricates a preview or success, retries automatically, forces removal, or lets displayed names, paths, branches, or identifiers choose what happens.
 
 ## Terminal
 
-The terminal is the full-control view into the same work Herdr owns. Home opens the selected real terminal. A blocked-agent notification opens that agent's terminal.
+Terminal implementation is separate from the current stream. Home may offer **Open** only for a current real terminal it can resolve exactly and truthfully. This stream does not redesign terminal observation, control, or rendering.
 
-Use only terminal capabilities Herdr already exposes. Do not build another agent runtime or infer new product state from terminal output.
+Use only terminal capabilities Herdr already exposes. Do not build another agent runtime or infer product state from terminal output.
 
 ## Notifications
 
-Notification settings belong to each device. A person can choose whether to receive blocked-agent notifications. Permission is requested when it makes sense, and the setting remains available later.
-
-Tapping a blocked-agent notification opens that agent's terminal.
+Notifications are later work. Notification settings belong to each device. A person may eventually choose whether to receive blocked-agent notifications, and tapping one opens that agent's terminal only when the target still resolves truthfully.
 
 ## Sign-in and devices
 
-Starting without sign-in is the common daily mode for one person on a private network. Anyone who can reach Shepherdr can act as the operator. The interface quietly keeps “Sign-in is off” visible.
+Sign-in and device trust are later work. Starting without sign-in remains the common daily mode for one person on a private network. Anyone who can reach Shepherdr can act as the operator. The interface quietly keeps **Sign-in is off** visible.
 
-Passkeys are the stronger mode. They are useful as a second lock, when more than one trusted person uses Shepherdr, or in a business. Each device must be trusted before it can be used.
-
-A person can view trusted devices and revoke one. They can also reset sign-in entirely from the command line and set it up again. Exact command names come later.
-
-Reaching Shepherdr is never enough to trust a new device. Trust must come from an already trusted authority or an explicit action on the machine running Herdr. The exact method comes later.
-
-Lost-device recovery comes later. Do not design it now. Do not add team accounts, roles, or organizations. One operator with many devices is enough for the current product.
+Passkeys are the stronger future mode. Reaching Shepherdr is never enough to trust a new device. Trust must come from an already trusted authority or an explicit action on the machine running Herdr; the exact method comes later. Lost-device recovery, team accounts, roles, and organizations are not part of the current product.
 
 ## Private network
 
-Shepherdr gives access to real terminals. Always make it reachable only through a trusted private network, including when passkeys are on. A trusted private network contains only users and devices you are willing to give access to the machine running Herdr. Tailscale Serve is one practical example. Tailscale Funnel and other public internet exposure are not supported.
+Shepherdr gives access to real work. Always make it reachable only through a trusted private network, including when passkeys are on. A trusted private network contains only users and devices you are willing to give access to the machine running Herdr. Tailscale Serve is one practical example. Tailscale Funnel and other public internet exposure are not supported.
 
 Sign-in is an extra lock. It is not a reason to make the tool public.
 
@@ -82,7 +88,7 @@ Show only actions and state that exist. Never claim success before Herdr or the 
 
 Reconnects, restarts, offline devices, and interrupted actions must leave the person with a clear and truthful view of what is known.
 
-Treat Herdr output, names, agents, terminal identities, terminal content, repository files, attachments, and pasted content as untrusted. Merely displaying that content must never give it Shepherdr application authority. A terminal's identity cannot grant authority or redirect to another terminal.
+Treat Herdr output, names, agents, terminal identities, terminal content, repository files, attachments, and pasted content as untrusted. Merely displaying that content must never give it Shepherdr application authority. A displayed identity cannot grant authority or redirect to other work.
 
 The current product uses only capabilities Herdr already exposes. Do not invent Herdr interfaces, reconstruct conversations from terminal output, or add a Shepherdr conversation store.
 
@@ -95,9 +101,8 @@ The current product uses only capabilities Herdr already exposes. Do not invent 
 - Team accounts, roles, and organizations.
 - Provider-specific handling for blocked prompts.
 - A replacement or second agent runtime beside Herdr.
-- Chat, image sending, and new-message notifications. Chat may return later through a deliberate agent-used channel, but it must not be a live, parsed, scraped, or reconstructed view of terminal output. That channel is not designed or approved.
-- Worktree or repository grouping, workspace nesting, and collapsibility. Current Herdr metadata does not establish workspace parents; any later grouping layer must be separately approved and additive.
+- A live, parsed, scraped, or reconstructed Chat view of terminal output. Any future Chat requires a deliberately designed agent-used channel.
 
 ## How we will know it works
 
-Use a real phone and a real Herdr server. Compare Home with Herdr, open agent and ordinary terminals, use blocked attention, preserve place between Home and Terminal, exercise observer and takeover behavior, reconnect, restart the service, and receive a real blocked-agent notification when notification work exists. At every step, the interface must tell the truth about what Herdr has confirmed and what remains unknown.
+Use production Shepherdr with a real Herdr server and a real phone. Compare flat and worktree-nested Home with Herdr, check every terminal and exact agent total, exercise expansion and Blocked place restoration, and verify connection and coherent-update states without flicker or stale actions. For each later management slice, perform its real named, blank, clean, dirty, interrupted, and hostile-input cases. Tests and emulator checks support confidence, but the real phone workflow is the gate.

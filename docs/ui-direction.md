@@ -4,44 +4,34 @@ Status: proposed
 
 This is a voice and interface guide, not a component library.
 
+The current non-terminal stream covers Home and later workspace management. Terminal implementation is separate. Sign-in, device trust, notifications, and Chat remain later work.
+
 ## Voice
 
-Write for a person checking Herdr terminals and agents from a phone, possibly while tired or interrupted.
+Write for a person checking Herdr workspaces, terminals, and agents from a phone, possibly while tired or interrupted.
 
 - Headings state what is happening.
 - Body text is short and useful.
 - Buttons say what they do.
 - Errors say what happened, what is known, and what to try next.
 - Security language is quiet and direct, not dramatic.
-- Internal names stay off the screen unless the person needs the exact value to act.
+- Internal names stay off the screen unless the person needs an exact value to act.
 
-Use familiar words: **workspace**, **agent**, **terminal**, **device**, and **notification**.
+Use familiar words: **workspace**, **terminal**, **agent**, **worktree**, **device**, and **notification**. On-screen language does not say source, group, linked, or pane.
 
 Use Herdr's status words unchanged: **working**, **blocked**, **idle**, **done**, and **unknown**. Supporting text may say a blocked agent “needs you,” but do not turn that into another status.
 
-Exact paths, IDs, commands, and raw errors belong in details or the terminal when they help the person act.
+Exact paths and raw errors appear only when they help the person act. IDs and internal trust values stay off the screen.
 
 ## Screens
 
-The first screen depends on how Shepherdr was started:
+The current stream has one main screen:
 
-- Without sign-in, open **Home**. Keep a quiet persistent note such as “Sign-in is off.” Do not add a mode picker, warning page, or red banner.
-- With passkeys, open **Sign in**. If the device is new, continue to **Trust this device**.
+- **Home** — see every current workspace and terminal, with agent status and attention when an agent is present.
 
-The main screens are:
+Workspace-management sheets arrive only in their approved later slices. Terminal is a separate implementation stream. **Sign in**, **Trust this device**, **This device's notifications**, and **Devices** remain later work. Do not add screens, tabs, or controls for work that does not exist.
 
-- **Sign in** — sign in with a passkey.
-- **Trust this device** — begin adding a new device. Reaching this screen does not make the device trusted.
-- **Home** — see every current terminal under its workspace and tab, with agent status and attention when an agent is present.
-- **Terminal** — take full control of the same Herdr work.
-- **This device's notifications** — choose blocked-agent notifications.
-- **Devices** — view trusted devices and revoke one.
-
-Show **Sign in**, **Trust this device**, and **Devices** only when passkeys are on.
-
-A new device cannot trust itself. It must wait for an already trusted authority or an explicit action on the machine running Herdr. The exact flow comes later.
-
-Do not add screens, tabs, or controls for work that does not exist.
+With current sign-in-off access, Home opens directly and quietly keeps **Sign-in is off** visible.
 
 ## Visual character
 
@@ -55,9 +45,7 @@ Think of a well-used drafting table made comfortable for a small screen:
 - typography, spacing, and alignment doing most of the work;
 - no gradients, glass panels, glowing controls, hacker decoration, or stacks of generic rounded cards.
 
-The terminal may be a darker, high-contrast working surface inside the same product.
-
-Choose display and body typefaces with a clear character. Use a monospaced face for the terminal and exact technical values only. Final fonts and colors come later.
+Choose display and body typefaces with a clear character. Use a monospaced face only for exact technical values. Final fonts and colors come later.
 
 ## Home and attention
 
@@ -66,40 +54,79 @@ Home first answers:
 1. Who is working?
 2. Who is blocked?
 3. What needs my attention?
-4. Can I open any current terminal now?
+4. What workspaces and terminals are here?
 
-Home lists every real Herdr terminal exactly once in its ordinary all-terminals view. Agent identity and one of Herdr's exact status words are optional terminal metadata. An ordinary terminal has no status badge and does not contribute to attention.
+Home shows every real workspace and every real terminal exactly once. Agent identity and one of Herdr's exact status words are optional terminal information. An ordinary terminal has no status badge and does not contribute to attention.
 
-A single-terminal workspace is one full-row destination while remaining a real workspace heading for assistive navigation. Multi-terminal and multi-tab headings appear only when they add place. Omit a lone default tab; with several tabs, mark only Herdr's current tab with **current**. Do not add agent counts, repeated cards, repeated **Open terminal** buttons, or dead headings for workspaces with no terminal. The whole terminal row opens and has a target of at least 44 by 44 CSS pixels; a chevron is decoration, not a collapse control.
+Keep ordinary flat Home compact. When Herdr establishes a valid worktree nest, replace its top-level workspace's ordinary position with one nested section. The section heading uses that workspace title once, **N workspaces**, and only nonzero actual agent totals in this order: **working**, **blocked**, **idle**, **done**, **unknown**. Counts do not open or filter anything.
 
-Use one human terminal title on Home, the Terminal header, the terminal accessible label, and blocked-only reuse. Use the workspace title for a flattened row; otherwise prefer a distinct Herdr label or terminal title and fall back to **Terminal**. Add neutral ` 1`, ` 2` suffixes only within these collision sets, taken from the complete all-terminals order:
+Expanding a nest shows every workspace and every terminal in it. The heading's disclosure title area and the top-level workspace's current-terminal **Open** action are sibling targets, each at least 44 by 44 CSS pixels. Show that **Open** only when the real current terminal resolves exactly. Never fall back to the first terminal. Its accessible name is **Open**, followed by the terminal title and its place. Do not expose internal terminology. Chevrons on terminal rows are decorative.
 
-- same-named flattened workspaces across Home; and
-- same-titled terminal rows within one workspace and, when a tab heading is shown, that tab.
+On the first loaded visit, expand nests containing working or blocked agents and collapse the others. After that, the person's manual expand or collapse choice wins for the visit even when statuses change. Show compact **Expand all** when any nest is collapsed and **Collapse all** when all are expanded. Omit both when there are no nests and in **Blocked**.
 
-Blocked filtering reuses titles computed from the complete all-terminals view and never renumbers them. Do not number unrelated rows elsewhere, use opaque IDs or Herdr workspace numbers, or add ordinals to secondary text. Accessible names begin with **Open**, include the same disambiguated title and place, and retain visible secondary text and agent status so screen-reader output does not hide useful information.
+The persistent attention area shows the working count and no zero-blocked copy. When agents are blocked, **N blocked** opens **Blocked**. This view temporarily shows only blocked terminal rows plus the minimum workspace context. It omits nest disclosure, the top-level **Open**, totals, **Expand all**, **Collapse all**, **New worktree**, and **Actions**. **Show all terminals** returns to Home and restores its prior scroll, focus, and expansion state.
 
-The persistent attention area shows the working count. Show no zero-blocked copy. When agents are blocked, **N blocked** opens a **Blocked** view that filters and reuses the same terminal rows with workspace/tab context. It does not duplicate an attention list or invent a “needs you” status. **Show all terminals** restores the all-terminals scroll position and focused row.
+Every terminal **Open** action uses the same human title and place on Home and in its accessible name. Internal IDs do not appear as titles or disambiguation. Hide every terminal **Open** and the top-level **Open** whenever Home is not current and complete.
 
-When Herdr is live with nothing open, show **No terminals** and “Herdr is running, but nothing is open.” An ordinary terminal prevents this empty state. Offline, reconnecting, “Herdr is not running,” incompatible, and last-known states need useful treatment of their own. One connection panel labels stale rows; do not repeat a last-known badge on every row. Last-known rows are visibly not openable and have no open affordance.
+## Connection and coherent content
 
-## Moving through the product
+Reserve a stable top-right badge slot. Its labels are exactly:
 
-Home leads to the selected real terminal. Moving between Home and Terminal must preserve the person's scroll position and focused row.
+- **Live**
+- **Reconnecting**
+- **Offline**
+- **Herdr is not running**
+- **Cannot use this Herdr**
 
-A blocked-agent notification opens that agent's terminal, not generic Home.
+Current-generation frames mean **Live**. An internal Home refresh never changes a healthy badge to **Reconnecting**. Keep the existing transport behavior and 45-second threshold before **Offline**. **Herdr is not running** and **Cannot use this Herdr** suppress **Live** and do not open the reconnect sheet. The stable slot prevents layout shift.
 
-## Terminal
+Connection state and coherent Home content are separate. Never show a partial or mixed Home. While a new Home is not yet valid, show a short **Home is updating** note above the prior coherent rows only when they remain honest. Otherwise replace the rows with a clear updating or unavailable state. Until a complete current Home is ready, omit every terminal **Open**, the top-level **Open**, and every management control. Resuming Home rebuilds without a healthy-**Live** flicker.
 
-The terminal favors fidelity over decoration. Preserve selection, keyboard input, control keys, scrolling, resize behavior, reconnect state, and text paste. Use only capabilities Herdr already exposes. Opening observes first and never steals control. When control is occupied, keep **Controlled elsewhere · observing**. **Take over** stays explicit and confirms with “Take control? The current controller will lose input.”
+When a coherent live Home has nothing open, show **No terminals** and “Herdr is running, but nothing is open.” An ordinary terminal prevents this empty state.
+
+## Read-only first slice
+
+Slice 1 is Home only. It has no **New worktree**, **Branch**, **Actions**, **Close**, **Remove**, placeholders, disabled future controls, or empty menus.
+
+## Later workspace management
+
+An eligible flat top-level workspace gets a separate 44-pixel **New worktree** action even before it has a child. Its short sheet says:
+
+> This adds a workspace in a new folder.
+
+Branch help is exactly:
+
+> Branch is optional. Leave it blank to let Herdr choose.
+
+A blank branch is omitted so Herdr chooses. Do not show a fabricated preview. Preserve the person's current focus when the request is sent. If Shepherdr cannot confirm the result exactly, show:
+
+> Result unknown. Check Home before starting another worktree.
+
+Do not retry automatically or infer success.
+
+Show **Actions** for a worktree workspace only when at least one action applies. Never offer **Close** for the top-level workspace or an ordinary flat workspace. Confirmation copy is exactly:
+
+> Close this workspace? Its terminals will end, and unsaved work can be lost. The folder and branch remain.
+
+Buttons are **Close workspace** and **Cancel**.
+
+Offer **Remove** only for a freshly eligible worktree checkout, never for the top-level or an ordinary flat workspace. Never force removal and never delete its branch. Show the exact freshly validated path as inert text. Confirmation copy is exactly:
+
+> Remove this folder? Its terminals will end, and unsaved work can be lost. The branch is not deleted.
+
+Buttons are **Remove folder** and **Cancel**. If Herdr refuses because the folder has changes, show exactly:
+
+> This folder has changes. It was not removed. Resolve the changes in the terminal, then try again.
+
+All interactive targets are at least 44 by 44 CSS pixels. While any action or its Home reconciliation is outstanding, remove every management action rather than leaving a stale control.
 
 ## Mobile behavior
 
 - Design at a narrow phone width first.
 - Keep the main actions within thumb reach without covering content.
 - Make interactive targets at least 44 by 44 CSS pixels.
-- Respect safe areas, the on-screen keyboard, browser controls, and device rotation.
-- Preserve reading, scroll, and focused-row position between Home and Terminal.
+- Respect safe areas, browser controls, and device rotation.
+- Preserve Home reading, scroll, focus, and expansion state when temporarily filtering or leaving and returning.
 - Use wider screens to reveal useful context, not merely stretch the phone layout.
 
 ## Honesty and access
@@ -108,8 +135,8 @@ The terminal favors fidelity over decoration. Preserve selection, keyboard input
 - Do not add disabled or placeholder Chat controls.
 - Never claim success until Herdr or the service confirms it.
 - Never invent a more precise status than Herdr provides.
-- Make reconnecting, stale information, and interrupted actions visible.
-- Treat Herdr output, names, IDs, agents, terminal content, repository files, attachments, and pasted content as untrusted. Displaying it must never give it Shepherdr application authority. Opaque IDs do not appear as titles or disambiguation.
+- Make reconnecting, unavailable information, and interrupted actions visible.
+- Treat all displayed Herdr content as untrusted text. It must never grant application authority.
 - Do not rely on color, motion, or tiny dots to communicate status.
 - Support reduced motion, keyboard use, and screen readers.
-- Confirm actions that terminate work, revoke a device, or reset sign-in.
+- Confirm actions that terminate work or remove a folder.
