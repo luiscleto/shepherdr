@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --minify --outfile=dist/app.js && cp src/index.html dist/index.html",
+    "build": "esbuild src/main.ts --bundle --minify --outfile=dist/app.js && esbuild src/terminal-lab.ts --bundle --minify --outfile=dist/terminal-lab.js && esbuild src/terminal-lab.css --bundle --minify --outfile=dist/terminal-lab.css && cp src/index.html dist/index.html && cp src/terminal-lab.html dist/terminal-lab.html && cp node_modules/@wterm/ghostty/wasm/ghostty-vt.wasm dist/ghostty-vt.wasm",
     "test": "tsx --test src/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
@@ -13,5 +13,11 @@
     "happy-dom": "20.11.2",
     "tsx": "4.23.12",
     "typescript": "5.9.2"
+  },
+  "dependencies": {
+    "@wterm/dom": "0.3.4",
+    "@wterm/ghostty": "0.3.4",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0"
   }
 }

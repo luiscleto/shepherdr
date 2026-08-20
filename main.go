@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -36,6 +37,7 @@ func run() error {
 	}
 	listenAddress := flag.String("listen", "127.0.0.1:8787", "localhost address to listen on")
 	socketPath := flag.String("herdr-socket", defaultSocket, "Unix socket for the one Herdr session")
+	terminalLabEnabled := flag.Bool("terminal-lab", false, "enable the development-only terminal comparison lab")
 	flag.Parse()
 
 	if err := server.ValidateListenAddress(*listenAddress); err != nil {
@@ -52,7 +54,15 @@ func run() error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	client := herdr.NewClient(*socketPath)
 	projector := herdr.NewProjector(client)
-	application := server.New(assets, projector)
+	var terminalLab *server.TerminalLab
+	if *terminalLabEnabled {
+		herdrBinary, err := exec.LookPath("herdr")
+		if err != nil {
+			return fmt.Errorf("enable terminal lab: find herdr executable: %w", err)
+		}
+		terminalLab = server.NewTerminalLab(herdrBinary, *socketPath, logger)
+	}
+	application := server.New(assets, projector, terminalLab)
 
 	listener, err := net.Listen("tcp", *listenAddress)
 	if err != nil {
@@ -71,7 +81,7 @@ func run() error {
 	}
 	serveErrors := make(chan error, 1)
 	go func() { serveErrors <- httpServer.Serve(listener) }()
-	logger.Info("Shepherdr is ready", "address", "http://"+listener.Addr().String(), "herdr_socket", *socketPath)
+	logger.Info("Shepherdr is ready", "address", "http://"+listener.Addr().String(), "herdr_socket", *socketPath, "terminal_lab", *terminalLabEnabled)
 
 	select {
 	case <-ctx.Done():
