@@ -4,7 +4,7 @@ import test from "node:test";
 import { Window } from "happy-dom";
 
 import { HomeView, type HomeViewRender } from "./home-view";
-import { type Home, type HomeState } from "./home-model";
+import { automaticAllTerminalsPlace, type Home, type HomeState } from "./home-model";
 
 function flatHome(): Home {
   return {
@@ -196,8 +196,32 @@ test("Home shows one real initial or unavailable state with the transport-owned 
 
   render(view, state());
   assert.equal(requiredElement(app, ".home-connection strong").textContent, "Live");
-  assert.equal(requiredRow(view, "pane-one").getAttribute("aria-disabled"), "false");
+  assert.equal(requiredRow(view, "pane-one").localName, "button");
+  assert.equal(requiredRow(view, "pane-one").getAttribute("aria-disabled"), null);
   assert.doesNotMatch(app.textContent ?? "", /Home is updating|Loading terminals/);
+  window.close();
+});
+
+test("Home renders a workspace whose tabs have no terminals exactly once", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window);
+  const current = state();
+  current.home.workspaces.push({
+    id: "empty-workspace",
+    label: "Empty workspace",
+    number: 2,
+    tabs: [{ current: true, id: "empty-tab", label: "Main", number: 1, terminals: [] }],
+  });
+
+  render(view, current);
+
+  assert.equal(app.querySelectorAll("section.workspace").length, 2);
+  assert.equal(
+    Array.from(app.querySelectorAll("section.workspace > h2")).filter((heading) => heading.textContent === "Empty workspace")
+      .length,
+    1,
+  );
+  assert.equal(app.querySelectorAll(".terminal-row").length, 1);
   window.close();
 });
 
@@ -256,10 +280,14 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   const stale = { ...current, connection: "reconnecting" as const, last_known: true };
   render(view, stale, { actionsAvailable: false, reachability: "reconnecting" });
   assert.equal(app.querySelector(".home-connection") === connection, true);
-  assert.equal(view.row("pane-one") === row, true);
-  assert.equal(row.getAttribute("aria-disabled"), "true");
+  const unavailableRow = requiredRow(view, "pane-one");
+  assert.equal(unavailableRow.localName, "div");
+  assert.equal(unavailableRow.tabIndex, -1);
+  assert.equal(unavailableRow.getAttribute("aria-disabled"), null);
+  assert.equal(app.querySelectorAll("button.terminal-row").length, 0);
+  assert.equal(app.querySelectorAll(".terminal-row").length, 1);
   assert.equal(requiredElement(connection, "strong").textContent, "Reconnecting");
-  row.click();
+  unavailableRow.click();
   assert.equal(opens, 1);
 
   render(view, stale, { actionsAvailable: false, reachability: "offline" });
@@ -268,6 +296,61 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   if (!reconnect) throw new Error("missing Reconnect");
   reconnect.click();
   assert.equal(reconnects, 1);
+  window.close();
+});
+
+test("opaque workspace and tab ids cannot collide during reconciliation", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window);
+  const collidingHome: Home = {
+    blocked_count: 0,
+    working_count: 0,
+    workspaces: [
+      {
+        id: "left\u0000middle",
+        label: "First workspace",
+        number: 1,
+        tabs: [
+          {
+            current: true,
+            id: "right",
+            label: "First tab",
+            number: 1,
+            terminals: [
+              { pane_id: "first-a", terminal_id: "first-terminal-a", title: "First A" },
+              { pane_id: "first-b", terminal_id: "first-terminal-b", title: "First B" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "left",
+        label: "Second workspace",
+        number: 2,
+        tabs: [
+          {
+            current: true,
+            id: "middle\u0000right",
+            label: "Second tab",
+            number: 1,
+            terminals: [
+              { pane_id: "second-a", terminal_id: "second-terminal-a", title: "Second A" },
+              { pane_id: "second-b", terminal_id: "second-terminal-b", title: "Second B" },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  render(view, state(collidingHome));
+
+  assert.equal(app.querySelectorAll("section.workspace").length, 2);
+  assert.equal(app.querySelectorAll(".terminal-row").length, 4);
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".terminal-name"), (node) => node.textContent),
+    ["First A", "First B", "Second A", "Second B"],
+  );
   window.close();
 });
 
@@ -304,7 +387,7 @@ test("worktree sets disclose exact ordered totals and manual choices win for the
   window.close();
 });
 
-test("Blocked temporarily reuses only blocked rows and returning restores place and disclosure", () => {
+test("Blocked returns manually or automatically to the saved all-Home place", () => {
   const window = new Window({ url: "http://localhost/" });
   const { app, view } = makeView(window);
   const current = state(groupedHome());
@@ -331,6 +414,22 @@ test("Blocked temporarily reuses only blocked rows and returning restores place 
     restore: { focusPane: "ordinary-pane", scroll: 333 },
   });
   assert.equal(view.row("ordinary-pane") === ordinaryRow, true);
+  assert.equal(window.document.activeElement === ordinaryRow, true);
+  assert.equal(window.scrollY, 333);
+  assert.equal(requiredElement(app, ".workspace-set-disclosure").getAttribute("aria-expanded"), "false");
+
+  render(view, current, { mode: "blocked", restore: { focusPane: "blocked-pane", scroll: 0 } });
+  const withoutBlocked = structuredClone(current);
+  withoutBlocked.home.blocked_count = 0;
+  withoutBlocked.home.workspaces[0].agent_counts = { done: 1, idle: 1, unknown: 1, working: 1 };
+  delete withoutBlocked.home.workspaces[0].worktrees?.[0].tabs[0].terminals[0].agent;
+  const automaticPlace = automaticAllTerminalsPlace("blocked", withoutBlocked.home.blocked_count, {
+    focusPane: "ordinary-pane",
+    scroll: 333,
+  });
+  render(view, withoutBlocked, { mode: automaticPlace ? "all" : "blocked", restore: automaticPlace });
+  assert.equal(automaticPlace?.focusPane, "ordinary-pane");
+  assert.equal(automaticPlace?.scroll, 333);
   assert.equal(window.document.activeElement === ordinaryRow, true);
   assert.equal(window.scrollY, 333);
   assert.equal(requiredElement(app, ".workspace-set-disclosure").getAttribute("aria-expanded"), "false");

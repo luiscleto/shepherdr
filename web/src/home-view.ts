@@ -63,6 +63,8 @@ interface RowNodes {
   status: HTMLElement;
 }
 
+type UsedTabs = Map<string, Set<string>>;
+
 interface ConnectionCopy {
   action?: "Reconnect";
   body: string;
@@ -130,7 +132,7 @@ export class HomeView {
   readonly #loadingHeading: HTMLElement;
   readonly #rows = new Map<string, RowNodes>();
   readonly #items = new Map<string, HTMLLIElement>();
-  readonly #tabs = new Map<string, TabNodes>();
+  readonly #tabs = new Map<string, Map<string, TabNodes>>();
   readonly #workspaces = new Map<string, WorkspaceNodes>();
   readonly #workspaceSets = new Map<string, WorkspaceSetNodes>();
   readonly #entries = new Map<string, TerminalEntry>();
@@ -210,7 +212,7 @@ export class HomeView {
 
     const allWorkspaceValues = allWorkspaces(model.state.home);
     const usedWorkspaces = new Set(allWorkspaceValues.map((workspace) => workspace.id));
-    const usedTabs = new Set<string>();
+    const usedTabs: UsedTabs = new Map();
     const usedSets = new Set<string>();
     const completePaneIDs = new Set(allTerminals(model.state.home).map(({ terminal }) => terminal.pane_id));
 
@@ -339,17 +341,17 @@ export class HomeView {
     workspace: Workspace,
     blockedOnly: boolean,
     actionsAvailable: boolean,
-    usedTabs: Set<string>,
+    usedTabs: UsedTabs,
     hideTitle = false,
   ): HTMLElement | undefined {
     const tabs = visibleTabs(workspace, blockedOnly);
-    if (tabs.length === 0) return undefined;
+    if (blockedOnly && tabs.length === 0) return undefined;
     const nodes = this.#workspace(workspace);
     this.#updateWorkspace(nodes, workspace, tabs, actionsAvailable, usedTabs, hideTitle);
     return nodes.section;
   }
 
-  #renderWorkspaceSet(workspace: Workspace, actionsAvailable: boolean, usedTabs: Set<string>): HTMLElement {
+  #renderWorkspaceSet(workspace: Workspace, actionsAvailable: boolean, usedTabs: UsedTabs): HTMLElement {
     const nodes = this.#workspaceSet(workspace);
     const expanded = this.#expandedSets.get(workspace.id) ?? false;
     setAttribute(nodes.disclosure, "aria-expanded", String(expanded));
@@ -418,9 +420,16 @@ export class HomeView {
     workspace: Workspace,
     tabs: ReturnType<typeof visibleTabs>,
     actionsAvailable: boolean,
-    usedTabs: Set<string>,
+    usedTabs: UsedTabs,
     hideTitle: boolean,
   ): void {
+    if (tabs.length === 0) {
+      setClass(nodes.heading, hideTitle ? "visually-hidden" : "workspace-title");
+      setText(nodes.heading, workspace.label);
+      reconcileChildren(nodes.section, [nodes.heading]);
+      return;
+    }
+
     const flattened = terminalCount(workspace) === 1;
     const tabsShown = showTabHeadings(workspace);
     if (flattened) {
@@ -436,17 +445,26 @@ export class HomeView {
     setText(nodes.heading, workspace.label);
     const children: Node[] = [nodes.heading];
     for (const group of tabs) {
-      const key = `${workspace.id}\u0000${group.tab.id}`;
-      usedTabs.add(key);
-      const tab = this.#tab(key);
+      let workspaceTabs = usedTabs.get(workspace.id);
+      if (!workspaceTabs) {
+        workspaceTabs = new Set();
+        usedTabs.set(workspace.id, workspaceTabs);
+      }
+      workspaceTabs.add(group.tab.id);
+      const tab = this.#tab(workspace.id, group.tab.id);
       this.#updateTab(tab, workspace, group.tab, group.terminals, tabsShown, actionsAvailable);
       children.push(tab.group);
     }
     reconcileChildren(nodes.section, children);
   }
 
-  #tab(key: string): TabNodes {
-    const existing = this.#tabs.get(key);
+  #tab(workspaceID: string, tabID: string): TabNodes {
+    let workspaceTabs = this.#tabs.get(workspaceID);
+    if (!workspaceTabs) {
+      workspaceTabs = new Map();
+      this.#tabs.set(workspaceID, workspaceTabs);
+    }
+    const existing = workspaceTabs.get(tabID);
     if (existing) return existing;
     const group = element(this.#document, "div", "tab-group");
     const heading = element(this.#document, "div", "tab-heading");
@@ -454,7 +472,7 @@ export class HomeView {
     const title = element(this.#document, "h3");
     const current = element(this.#document, "span", "current-tab", "current");
     const nodes = { current, group, heading, list, title };
-    this.#tabs.set(key, nodes);
+    workspaceTabs.set(tabID, nodes);
     return nodes;
   }
 
@@ -491,15 +509,22 @@ export class HomeView {
   #terminalRow(entry: TerminalEntry, tabsShown: boolean, actionsAvailable: boolean): RowNodes {
     this.#entries.set(entry.terminal.pane_id, entry);
     let nodes = this.#rows.get(entry.terminal.pane_id);
-    if (!nodes) {
-      const row = element(this.#document, "button");
-      row.type = "button";
-      row.addEventListener("click", () => {
-        if (row.getAttribute("aria-disabled") === "true") return;
-        const current = this.#entries.get(entry.terminal.pane_id);
-        if (current) this.#actions.onOpen(current);
-      });
-      row.addEventListener("focus", () => this.#actions.onFocusPane(entry.terminal.pane_id));
+    const rowIsAction = nodes?.row.localName === "button";
+    if (!nodes || rowIsAction !== actionsAvailable) {
+      let row: HTMLElement;
+      if (actionsAvailable) {
+        const button = element(this.#document, "button");
+        button.type = "button";
+        button.addEventListener("click", () => {
+          const current = this.#entries.get(entry.terminal.pane_id);
+          if (current) this.#actions.onOpen(current);
+        });
+        button.addEventListener("focus", () => this.#actions.onFocusPane(entry.terminal.pane_id));
+        button.dataset.paneId = entry.terminal.pane_id;
+        row = button;
+      } else {
+        row = element(this.#document, "div");
+      }
       const main = element(this.#document, "span", "terminal-main");
       const name = element(this.#document, "span", "terminal-name");
       const agent = element(this.#document, "span", "terminal-agent");
@@ -508,14 +533,12 @@ export class HomeView {
       main.append(name, agent, status);
       row.append(main, chevron);
       row.dataset.paneKey = entry.terminal.pane_id;
-      row.dataset.paneId = entry.terminal.pane_id;
       nodes = { agent, chevron, main, name, row, status };
       this.#rows.set(entry.terminal.pane_id, nodes);
     }
 
     setClass(nodes.row, actionsAvailable ? "terminal-row" : "terminal-row terminal-row-stale");
-    setAttribute(nodes.row, "aria-disabled", String(!actionsAvailable));
-    setAttribute(nodes.row, "aria-label", accessibleTerminalName(entry, tabsShown));
+    if (actionsAvailable) setAttribute(nodes.row, "aria-label", accessibleTerminalName(entry, tabsShown));
     setText(nodes.name, entry.terminal.title);
     if (entry.terminal.agent) {
       const secondary = entry.terminal.agent.name === entry.terminal.title ? "" : entry.terminal.agent.name;
@@ -534,10 +557,19 @@ export class HomeView {
     return nodes;
   }
 
-  #prune(usedWorkspaces: Set<string>, usedTabs: Set<string>, usedSets: Set<string>, paneIDs: Set<string>): void {
+  #prune(usedWorkspaces: Set<string>, usedTabs: UsedTabs, usedSets: Set<string>, paneIDs: Set<string>): void {
     for (const key of this.#workspaces.keys()) if (!usedWorkspaces.has(key)) this.#workspaces.delete(key);
     for (const key of this.#workspaceSets.keys()) if (!usedSets.has(key)) this.#workspaceSets.delete(key);
-    for (const key of this.#tabs.keys()) if (!usedTabs.has(key)) this.#tabs.delete(key);
+    for (const [workspaceID, tabs] of this.#tabs) {
+      const usedWorkspaceTabs = usedTabs.get(workspaceID);
+      if (!usedWorkspaceTabs) {
+        this.#tabs.delete(workspaceID);
+        continue;
+      }
+      for (const tabID of tabs.keys()) {
+        if (!usedWorkspaceTabs.has(tabID)) tabs.delete(tabID);
+      }
+    }
     for (const key of this.#rows.keys()) {
       if (!paneIDs.has(key)) {
         this.#rows.delete(key);

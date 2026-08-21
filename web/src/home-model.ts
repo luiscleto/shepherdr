@@ -61,6 +61,19 @@ export interface TerminalEntry {
   workspace: Workspace;
 }
 
+export interface HomePlace {
+  focusPane?: string;
+  scroll: number;
+}
+
+export function automaticAllTerminalsPlace(
+  mode: "all" | "blocked",
+  blockedCount: number,
+  allTerminalsPlace: HomePlace,
+): HomePlace | undefined {
+  return mode === "blocked" && blockedCount === 0 ? allTerminalsPlace : undefined;
+}
+
 export function allTerminals(home: Home): TerminalEntry[] {
   return allWorkspaces(home).flatMap((workspace) =>
     workspace.tabs.flatMap((tab) => tab.terminals.map((terminal) => ({ tab, terminal, workspace }))),

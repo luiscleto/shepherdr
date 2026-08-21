@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   accessibleTerminalName,
   allTerminals,
+  automaticAllTerminalsPlace,
   findTerminal,
   showTabHeadings,
   terminalCount,
@@ -66,4 +67,12 @@ test("accessible output keeps the displayed title, place, agent, and exact statu
   const name = accessibleTerminalName(entry, true);
   assert.equal(name, "Open Review 1, workspace Helper & tools, tab Main, Gate helper, blocked");
   assert.doesNotMatch(name, /pane\/agent|workspace\/<script>|term-one/);
+});
+
+test("losing the last blocked agent returns the saved all-Home place", () => {
+  const place = automaticAllTerminalsPlace("blocked", 0, { focusPane: "pane/ordinary#two", scroll: 218 });
+
+  assert.equal(place?.focusPane, "pane/ordinary#two");
+  assert.equal(place?.scroll, 218);
+  assert.equal(automaticAllTerminalsPlace("blocked", 1, { scroll: 218 }), undefined);
 });

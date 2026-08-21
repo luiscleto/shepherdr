@@ -313,7 +313,7 @@ h3 {
   text-align: left;
 }
 
-button.terminal-row:not([aria-disabled="true"]):hover {
+button.terminal-row:hover {
   color: #8d3f22;
 }
 
@@ -348,7 +348,6 @@ button.terminal-row:not([aria-disabled="true"]):hover {
 
 .terminal-row-stale {
   color: #656158;
-  cursor: not-allowed;
 }
 
 .terminal-row-stale .terminal-chevron {

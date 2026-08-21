@@ -5,7 +5,14 @@ import {
   nextHomeCheckDelay,
   type HomeReachability,
 } from "./home-connection";
-import { allTerminals, findTerminal, type HomeState, type TerminalEntry } from "./home-model";
+import {
+  allTerminals,
+  automaticAllTerminalsPlace,
+  findTerminal,
+  type HomePlace,
+  type HomeState,
+  type TerminalEntry,
+} from "./home-model";
 import { TerminalPage } from "./terminal-page";
 import { returningToHome } from "./terminal-route";
 
@@ -222,7 +229,11 @@ function render(): void {
 function renderHome(): void {
   terminalPage?.destroy();
   terminalPage = undefined;
-  if (homeMode === "blocked" && state.home.blocked_count === 0) homeMode = "all";
+  const automaticPlace = automaticAllTerminalsPlace(homeMode, state.home.blocked_count, {
+    focusPane: allTerminalsFocusPane,
+    scroll: allTerminalsScroll,
+  });
+  if (automaticPlace) restoreAllTerminalsPlace(automaticPlace);
   document.body.classList.remove("terminal-active");
   homeView.render({
     actionsAvailable: liveActionsAvailable(),
@@ -260,11 +271,15 @@ function showBlockedTerminals(): void {
 }
 
 function showAllTerminals(): void {
-  homeMode = "all";
-  homeScroll = allTerminalsScroll;
-  homeFocusPane = allTerminalsFocusPane;
-  restoreHomePlace = true;
+  restoreAllTerminalsPlace({ focusPane: allTerminalsFocusPane, scroll: allTerminalsScroll });
   renderHome();
+}
+
+function restoreAllTerminalsPlace(place: HomePlace): void {
+  homeMode = "all";
+  homeScroll = place.scroll;
+  homeFocusPane = place.focusPane;
+  restoreHomePlace = true;
 }
 
 function openTerminal(entry: TerminalEntry): void {

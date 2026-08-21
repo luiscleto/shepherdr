@@ -90,7 +90,15 @@ func TestClientUsesSnapshotAndConfirmedSubscriptions(t *testing.T) {
 			serverDone <- &testError{"confirmed pane status subscription was missing"}
 			return
 		}
-		for _, kind := range []string{"workspace.focused", "tab.focused", "pane.focused", "layout.updated"} {
+		for _, kind := range []string{
+			"workspace.focused",
+			"worktree.created",
+			"worktree.opened",
+			"worktree.removed",
+			"tab.focused",
+			"pane.focused",
+			"layout.updated",
+		} {
 			if !hasSubscription(request.Params.Subscriptions, kind, "") {
 				serverDone <- &testError{"confirmed semantic subscription was missing: " + kind}
 				return
