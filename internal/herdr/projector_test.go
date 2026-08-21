@@ -81,7 +81,7 @@ func TestProjectorUsesOneReadAndOneDirtyFollowUpForAnEventBurst(t *testing.T) {
 	}
 }
 
-func TestUnchangedHomeSendsNothingButKeepsTheRawSnapshotCurrent(t *testing.T) {
+func TestOrdinaryTitleChangePublishesCurrentHomeWithoutLifecycle(t *testing.T) {
 	projector := NewProjector(nil)
 	updates, unsubscribe := projector.Subscribe()
 	defer unsubscribe()
@@ -96,29 +96,48 @@ func TestUnchangedHomeSendsNothingButKeepsTheRawSnapshotCurrent(t *testing.T) {
 
 	snapshot.Panes[0].TerminalTitleStripped = "rapid output title"
 	projector.publishLive(snapshot)
-	select {
-	case state := <-updates:
-		t.Fatalf("ordinary pane title churn unexpectedly published %+v", state)
-	case <-time.After(50 * time.Millisecond):
+	changed := <-updates
+	if changed.Connection != ConnectionLive || changed.Gap != first.Gap || changed.LastKnown {
+		t.Fatalf("title change published lifecycle state: connection=%s gap=%d last_known=%t", changed.Connection, changed.Gap, changed.LastKnown)
 	}
-	current := projector.Current()
-	if current.Snapshot.Panes[0].TerminalTitleStripped != "rapid output title" {
+	if title := findProjectedTerminal(changed.Home, "w1:p1").Title; title != "rapid output title" {
+		t.Fatalf("published Home title = %q, want rapid output title", title)
+	}
+	if changed.Snapshot.Panes[0].TerminalTitleStripped != "rapid output title" {
 		t.Fatal("Terminal-facing current raw snapshot was not replaced")
 	}
-	if title := findProjectedTerminal(current.Home, "w1:p1").Title; title != "Shell" {
-		t.Fatalf("stable Home title = %q, want Shell", title)
-	}
+}
 
-	kind := "codex"
-	name := "Worker"
-	snapshot.Agents = []AgentInfo{{
-		Agent: &kind, Name: &name, AgentStatus: StatusBlocked, PaneID: "w1:p1", TabID: "w1:t1",
-		TerminalID: "term-1", WorkspaceID: "w1",
-	}}
-	projector.publishLive(snapshot)
-	changed := <-updates
-	if changed.Home.BlockedCount != 1 || changed.Home.WorkingCount != 0 {
-		t.Fatalf("status change counts = %+v", changed.Home)
+func TestWorktreeEventRefreshesOnceWithoutGapOrRetry(t *testing.T) {
+	fixture := newLoopFixture(t, stableProjectorSnapshot())
+	projector := NewProjector(NewClient(fixture.socketPath))
+	updates, unsubscribe := projector.Subscribe()
+	defer unsubscribe()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go projector.Run(ctx)
+	<-updates
+
+	first := waitForProjectorState(t, updates, func(state State) bool { return state.Connection == ConnectionLive })
+	written := make(chan struct{})
+	fixture.events <- fixtureEvent{kind: "worktree_created", written: written}
+	waitSignal(t, written, "worktree event")
+	waitForCount(t, &fixture.snapshots, 3)
+
+	select {
+	case state := <-updates:
+		t.Fatalf("worktree event published lifecycle state: connection=%s gap=%d", state.Connection, state.Gap)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if got := fixture.snapshots.Load(); got != 3 {
+		t.Fatalf("worktree event caused %d snapshots, want setup, post-subscription, and one refresh", got)
+	}
+	if got := fixture.subscriptions.Load(); got != 1 {
+		t.Fatalf("worktree event caused %d subscriptions, want 1", got)
+	}
+	current := projector.Current()
+	if current.Connection != ConnectionLive || current.Gap != first.Gap || current.LastKnown {
+		t.Fatalf("worktree event changed lifecycle state: connection=%s gap=%d last_known=%t", current.Connection, current.Gap, current.LastKnown)
 	}
 }
 

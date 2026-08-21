@@ -197,6 +197,7 @@ func semanticEvent(event string) bool {
 	// use the schema's underscored EventKind values.
 	switch event {
 	case "workspace_created", "workspace_updated", "workspace_metadata_updated", "workspace_renamed", "workspace_moved", "workspace_reordered", "workspace_closed", "workspace_focused",
+		"worktree_created", "worktree_opened", "worktree_removed",
 		"tab_created", "tab_closed", "tab_renamed", "tab_moved", "tab_focused",
 		"pane_created", "pane_closed", "pane_updated", "pane_moved", "pane_exited", "pane_agent_detected", "pane_focused", "pane_agent_status_changed",
 		"layout_updated":
@@ -248,7 +249,6 @@ func (p *Projector) publishLive(snapshot Snapshot) {
 	}
 	p.mu.Lock()
 	state := p.state
-	stabilizeOrdinaryTitles(state.Home, &home)
 	state.Connection = ConnectionLive
 	state.Detail = ""
 	state.HasHome = true
@@ -285,73 +285,6 @@ func samePublishedState(left, right State) bool {
 		left.HasHome == right.HasHome &&
 		left.LastKnown == right.LastKnown &&
 		reflect.DeepEqual(left.Home, right.Home)
-}
-
-type ordinaryTerminalTitle struct {
-	tabLabel       string
-	title          string
-	workspaceLabel string
-}
-
-type terminalIdentity struct {
-	paneID     string
-	terminalID string
-}
-
-func stabilizeOrdinaryTitles(previous Home, candidate *Home) {
-	if !reflect.DeepEqual(terminalPlaces(previous), terminalPlaces(*candidate)) {
-		return
-	}
-	titles := make(map[terminalIdentity]ordinaryTerminalTitle)
-	visitHomeTerminals(previous, func(workspace Workspace, tab Tab, terminal *Terminal) {
-		if terminal.Agent == nil {
-			titles[terminalIdentity{paneID: terminal.PaneID, terminalID: terminal.TerminalID}] = ordinaryTerminalTitle{
-				tabLabel: tab.Label, title: terminal.Title, workspaceLabel: workspace.Label,
-			}
-		}
-	})
-	visitHomeTerminals(*candidate, func(workspace Workspace, tab Tab, terminal *Terminal) {
-		if terminal.Agent != nil {
-			return
-		}
-		stable, ok := titles[terminalIdentity{paneID: terminal.PaneID, terminalID: terminal.TerminalID}]
-		if ok && stable.workspaceLabel == workspace.Label && stable.tabLabel == tab.Label {
-			terminal.Title = stable.title
-		}
-	})
-}
-
-type terminalPlace struct {
-	tabID       string
-	workspaceID string
-}
-
-func terminalPlaces(home Home) map[terminalIdentity]terminalPlace {
-	places := make(map[terminalIdentity]terminalPlace)
-	visitHomeTerminals(home, func(workspace Workspace, tab Tab, terminal *Terminal) {
-		places[terminalIdentity{paneID: terminal.PaneID, terminalID: terminal.TerminalID}] = terminalPlace{
-			tabID: tab.ID, workspaceID: workspace.ID,
-		}
-	})
-	return places
-}
-
-func visitHomeTerminals(home Home, visit func(Workspace, Tab, *Terminal)) {
-	var visitWorkspace func(*Workspace)
-	visitWorkspace = func(workspace *Workspace) {
-		for tabIndex := range workspace.Tabs {
-			tab := &workspace.Tabs[tabIndex]
-			for terminalIndex := range tab.Terminals {
-				visit(*workspace, *tab, &tab.Terminals[terminalIndex])
-			}
-		}
-		for index := range workspace.Worktrees {
-			visitWorkspace(&workspace.Worktrees[index])
-		}
-	}
-	for index := range home.Workspaces {
-		visitWorkspace(&home.Workspaces[index])
-	}
 }
 
 func resetTimer(timer *time.Timer, duration time.Duration) {
