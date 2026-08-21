@@ -146,6 +146,7 @@ function makeView(window: Window, actions: Partial<ConstructorParameters<typeof 
   const app = window.document.createElement("main");
   window.document.body.append(app);
   const view = new HomeView(app, {
+    isHomeActive: actions.isHomeActive ?? (() => true),
     onFocusPane: actions.onFocusPane ?? (() => undefined),
     onOpen: actions.onOpen ?? (() => undefined),
     onReconnect: actions.onReconnect ?? (() => undefined),

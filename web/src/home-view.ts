@@ -28,6 +28,7 @@ import {
 type HomeMode = "all" | "blocked";
 
 interface HomeViewActions {
+  isHomeActive: () => boolean;
   onFocusPane: (paneID: string) => void;
   onOpen: (entry: TerminalEntry) => void;
   onReconnect: () => void;
@@ -1177,7 +1178,7 @@ export class HomeView {
   }
 
   #renderAgain(): void {
-    if (this.#lastRender) this.render(this.#lastRender);
+    if (this.#lastRender && this.#actions.isHomeActive()) this.render(this.#lastRender);
   }
 
   #filteredHome(home: Home, value: string): Home {

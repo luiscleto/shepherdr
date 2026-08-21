@@ -76,6 +76,7 @@ function state(home = actionHome()): HomeState {
 }
 
 interface ViewOverrides {
+  isHomeActive?: () => boolean;
   prepare?: (request: { action: "close_workspace" | "close_group" | "delete_checkout"; workspace_id: string }) => Promise<PreparedWorkspaceActionResponse>;
   run?: (request: RunWorkspaceActionRequest) => Promise<RunWorkspaceActionResponse>;
 }
@@ -84,6 +85,7 @@ function makeView(window: Window, overrides: ViewOverrides = {}, home = actionHo
   const app = window.document.createElement("main");
   window.document.body.append(app);
   const view = new HomeView(app, {
+    isHomeActive: overrides.isHomeActive ?? (() => true),
     onFocusPane: () => undefined,
     onOpen: () => undefined,
     onReconnect: () => undefined,
@@ -99,6 +101,16 @@ function makeView(window: Window, overrides: ViewOverrides = {}, home = actionHo
 function requiredElement<T extends HTMLElement = HTMLElement>(root: ParentNode, selector: string): T {
   const node = root.querySelector<T>(selector);
   if (!node) throw new Error(`missing ${selector}`);
+  return node;
+}
+
+function requiredMatchingElement<T extends HTMLElement>(
+  root: ParentNode,
+  selector: string,
+  matches: (node: T) => boolean,
+): T {
+  const node = Array.from(root.querySelectorAll<T>(selector)).find(matches);
+  if (!node) throw new Error(`missing matching ${selector}`);
   return node;
 }
 
@@ -120,7 +132,8 @@ test("New space filters deduplicated top-level paths and submits exact free-form
       return pending;
     },
   });
-  const row = view.row("parent-pane");
+  const row = requiredElement(app, '[data-pane-key="parent-pane"]');
+  row.dataset.testIdentity = "original-parent-row";
   const filter = requiredElement<HTMLInputElement>(app, ".home-filter input");
   filter.value = "Parent";
   filter.dispatchEvent(new window.Event("input", { bubbles: true }));
@@ -147,7 +160,7 @@ test("New space filters deduplicated top-level paths and submits exact free-form
   assert.equal(JSON.stringify(submitted), '{"action":"create_space","working_directory":"~/free $HOME * <b>"}');
   assert.equal(app.querySelectorAll(".new-space-action").length, 0);
   assert.equal(app.querySelectorAll(".workspace-menu-trigger").length, 0);
-  assert.equal(view.row("parent-pane") === row, true);
+  assert.equal(view.row("parent-pane")?.dataset.testIdentity, "original-parent-row");
   assert.equal(requiredElement(app, ".terminal-name").textContent, "Parent terminal");
   assert.equal(filter.value, "Parent");
   assert.equal(window.scrollY, 217);
@@ -155,11 +168,44 @@ test("New space filters deduplicated top-level paths and submits exact free-form
   finish?.({ outcome: "succeeded" });
   await settle();
   assert.match(requiredElement(app, ".home-action-panel").textContent ?? "", /Space created/);
-  assert.equal(view.row("parent-pane") === row, true);
+  assert.equal(view.row("parent-pane")?.dataset.testIdentity, "original-parent-row");
   requiredElement<HTMLButtonElement>(app, ".home-action-panel button").click();
-  assert.equal(window.document.activeElement === newSpace, true);
+  assert.equal((window.document.activeElement as HTMLElement | null)?.className, "new-space-action");
   assert.equal(filter.value, "Parent");
   assert.equal(window.scrollY, 217);
+  window.close();
+});
+
+test("a pending Home action cannot repaint the shared root after Terminal navigation", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  let finish: ((response: RunWorkspaceActionResponse) => void) | undefined;
+  const pending = new Promise<RunWorkspaceActionResponse>((resolve) => {
+    finish = resolve;
+  });
+  const { app } = makeView(window, {
+    isHomeActive: () => !window.location.hash.startsWith("#terminal="),
+    run: async () => pending,
+  });
+  requiredElement<HTMLButtonElement>(app, ".new-space-action").click();
+  requiredElement<HTMLFormElement>(app, ".home-action-form")
+    .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await settle();
+
+  window.location.hash = "#terminal=parent-pane";
+  const terminalRoute = window.document.createElement("section");
+  terminalRoute.className = "terminal-route-sentinel";
+  terminalRoute.textContent = "Terminal route remains active";
+  app.className = "terminal-screen";
+  app.replaceChildren(terminalRoute);
+  finish?.({ outcome: "succeeded" });
+  await settle();
+
+  assert.equal(window.location.hash, "#terminal=parent-pane");
+  assert.equal(app.className, "terminal-screen");
+  assert.equal(app.childElementCount, 1);
+  assert.equal(app.firstElementChild?.className, "terminal-route-sentinel");
+  assert.equal(app.textContent, "Terminal route remains active");
+  assert.equal(app.querySelectorAll(".home-action-layer, .masthead, .home-tools").length, 0);
   window.close();
 });
 
@@ -187,22 +233,25 @@ test("workspace menu is immediately after Open and keyboard reaches fresh group 
   requiredElement<HTMLInputElement>(app, ".home-filter input").value = "";
   const disclosure = requiredElement<HTMLButtonElement>(app, ".workspace-set-disclosure");
   disclosure.click();
-  const row = view.row("parent-pane");
-  assert.ok(row);
+  const row = requiredElement(app, '[data-pane-key="parent-pane"]');
+  row.dataset.testIdentity = "original-group-row";
   const actionRow = row.parentElement;
+  if (!actionRow) throw new Error("missing parent workspace action row");
   assert.equal(actionRow?.className, "workspace-action-row");
-  assert.equal(actionRow?.firstElementChild === row, true);
-  assert.equal(actionRow?.children[1].className, "workspace-menu");
+  assert.deepEqual(Array.from(actionRow.children, (node) => (node as HTMLElement).className), [
+    "terminal-row",
+    "workspace-menu",
+  ]);
 
   const trigger = requiredElement<HTMLButtonElement>(actionRow, ".workspace-menu-trigger");
   trigger.click();
   const items = Array.from(actionRow.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
   assert.deepEqual(items.map((item) => item.textContent), ["New worktree", "Close group"]);
-  assert.equal(window.document.activeElement === items[0], true);
+  assert.equal(window.document.activeElement?.textContent, "New worktree");
   items[0].dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
-  assert.equal(window.document.activeElement === items[1], true);
+  assert.equal(window.document.activeElement?.textContent, "Close group");
   items[1].dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-  assert.equal(window.document.activeElement === trigger, true);
+  assert.equal((window.document.activeElement as HTMLElement | null)?.getAttribute("aria-label"), "Actions for Parent <script>");
   assert.equal(requiredElement(actionRow, '[role="menu"]').hidden, true);
 
   trigger.click();
@@ -214,7 +263,7 @@ test("workspace menu is immediately after Open and keyboard reaches fresh group 
   assert.match(text, /whole group and 7 agents/);
   assert.match(text, /Agents may be interrupted: 2 working, 1 blocked, 3 unknown\./);
   assert.doesNotMatch(text, /opaque-child|opaque-parent/);
-  assert.equal(panel.querySelector("script"), null);
+  assert.equal(panel.querySelectorAll("script").length, 0);
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
 
   requiredElement<HTMLButtonElement>(panel, ".home-action-primary").click();
@@ -223,11 +272,11 @@ test("workspace menu is immediately after Open and keyboard reaches fresh group 
     runRequest && "expected" in runRequest ? JSON.stringify(runRequest.expected) : "",
     JSON.stringify(prepared.expected),
   );
-  assert.equal(view.row("parent-pane") === row, true);
+  assert.equal(view.row("parent-pane")?.dataset.testIdentity, "original-group-row");
   assert.match(requiredElement(app, ".home-action-panel").textContent ?? "", /Result unknown\. Check Home/);
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
   requiredElement<HTMLButtonElement>(app, ".home-action-panel button").click();
-  assert.equal(window.document.activeElement === trigger, true);
+  assert.equal((window.document.activeElement as HTMLElement | null)?.getAttribute("aria-label"), "Actions for Parent <script>");
   window.close();
 });
 
@@ -253,20 +302,24 @@ test("delete confirmation and dirty refusal keep hostile path and detail inert",
       detail: "<svg onload=run>",
     }),
   });
-  const childTrigger = Array.from(app.querySelectorAll<HTMLButtonElement>(".workspace-menu-trigger"))
-    .find((button) => button.getAttribute("aria-label") === "Actions for Child <img>");
-  assert.ok(childTrigger);
+  const childTrigger = requiredMatchingElement<HTMLButtonElement>(
+    app,
+    ".workspace-menu-trigger",
+    (button) => button.getAttribute("aria-label") === "Actions for Child <img>",
+  );
   childTrigger.click();
-  const deleteAction = Array.from(app.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
-    .find((button) => button.textContent === "Delete checkout");
-  assert.ok(deleteAction);
+  const deleteAction = requiredMatchingElement<HTMLButtonElement>(
+    app,
+    '[role="menuitem"]',
+    (button) => button.textContent === "Delete checkout",
+  );
   deleteAction.click();
   await settle();
 
   const panel = requiredElement(app, ".home-action-panel");
   assert.equal(requiredElement(panel, ".checkout-path").textContent, path);
   assert.match(panel.textContent ?? "", /Git branch remains/);
-  assert.equal(panel.querySelector("img"), null);
+  assert.equal(panel.querySelectorAll("img").length, 0);
   requiredElement<HTMLButtonElement>(panel, ".home-action-primary").click();
   await settle();
   assert.match(
@@ -274,7 +327,7 @@ test("delete confirmation and dirty refusal keep hostile path and detail inert",
     /This folder has changes\. It was not removed\. Resolve the changes in the terminal, then try again\./,
   );
   assert.doesNotMatch(panel.textContent ?? "", /svg onload/);
-  assert.equal(panel.querySelector("svg"), null);
+  assert.equal(panel.querySelectorAll("svg").length, 0);
   window.close();
 });
 
@@ -287,15 +340,19 @@ test("New worktree omits a blank branch and preserves an entered branch exactly"
       return { outcome: "succeeded" };
     },
   });
-  const trigger = Array.from(app.querySelectorAll<HTMLButtonElement>(".workspace-menu-trigger"))
-    .find((button) => button.getAttribute("aria-label") === "Actions for Parent <script>");
-  assert.ok(trigger);
+  const trigger = requiredMatchingElement<HTMLButtonElement>(
+    app,
+    ".workspace-menu-trigger",
+    (button) => button.getAttribute("aria-label") === "Actions for Parent <script>",
+  );
 
   const submitWorktree = async (branchValue: string): Promise<void> => {
     trigger.click();
-    const action = Array.from(app.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
-      .find((button) => !button.hidden && button.textContent === "New worktree");
-    assert.ok(action);
+    const action = requiredMatchingElement<HTMLButtonElement>(
+      app,
+      '[role="menuitem"]',
+      (button) => !button.hidden && button.textContent === "New worktree",
+    );
     action.click();
     const branch = requiredElement<HTMLInputElement>(app, 'input[name="branch"]');
     branch.value = branchValue;
@@ -312,7 +369,7 @@ test("New worktree omits a blank branch and preserves an entered branch exactly"
     JSON.stringify(requests[1]),
     '{"action":"create_worktree","workspace_id":"opaque-parent","branch":" feature/<b> "}',
   );
-  assert.equal(app.querySelector("b"), null);
+  assert.equal(app.querySelectorAll("b").length, 0);
   window.close();
 });
 
@@ -322,18 +379,22 @@ test("server refusal detail is displayed as inert text", async () => {
   const { app } = makeView(window, {
     prepare: async () => ({ outcome: "refused", reason: "herdr_refused", detail }),
   });
-  const trigger = Array.from(app.querySelectorAll<HTMLButtonElement>(".workspace-menu-trigger"))
-    .find((button) => button.getAttribute("aria-label") === "Actions for Parent <script>");
-  assert.ok(trigger);
+  const trigger = requiredMatchingElement<HTMLButtonElement>(
+    app,
+    ".workspace-menu-trigger",
+    (button) => button.getAttribute("aria-label") === "Actions for Parent <script>",
+  );
   trigger.click();
-  const closeGroup = Array.from(app.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
-    .find((button) => button.textContent === "Close group");
-  assert.ok(closeGroup);
+  const closeGroup = requiredMatchingElement<HTMLButtonElement>(
+    app,
+    '[role="menuitem"]',
+    (button) => button.textContent === "Close group",
+  );
   closeGroup.click();
   await settle();
 
   assert.equal(requiredElement(app, ".home-action-detail").textContent, detail);
-  assert.equal(app.querySelector("img"), null);
+  assert.equal(app.querySelectorAll("img").length, 0);
   window.close();
 });
 
@@ -347,6 +408,7 @@ test("Home never infers workspace actions from grouping or checkout paths", () =
   const app = window.document.createElement("main");
   window.document.body.append(app);
   const view = new HomeView(app, {
+    isHomeActive: () => true,
     onFocusPane: () => undefined,
     onOpen: () => undefined,
     onReconnect: () => undefined,

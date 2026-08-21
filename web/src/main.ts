@@ -60,6 +60,7 @@ let publishedStateSignature = "";
 let renderedTerminalPane: string | undefined;
 let terminalPage: TerminalPage | undefined;
 const homeView = new HomeView(app, {
+  isHomeActive: () => !terminalPaneFromHash(),
   onFocusPane: (paneID) => {
     lastFocusedHomePane = paneID;
   },
