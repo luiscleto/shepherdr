@@ -1077,7 +1077,7 @@ export class HomeView {
       create_space: "Creating space",
       create_worktree: "Creating worktree",
       close_workspace: "Closing workspace",
-      close_group: "Closing group",
+      close_group: "Closing workspace",
       delete_checkout: "Deleting checkout",
     };
     return headings[action];
@@ -1088,7 +1088,7 @@ export class HomeView {
       create_space: ["Space created", "Home will update when the new space is ready."],
       create_worktree: ["Worktree created", "Home will update when the new worktree is ready."],
       close_workspace: ["Workspace closed", "Its folder and branch remain. Home will update when it is ready."],
-      close_group: ["Group closed", "Linked checkout folders and branches remain. Home will update when it is ready."],
+      close_group: ["Workspace closed", "Linked checkout folders and branches remain. Home will update when it is ready."],
       delete_checkout: ["Checkout deleted", "The Git branch remains. Home will update when it is ready."],
     };
     this.#showResult(copy[action][0], copy[action][1]);

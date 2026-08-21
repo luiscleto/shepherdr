@@ -211,8 +211,12 @@ test("a pending Home action cannot repaint the shared root after Terminal naviga
 
 test("workspace menu is immediately after Open and keyboard reaches fresh close confirmation", async () => {
   const window = new Window({ url: "http://localhost/" });
+  let finishRun: ((response: RunWorkspaceActionResponse) => void) | undefined;
   let prepareRequest: { action: "close_workspace" | "close_group" | "delete_checkout"; workspace_id: string } | undefined;
   let runRequest: RunWorkspaceActionRequest | undefined;
+  const pendingRun = new Promise<RunWorkspaceActionResponse>((resolve) => {
+    finishRun = resolve;
+  });
   const prepared = {
     outcome: "prepared" as const,
     action: "close_group" as const,
@@ -231,7 +235,7 @@ test("workspace menu is immediately after Open and keyboard reaches fresh close 
     },
     run: async (request) => {
       runRequest = request;
-      return { outcome: "unknown" };
+      return pendingRun;
     },
   });
   requiredElement<HTMLInputElement>(app, ".home-filter input").value = "";
@@ -278,14 +282,23 @@ test("workspace menu is immediately after Open and keyboard reaches fresh close 
 
   requiredElement<HTMLButtonElement>(panel, ".home-action-primary").click();
   await settle();
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "Closing workspace");
+  assert.equal(requiredElement(panel, ".home-action-copy").textContent, "Wait for Herdr to finish.");
   assert.equal(runRequest && "action" in runRequest ? runRequest.action : "", "close_group");
   assert.equal(
     runRequest && "expected" in runRequest ? JSON.stringify(runRequest.expected) : "",
     JSON.stringify(prepared.expected),
   );
   assert.equal(view.row("parent-pane")?.dataset.testIdentity, "original-group-row");
-  assert.match(requiredElement(app, ".home-action-panel").textContent ?? "", /Result unknown\. Check Home/);
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
+
+  finishRun?.({ outcome: "succeeded" });
+  await settle();
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "Workspace closed");
+  assert.equal(
+    requiredElement(panel, ".home-action-copy").textContent,
+    "Linked checkout folders and branches remain. Home will update when it is ready.",
+  );
   requiredElement<HTMLButtonElement>(app, ".home-action-panel button").click();
   assert.equal((window.document.activeElement as HTMLElement | null)?.getAttribute("aria-label"), "Actions for Parent <script>");
   window.close();
