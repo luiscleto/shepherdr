@@ -35,7 +35,7 @@ Removing a linked worktree closes its workspace and processes, deletes the check
 
 Keep the accepted Home layout. A workspace row places its terminal action first and a vertical three-dot menu immediately to its right.
 
-- A top-level repository row offers **New worktree** and **Close group**.
+- A top-level repository row offers **New worktree** and **Close workspace**.
 - A linked-worktree row offers **Close workspace** and **Delete checkout**.
 - An ordinary workspace row offers **New worktree** when its current directory can be resolved truthfully, plus **Close workspace** when Herdr can close it.
 - The Home tools row offers the global **New space** action beside Filter and Expand/Collapse. It may wrap on a narrow phone.
@@ -77,9 +77,11 @@ Changing pane focus or directory before submission is not a destructive stale-co
 
 Every close and delete action requires confirmation based on a fresh Herdr snapshot.
 
-A close confirmation names the exact workspace or group and states how many agents will close. For a top-level group, say plainly that the whole group will close.
+A close confirmation names the exact workspace. The menu action is always **Close workspace**, including for a top-level repository.
 
-When any affected agent is `working`, `blocked`, or `unknown`, the same dialog prominently says those agents may be interrupted and gives the exact nonzero status counts. `idle` and `done` agents remain in the total but do not trigger the interruption warning. Use one clear dialog, not a second warning.
+If other linked workspaces will also close, say how many. Mention affected agents only when the total is greater than zero. Do not show a group warning or a zero-agent sentence when no linked workspace or agent is affected.
+
+When any affected agent is `working`, `blocked`, or `unknown`, the same dialog prominently says those agents may be interrupted and gives the exact nonzero status counts. `idle` and `done` agents remain in a nonzero total but do not trigger the interruption warning. Use one clear dialog, not a second warning.
 
 A delete confirmation names the exact workspace and checkout path and says that the checkout will be deleted while the Git branch remains.
 
@@ -223,7 +225,7 @@ Use disposable real workspaces and worktrees through the production path:
 3. Create an ordinary space at `~`, change its terminal into a disposable Git repository, and create a worktree from that space. An ordinary non-Git space shows the same action and displays Herdr's refusal without changing Home.
 4. Confirm that a working or blocked agent produces the interruption warning with exact counts.
 5. Close one linked workspace; its processes end while its checkout and branch remain.
-6. Confirm and close one disposable top-level group; the dialog names the whole group and its affected agents.
+6. Confirm and close one disposable top-level repository. Its menu says **Close workspace**; the dialog names any additional linked workspaces and affected agents, omitting zero counts.
 7. Dirty a disposable linked checkout and attempt deletion. Herdr refuses it and nothing disappears.
 8. Clean that checkout outside Shepherdr, retry, and verify that the checkout and workspace disappear while the branch remains.
 9. Submit a stale confirmation and concurrent actions from two phone tabs; neither may target the wrong workspace or invent success.
