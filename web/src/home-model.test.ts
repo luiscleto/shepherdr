@@ -17,6 +17,7 @@ const home: Home = {
   working_count: 0,
   workspaces: [
     {
+      actions: ["close_workspace"],
       id: "workspace/<script>",
       label: "Helper & tools",
       number: 1,

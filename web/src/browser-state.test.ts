@@ -12,6 +12,7 @@ function flatHome(): Home {
     working_count: 0,
     workspaces: [
       {
+        actions: ["close_workspace"],
         id: "workspace-one",
         label: "Workspace one",
         number: 1,
@@ -42,6 +43,7 @@ function groupedHome(): Home {
     working_count: 1,
     workspaces: [
       {
+        actions: ["create_worktree", "close_group"],
         agent_counts: { blocked: 1, done: 1, idle: 1, unknown: 1, working: 1 },
         id: "parent",
         label: "Main project <script>",
@@ -69,6 +71,7 @@ function groupedHome(): Home {
         ],
         worktrees: [
           {
+            actions: ["close_workspace", "delete_checkout"],
             id: "blocked-worktree",
             label: "Review branch",
             number: 2,
@@ -90,6 +93,7 @@ function groupedHome(): Home {
             ],
           },
           {
+            actions: ["close_workspace", "delete_checkout"],
             id: "quiet-worktree",
             label: "Quiet branch",
             number: 3,
@@ -142,11 +146,17 @@ function makeView(window: Window, actions: Partial<ConstructorParameters<typeof 
   const app = window.document.createElement("main");
   window.document.body.append(app);
   const view = new HomeView(app, {
+    isHomeActive: actions.isHomeActive ?? (() => true),
     onFocusPane: actions.onFocusPane ?? (() => undefined),
     onOpen: actions.onOpen ?? (() => undefined),
     onReconnect: actions.onReconnect ?? (() => undefined),
     onShowAll: actions.onShowAll ?? (() => undefined),
     onShowBlocked: actions.onShowBlocked ?? (() => undefined),
+    prepareWorkspaceAction: actions.prepareWorkspaceAction ?? (async () => ({
+      outcome: "refused",
+      reason: "not_applicable",
+    })),
+    runWorkspaceAction: actions.runWorkspaceAction ?? (async () => ({ outcome: "succeeded" })),
   });
   return { app, view };
 }
@@ -222,6 +232,7 @@ test("zero-terminal workspaces render once without the global empty state", () =
     blocked_count: 0,
     working_count: 0,
     workspaces: [{
+      actions: ["close_workspace"],
       id: "empty-workspace",
       label: "Empty workspace",
       number: 1,
@@ -340,6 +351,7 @@ test("opaque workspace and tab ids cannot collide during reconciliation", () => 
     working_count: 0,
     workspaces: [
       {
+        actions: ["close_workspace"],
         id: "left\u0000middle",
         label: "First workspace",
         number: 1,
@@ -357,6 +369,7 @@ test("opaque workspace and tab ids cannot collide during reconciliation", () => 
         ],
       },
       {
+        actions: ["close_workspace"],
         id: "left",
         label: "Second workspace",
         number: 2,

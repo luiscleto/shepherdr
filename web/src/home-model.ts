@@ -1,3 +1,5 @@
+import type { WorkspaceAction } from "./workspace-actions";
+
 export type AgentStatus = "working" | "blocked" | "idle" | "done" | "unknown";
 export type Connection = "reconnecting" | "live" | "not_running" | "incompatible";
 
@@ -23,7 +25,9 @@ export interface Tab {
 }
 
 export interface Workspace {
+  actions: WorkspaceAction[];
   agent_counts?: AgentCounts;
+  checkout_path?: string;
   id: string;
   label: string;
   number: number;
@@ -48,7 +52,7 @@ export interface Home {
 export interface HomeState {
   connection: Connection;
   detail?: string;
-  epoch?: unknown;
+  epoch?: string;
   gap: number;
   has_home: boolean;
   home: Home;

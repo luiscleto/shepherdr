@@ -23,13 +23,14 @@ type Server struct {
 	assets             fs.FS
 	epoch              string
 	projector          *herdr.Projector
+	workspaceActions   *workspaceActionCoordinator
 	terminal           *TerminalBridge
 	terminalLabEnabled bool
 	upgrader           websocket.Upgrader
 }
 
-func New(assets fs.FS, projector *herdr.Projector, terminal *TerminalBridge, terminalLabEnabled bool) *Server {
-	return &Server{
+func New(assets fs.FS, projector *herdr.Projector, terminal *TerminalBridge, terminalLabEnabled bool, actionClients ...*herdr.Client) *Server {
+	server := &Server{
 		assets:             assets,
 		epoch:              newServerEpoch(),
 		projector:          projector,
@@ -39,6 +40,14 @@ func New(assets fs.FS, projector *herdr.Projector, terminal *TerminalBridge, ter
 			HandshakeTimeout: 5 * time.Second,
 		},
 	}
+	if len(actionClients) > 0 && actionClients[0] != nil {
+		var refresh homeRefresher
+		if projector != nil {
+			refresh = projector
+		}
+		server.workspaceActions = newWorkspaceActionCoordinator(actionClients[0], refresh)
+	}
+	return server
 }
 
 func newServerEpoch() string {
@@ -52,6 +61,10 @@ func newServerEpoch() string {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/home", s.homeSocket)
+	if s.workspaceActions != nil {
+		mux.HandleFunc("POST /api/workspace-actions/prepare", s.workspaceActions.prepare)
+		mux.HandleFunc("POST /api/workspace-actions", s.workspaceActions.run)
+	}
 	if s.terminal != nil {
 		mux.HandleFunc("GET /api/terminal", s.terminalSocket)
 		mux.HandleFunc("GET /api/terminal/read", s.terminalRead)

@@ -141,6 +141,30 @@ func TestWorktreeEventRefreshesOnceWithoutGapOrRetry(t *testing.T) {
 	}
 }
 
+func TestRequestedHomeRefreshUsesOneCompleteRead(t *testing.T) {
+	fixture := newLoopFixture(t, stableProjectorSnapshot())
+	projector := NewProjector(NewClient(fixture.socketPath))
+	updates, unsubscribe := projector.Subscribe()
+	defer unsubscribe()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go projector.Run(ctx)
+	<-updates
+	waitForProjectorState(t, updates, func(state State) bool { return state.Connection == ConnectionLive })
+
+	projector.RequestRefresh()
+	waitForCount(t, &fixture.snapshots, 3)
+	time.Sleep(100 * time.Millisecond)
+	if got := fixture.snapshots.Load(); got != 3 {
+		t.Fatalf("one requested refresh caused %d total snapshots, want setup, post-subscription, and one refresh", got)
+	}
+	select {
+	case state := <-updates:
+		t.Fatalf("unchanged requested refresh unexpectedly published %+v", state)
+	default:
+	}
+}
+
 func TestProjectorResubscribesBeforePublishingANewPane(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
 	listener, err := net.Listen("unix", socketPath)
