@@ -215,7 +215,7 @@ h3 {
 
 .workspace-set-parent {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 44px;
+  grid-template-columns: 44px minmax(0, 1fr);
   align-items: start;
   gap: 0.25rem;
   border-top: 1px solid #817d72;
@@ -242,11 +242,40 @@ h3 {
 }
 
 .workspace-set-marker {
-  font-size: 1.3rem;
+  font-size: 1.15rem;
+  line-height: 1;
 }
 
-.workspace-set-disclosure[aria-expanded="false"] .workspace-set-marker {
-  transform: rotate(-90deg);
+.workspace-set-parent .terminal-main {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 0.45rem;
+}
+
+.workspace-set-parent .terminal-name {
+  grid-row: 1;
+  grid-column: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-set-parent .terminal-agent,
+.workspace-set-parent .status {
+  grid-column: 1 / -1;
+}
+
+.workspace-set-summary {
+  grid-row: 1;
+  grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  color: #6b675f;
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workspace-set-contents {

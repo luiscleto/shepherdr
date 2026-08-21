@@ -6,6 +6,7 @@ import {
   terminalCount,
   visibleTabs,
   workspaceSets,
+  type AgentCounts,
   type HomeState,
   type Tab,
   type TerminalEntry,
@@ -39,8 +40,10 @@ interface WorkspaceNodes {
 interface WorkspaceSetNodes {
   contents: HTMLElement;
   disclosure: HTMLButtonElement;
+  marker: HTMLElement;
   parent: HTMLElement;
   section: HTMLElement;
+  summary: HTMLElement;
 }
 
 interface TabNodes {
@@ -319,10 +322,18 @@ export class HomeView {
     const expanded = this.#expandedSets.get(workspace.id) ?? false;
     setAttribute(nodes.disclosure, "aria-expanded", String(expanded));
     setAttribute(nodes.disclosure, "aria-label", `${expanded ? "Collapse" : "Expand"} ${workspace.label} worktrees`);
+    setText(nodes.marker, expanded ? "−" : "+");
+    setText(nodes.summary, this.#groupSummary(workspace.agent_counts ?? {}, 1 + (workspace.worktrees?.length ?? 0)));
     setHidden(nodes.contents, !expanded);
 
     const parent = this.#renderWorkspace(workspace, false, actionsAvailable, usedTabs);
-    reconcileChildren(nodes.parent, parent ? [parent, nodes.disclosure] : [nodes.disclosure]);
+    const parentMain = parent?.querySelector<HTMLElement>(".terminal-main");
+    if (parentMain && nodes.summary.parentElement !== parentMain) {
+      parentMain.append(nodes.summary);
+    } else if (!parentMain) {
+      nodes.summary.remove();
+    }
+    reconcileChildren(nodes.parent, parent ? [nodes.disclosure, parent] : [nodes.disclosure]);
     const contents: Node[] = [];
     for (const worktree of workspace.worktrees ?? []) {
       const section = this.#renderWorkspace(worktree, false, actionsAvailable, usedTabs);
@@ -341,17 +352,32 @@ export class HomeView {
       this.#expandedSets.set(workspace.id, !this.#expandedSets.get(workspace.id));
       if (this.#lastRender) this.render(this.#lastRender);
     });
-    const marker = element(this.#document, "span", "workspace-set-marker", "⌄");
+    const marker = element(this.#document, "span", "workspace-set-marker");
     marker.setAttribute("aria-hidden", "true");
     disclosure.className = "workspace-set-disclosure";
     disclosure.append(marker);
+    const summary = element(this.#document, "span", "workspace-set-summary");
     const contents = element(this.#document, "div", "workspace-set-contents");
     contents.id = `workspace-set-contents-${++this.#workspaceSetSequence}`;
     disclosure.setAttribute("aria-controls", contents.id);
     section.append(parent, contents);
-    const nodes = { contents, disclosure, parent, section };
+    const nodes = { contents, disclosure, marker, parent, section, summary };
     this.#workspaceSets.set(workspace.id, nodes);
     return nodes;
+  }
+
+  #groupSummary(counts: AgentCounts, workspaceCount: number): string {
+    const statuses = ["working", "blocked", "idle", "done", "unknown"] as const;
+    const agentCount = statuses.reduce((total, status) => total + (counts[status] ?? 0), 0);
+    const parts = [
+      `${workspaceCount} workspace${workspaceCount === 1 ? "" : "s"}`,
+      `${agentCount} agent${agentCount === 1 ? "" : "s"}`,
+    ];
+    for (const status of statuses) {
+      const count = counts[status] ?? 0;
+      if (count > 0) parts.push(`${count} ${status}`);
+    }
+    return parts.join(" · ");
   }
 
   #workspace(workspace: Workspace): WorkspaceNodes {
@@ -512,7 +538,12 @@ export class HomeView {
 
   #prune(usedWorkspaces: Set<string>, usedTabs: UsedTabs, usedSets: Set<string>, paneIDs: Set<string>): void {
     for (const key of this.#workspaces.keys()) if (!usedWorkspaces.has(key)) this.#workspaces.delete(key);
-    for (const key of this.#workspaceSets.keys()) if (!usedSets.has(key)) this.#workspaceSets.delete(key);
+    for (const [key, nodes] of this.#workspaceSets) {
+      if (!usedSets.has(key)) {
+        nodes.summary.remove();
+        this.#workspaceSets.delete(key);
+      }
+    }
     for (const [workspaceID, tabs] of this.#tabs) {
       const usedWorkspaceTabs = usedTabs.get(workspaceID);
       if (!usedWorkspaceTabs) {

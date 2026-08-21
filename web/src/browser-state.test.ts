@@ -401,8 +401,12 @@ test("worktree sets keep the parent Open separate from the worktree disclosure",
   assert.equal(disclosure.getAttribute("aria-expanded"), "true");
   assert.equal(disclosure.getAttribute("aria-label"), "Collapse Main project <script> worktrees");
   assert.equal(app.querySelectorAll(".workspace-set-meta").length, 0);
+  assert.equal(
+    requiredElement(parentRow, ".workspace-set-summary").textContent,
+    "3 workspaces · 5 agents · 1 working · 1 blocked · 1 idle · 1 done · 1 unknown",
+  );
   assert.doesNotMatch(disclosure.textContent ?? "", /Open/);
-  assert.equal(disclosure.textContent, "⌄");
+  assert.equal(disclosure.textContent, "−");
   assert.equal(parentRow.localName, "button");
   assert.equal(parentRow.getAttribute("aria-label"), "Open Builder, workspace Main project <script>, working");
   assert.equal(requiredElement(parentRow, ".status").textContent, "working");
@@ -415,15 +419,17 @@ test("worktree sets keep the parent Open separate from the worktree disclosure",
   disclosure.click();
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
   assert.equal(disclosure.getAttribute("aria-label"), "Expand Main project <script> worktrees");
+  assert.equal(disclosure.textContent, "+");
   assert.equal(requiredElement(app, ".workspace-set-contents").hidden, true);
   assert.equal(parentRow.closest("[hidden]") === null, true);
   assert.deepEqual(opened, ["parent-pane"]);
   assert.equal(requiredElement(app, ".workspace-expand-action").textContent, "Expand all");
 
   const quieter = structuredClone(current);
-  quieter.home.workspaces[0].agent_counts = { done: 5 };
+  quieter.home.workspaces[0].agent_counts = { blocked: 1 };
   render(view, quieter);
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
+  assert.equal(requiredElement(parentRow, ".workspace-set-summary").textContent, "3 workspaces · 1 agent · 1 blocked");
 
   requiredElement(app, ".workspace-expand-action").click();
   assert.equal(disclosure.getAttribute("aria-expanded"), "true");
