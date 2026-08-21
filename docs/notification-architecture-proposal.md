@@ -83,9 +83,11 @@ After the explicit tap, the browser registers the same-origin service worker, re
 
 When sign-in is off, anyone who can reach Shepherdr already has operator authority under the approved trust model. Such a browser may subscribe only after an explicit tap. This does not establish device trust. It does mean the push service may continue delivering generic alerts after the device leaves the private network, so the operator must be willing to grant that continuing access.
 
+Subscriptions belong to this Shepherdr deployment, not to one Herdr session identity. They survive Shepherdr and machine restarts and continue if the operator starts the deployment against another Herdr socket. Each start or reconnect still begins from a silent snapshot baseline, so only later observed transitions notify. The first slice adds no session-binding or migration system; the operator can clear all notification state before or after repointing the deployment.
+
 Store one owner-readable local state file outside the repository: the VAPID key pair and each subscription's endpoint, browser keys, optional expiry, and event selections. Replace it atomically. Do not store snapshots, history, device names, seen state, or delivery claims.
 
-The VAPID private key and subscription authentication values are secrets. Keep them out of logs, source control, browser responses, and unprotected backups. Keep the VAPID key stable across restarts. A reset or rotation invalidates subscriptions and requires browsers to enable again; do not rotate silently. If state is corrupt or unreadable, disable notifications without breaking Home or Terminal and report the error instead of creating a new identity.
+The VAPID private key and subscription authentication values are secrets. The VAPID public key is intentionally browser-visible; the private key and subscription secrets are not. Keep secrets out of logs, source control, browser responses, and unprotected backups. Keep the VAPID key stable across restarts. With Shepherdr stopped, a local reset command clears every subscription and the VAPID pair, then exits. Browsers must enable notifications again. If state is corrupt or unreadable, disable notifications without breaking Home or Terminal and report the error instead of creating a new identity.
 
 A subscription endpoint is an untrusted URL and a server-side request boundary. Accept only valid HTTPS endpoints, reject embedded credentials and fragments, do not follow redirects, resolve and reject local, private, link-local, and tailnet destinations, defend against DNS rebinding, and use tight request size and time limits. Use a maintained Web Push library for encryption and signing. These controls avoid turning subscription enrollment into SSRF while remaining independent of a particular push vendor.
 
@@ -105,6 +107,7 @@ Use a five-minute time to live. Do not retry after acceptance, timeout, or an am
 8. **Keep the persistent Notifications control settings-only, with no unread badge.** The invitation is separate and temporary; no history or seen state exists.
 9. **Offer one quiet invitation on the first eligible browser visit.** Provide **Turn on notifications** and **Not now**, remember **Not now** locally, and request permission only after the enable tap. Do not invite when unsupported, granted, or blocked.
 10. **Gate the first slice on a real Android phone plus a second browser or profile.** Keep standards-based iOS support, but do not require an unavailable iPhone or claim untested acceptance.
+11. **Keep subscriptions deployment-bound.** They survive restarts and a changed Herdr socket; each new connection starts from a silent baseline. A local reset command clears all notification subscriptions and keys.
 
 These product and security choices are approved direction.
 
