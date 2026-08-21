@@ -6,7 +6,7 @@ Approved simplification: 2026-08-20
 
 ## Scope
 
-This document covers Home and the later workspace actions: New worktree, Close, and non-force Remove. Terminal is separate. Sign-in, devices, notifications, and Chat remain later work.
+This document covers Home and its current workspace actions. Terminal is separate. Sign-in, devices, notifications, and Chat remain later work.
 
 The current shape is small:
 
@@ -18,11 +18,11 @@ There is no Home database, stored grouping, second runtime, or public hosting su
 
 ## What Herdr provides
 
-`session.snapshot` returns the complete state needed by read-only Home: workspaces, tabs, panes, terminals, layouts, agents, focus, protocol information, and worktree provenance.
+`session.snapshot` returns the complete state needed by Home: workspaces, tabs, panes, terminals, layouts, agents, focus, protocol information, and worktree provenance.
 
 `events.subscribe` reports changes to that state. Events tell Shepherdr to read another complete snapshot; the browser does not need Herdr event details or partial updates.
 
-Later workspace actions use Herdr's confirmed `worktree.list`, worktree creation and removal, and workspace close requests. Shepherdr does not invent another interface.
+Workspace actions use Herdr's confirmed workspace creation and close requests, worktree creation and removal, and current snapshot data. Shepherdr does not invent another interface or run its own Git workflow.
 
 Herdr remains the authority for the status words `working`, `blocked`, `idle`, `done`, and `unknown`.
 
@@ -83,30 +83,22 @@ Render names, IDs, paths, branches, repository keys, and all Herdr or terminal c
 
 An **Open** action targets the exact terminal represented by its row. If that target no longer exists, the action fails honestly; it never falls back to a different terminal.
 
-## Later workspace actions
-
-Workspace actions arrive one slice at a time. Do not add their controls or supporting structure before their slice.
+## Workspace actions
 
 Before an action, read current Herdr state and validate that exact target. Run one workspace action at a time. Send only the confirmed Herdr request. Report success only from its matching response; after an interrupted or unclear result, say the result is unknown and refresh Home.
 
-- **New worktree** uses the chosen top-level workspace. A blank branch is omitted so Herdr chooses. It does not move focus.
-- **Close** applies only to a linked worktree workspace. It ends its terminals but keeps the folder and branch.
-- **Remove** applies only to an eligible linked worktree checkout. It uses `force:false`, never deletes the branch, and reports a dirty refusal honestly.
+- **New space** uses a freely entered directory and an optional label. Shepherdr expands only `~` and `~/...`; it does not interpret other shell syntax.
+- **New worktree** uses either a confirmed repository workspace or an ordinary workspace's freshly resolved current terminal directory. A blank branch is omitted so Herdr chooses. Herdr decides whether the directory is a valid Git source.
+- **Close workspace** applies to any workspace Herdr can close. The confirmation shows additional linked workspaces and nonzero agent counts that will be affected.
+- **Delete checkout** applies only to a linked worktree checkout. It uses `force:false`, never deletes the branch, and reports a dirty refusal honestly.
 
-Displayed names, paths, branches, and browser-supplied values never choose the operation or grant authority. Add only the validation required by the action being built; do not keep speculative machinery for later actions.
+Displayed names, paths, branches, and browser-supplied values never choose the operation or grant authority. The exact current contract and acceptance record live in `wave-02-workspace-actions.md`; do not duplicate its internal details here or keep speculative machinery for later actions.
 
 ## Work order and acceptance
 
-Work remains sequential:
+Home, Terminal, and workspace management have passed their real-phone gates. Future work starts only from a human-approved brief. Tests should be few and useful; the production executable against real Herdr and the real-phone workflow remain the acceptance gate.
 
-1. read-only Home;
-2. New worktree;
-3. Close;
-4. non-force Remove.
-
-Each slice has one worker, an independent technical reviewer, an independent language and interface reviewer, and an integrator. Tests should be few and useful. The production executable against real Herdr and the real-phone workflow remain the acceptance gate.
-
-Read-only Home must prove:
+Home must continue to prove:
 
 - flat and real worktree-nested cases match Herdr;
 - every workspace and terminal appears exactly once;
@@ -116,7 +108,7 @@ Read-only Home must prove:
 - a normal phone refresh loads the current embedded interface; and
 - Terminal navigation reaches the existing exact destination without changing Terminal behavior.
 
-Later action slices add their own real success, refusal, interruption, and hostile-input checks. They do not reopen read-only Home or Terminal architecture.
+Workspace actions must continue to prove real creation, close scope, clean deletion, dirty refusal, interruption, unknown outcomes, and hostile-input handling. They do not reopen Home or Terminal architecture.
 
 ## Risks
 

@@ -4,7 +4,7 @@ Status: proposed
 
 This is a voice and interface guide, not a component library.
 
-The current product includes read-only Home discovery and Terminal, which can send input. Workspace management, sign-in, device trust, notifications, and Chat remain later work.
+The current product includes Home, Terminal, and workspace management. Sign-in, device trust, notifications, and Chat remain later work.
 
 ## Voice
 
@@ -17,7 +17,7 @@ Write for a person checking Herdr workspaces, terminals, and agents from a phone
 - Security language is quiet and direct, not dramatic.
 - Internal names stay off the screen unless the person needs an exact value to act.
 
-Use familiar words: **workspace**, **terminal**, **agent**, **worktree**, **device**, and **notification**. On-screen language does not say source, group, linked, or pane.
+Use familiar words: **workspace**, **terminal**, **agent**, **worktree**, **device**, and **notification**. Keep internal words such as source, group, and pane off the screen. **Linked workspace** may appear only when a person needs to understand which additional workspaces an action will affect.
 
 Use Herdr's status words unchanged: **working**, **blocked**, **idle**, **done**, and **unknown**. Supporting text may say a blocked agent “needs you,” but do not turn that into another status.
 
@@ -30,7 +30,7 @@ The current product has two main screens:
 - **Home** — see every current workspace and terminal, with agent status and attention when an agent is present.
 - **Terminal** — read one exact current terminal and send text or shortcuts when needed.
 
-Workspace-management sheets arrive only in their approved later slices. **Sign in**, **Trust this device**, **This device's notifications**, and **Devices** remain later work. Do not add screens, tabs, or controls for work that does not exist.
+Workspace management uses small sheets from Home rather than another main screen. **Sign in**, **Trust this device**, **This device's notifications**, and **Devices** remain later work. Do not add screens, tabs, or controls for work that does not exist.
 
 With current sign-in-off access, Home opens directly and quietly keeps **Sign-in is off** visible.
 
@@ -89,9 +89,9 @@ Keep the last complete Home in place until its complete replacement is ready. Do
 
 When a live Home has nothing open, show **No terminals** and “Herdr is running, but nothing is open.” An ordinary terminal prevents this empty state.
 
-## Read-only first slice
+## Home actions
 
-Slice 1 is Home only. It has no **New worktree**, **Branch**, **Actions**, **Close**, **Remove**, placeholders, disabled future controls, or empty menus.
+The Home tools row includes **New space**. A workspace row keeps its terminal action first and places a vertical three-dot menu immediately after it when actions are available. Do not add empty menus, disabled future controls, or placeholder actions.
 
 ## Terminal
 
@@ -103,9 +103,11 @@ On a phone, use Reader for stable reading, browser selection, text entry, and te
 
 The exact phone sending and takeover rules, desktop behavior, and current acceptance record live in `terminal-direction.md`. Do not duplicate them in interface copy.
 
-## Later workspace management
+## Workspace management
 
-An eligible flat top-level workspace gets a separate 44-pixel **New worktree** action even before it has a child. Its short sheet says:
+**New space** opens a short sheet. Its directory field starts with `~`, suggests paths from open top-level repository workspaces, filters suggestions while typing, and accepts the exact entered value. Its label is optional.
+
+**New worktree** appears in the three-dot menu for a known repository workspace and for an ordinary workspace whose current directory Shepherdr can resolve truthfully. Herdr decides whether an ordinary directory is a valid Git source. Its short sheet says:
 
 > This adds a workspace in a new folder.
 
@@ -119,19 +121,11 @@ A blank branch is omitted so Herdr chooses. Do not show a fabricated preview. Pr
 
 Do not retry automatically or infer success.
 
-Show **Actions** for a worktree workspace only when at least one action applies. Never offer **Close** for the top-level workspace or an ordinary flat workspace. Confirmation copy is exactly:
+Every visible close action says **Close workspace**. The confirmation names that workspace. If additional linked workspaces will close, say how many. Mention affected agents only when the total is nonzero, and call out exact nonzero working, blocked, and unknown counts when those agents may be interrupted. Do not say group or show a zero-agent sentence.
 
-> Close this workspace? Its terminals will end, and unsaved work can be lost. The folder and branch remain.
+Offer **Delete checkout** only for a linked-worktree checkout. Never force deletion and never delete its branch. Show the exact freshly validated path as inert text. If Herdr refuses because the checkout has changes, say plainly that it was not deleted and that the person must resolve the changes before trying again.
 
-Buttons are **Close workspace** and **Cancel**.
-
-Offer **Remove** only for a freshly eligible worktree checkout, never for the top-level or an ordinary flat workspace. Never force removal and never delete its branch. Show the exact freshly validated path as inert text. Confirmation copy is exactly:
-
-> Remove this folder? Its terminals will end, and unsaved work can be lost. The branch is not deleted.
-
-Buttons are **Remove folder** and **Cancel**. If Herdr refuses because the folder has changes, show exactly:
-
-> This folder has changes. It was not removed. Resolve the changes in the terminal, then try again.
+Creation, close, and deletion change Home only after Herdr confirms the result. If Shepherdr cannot confirm a mutation, say the result is unknown and do not retry automatically.
 
 All interactive targets are at least 44 by 44 CSS pixels. While an action is running, remove its management actions rather than leaving a stale control.
 

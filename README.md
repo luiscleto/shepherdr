@@ -58,6 +58,10 @@ Do not use `tailscale funnel`. Funnel makes the service public.
 - Keep a single-terminal workspace compact and make the whole terminal row the open action.
 - Keep a single-terminal worktree parent as a real open row with a separate disclosure action, and show compact nonzero status totals under its name.
 - Add small displayed-order numbers only to same-named single-terminal workspaces across Home or same-titled terminal rows in the same workspace and, when shown, tab. Matching titles in unrelated workspace/tab contexts stay unnumbered, and filtering never renumbers them.
+- Create a workspace at a freely entered directory, with `~` as the starting value and open repository paths as suggestions.
+- Create a worktree from a repository workspace or from an ordinary workspace's current directory. Herdr decides whether that directory is a valid Git source.
+- Close a workspace after showing the additional linked workspaces and nonzero agent counts that will also be affected.
+- Delete a clean linked-worktree checkout without force and without deleting its branch. Herdr refuses a checkout that has changes.
 - Open any current real Herdr terminal, whether or not it has an agent.
 - From a phone, send one text or shortcut batch and release control after it is acknowledged. See [Terminal direction](docs/terminal-direction.md).
 - Keep Home up to date after a connection drops. Shepherdr shows clearly labelled last-known values without presenting them as openable until it reconnects.

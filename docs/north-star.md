@@ -4,7 +4,7 @@ Status: proposed
 
 Scope: the current product
 
-The current product includes read-only Home discovery and Terminal, which can send input. Workspace management, sign-in, devices, notifications, and Chat remain later work.
+The current product includes Home, Terminal, and workspace management. Sign-in, devices, notifications, and Chat remain later work.
 
 ## The promise
 
@@ -24,7 +24,7 @@ The broader product direction remains:
 6. Choose whether this device receives blocked-agent notifications.
 7. Tap a blocked-agent notification and open that agent's terminal.
 
-The daily return path is short: open Shepherdr, see who is blocked, and reach that work. This is the product bar, not an implementation order. The current product implements Home discovery and Terminal; Home discovery is read-only. Workspace management, sign-in, devices, notifications, and Chat remain later work.
+The daily return path is short: open Shepherdr, see who is blocked, and reach that work. This is the product bar, not an implementation order. The current product implements Home, Terminal, and workspace management. Sign-in, devices, notifications, and Chat remain later work.
 
 ## Home and attention
 
@@ -56,9 +56,13 @@ Shepherdr keeps showing the last complete Home until a complete replacement is r
 
 ## Workspace management
 
-The first slice is read-only Home. It has no management controls, placeholders, or empty menus.
+Home shows only management actions that Shepherdr can target truthfully from current Herdr state.
 
-Later slices add one operation at a time: create a workspace in a new worktree folder, close an applicable worktree workspace while retaining its folder and branch, and remove an eligible clean worktree folder without deleting its branch. Each operation checks fresh Herdr state, runs one at a time, preserves focus where required, and reports an interrupted or unconfirmed result as unknown. Shepherdr never fabricates a preview or success, retries automatically, forces removal, or lets displayed names, paths, branches, or identifiers choose what happens.
+A person can create a workspace at a freely entered directory. The field starts with `~` and may suggest paths from open repository workspaces. A person can create a worktree from a known repository workspace or from an ordinary workspace's current terminal directory; Herdr decides whether that directory is a valid Git source.
+
+A person can close a workspace after seeing any additional linked workspaces and nonzero agent counts that will also be affected. A clean linked-worktree checkout can be deleted without force while its branch remains. Herdr refuses deletion when the checkout has changes.
+
+Each operation checks fresh Herdr state, runs one at a time, preserves focus where required, and reports an interrupted or unconfirmed result as unknown. Shepherdr never fabricates a preview or success, retries automatically, forces removal, runs its own Git cleanup, or lets displayed names, paths, branches, or identifiers choose what happens.
 
 ## Terminal
 
@@ -107,4 +111,4 @@ The current product uses only capabilities Herdr already exposes. Do not invent 
 
 ## How we will know it works
 
-Use production Shepherdr with a real Herdr server and a real phone. Compare flat and worktree-nested Home with Herdr, check every terminal and exact agent total, exercise expansion and Blocked place restoration, and verify that ordinary updates do not blink, move the page, or change the connection badge. A normal refresh must load the current interface. Terminal acceptance follows `terminal-direction.md`; record only the behavior actually exercised. For each later management slice, perform its real named, blank, clean, dirty, interrupted, and hostile-input cases. Tests and emulator checks support confidence, but the real phone workflow is the gate.
+Use production Shepherdr with a real Herdr server and a real phone. Compare flat and worktree-nested Home with Herdr, check every terminal and exact agent total, exercise expansion and Blocked place restoration, and verify that ordinary updates do not blink, move the page, or change the connection badge. A normal refresh must load the current interface. Terminal acceptance follows `terminal-direction.md`; record only the behavior actually exercised. Exercise workspace creation, worktree creation, close scope, clean deletion, dirty refusal, interrupted results, and hostile input through real Herdr. Tests and emulator checks support confidence, but the real phone workflow is the gate.
