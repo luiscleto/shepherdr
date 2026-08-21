@@ -40,10 +40,9 @@ interface WorkspaceNodes {
 interface WorkspaceSetNodes {
   contents: HTMLElement;
   disclosure: HTMLButtonElement;
-  heading: HTMLHeadingElement;
   meta: HTMLElement;
+  parent: HTMLElement;
   section: HTMLElement;
-  title: HTMLElement;
 }
 
 interface TabNodes {
@@ -68,6 +67,7 @@ type UsedTabs = Map<string, Set<string>>;
 interface ConnectionCopy {
   action?: "Reconnect";
   heading: string;
+  tone: "live" | "offline" | "reconnecting";
 }
 
 function element<K extends keyof HTMLElementTagNameMap>(
@@ -114,6 +114,7 @@ export class HomeView {
   readonly #attentionShowAll: HTMLButtonElement;
   readonly #attentionWorking: HTMLElement;
   readonly #connectionAction: HTMLButtonElement;
+  readonly #connectionDot: HTMLElement;
   readonly #connectionHeading: HTMLElement;
   readonly #connectionPanel: HTMLElement;
   readonly #document: Document;
@@ -132,6 +133,7 @@ export class HomeView {
   readonly #entries = new Map<string, TerminalEntry>();
   #lastRender: HomeViewRender | undefined;
   #workspaceHeadingSequence = 0;
+  #workspaceSetSequence = 0;
 
   constructor(app: HTMLElement, actions: HomeViewActions) {
     this.#app = app;
@@ -148,9 +150,13 @@ export class HomeView {
     );
     this.#connectionPanel = element(this.#document, "section", "state-panel home-connection");
     this.#connectionPanel.setAttribute("role", "status");
-    this.#connectionHeading = element(this.#document, "strong");
+    const connectionIndicator = element(this.#document, "span", "connection-indicator");
+    this.#connectionDot = element(this.#document, "span", "connection-dot connection-dot-reconnecting");
+    this.#connectionDot.setAttribute("aria-hidden", "true");
+    this.#connectionHeading = element(this.#document, "span", "connection-label");
+    connectionIndicator.append(this.#connectionDot, this.#connectionHeading);
     this.#connectionAction = this.#button("Reconnect", actions.onReconnect);
-    this.#connectionPanel.append(this.#connectionHeading, this.#connectionAction);
+    this.#connectionPanel.append(connectionIndicator, this.#connectionAction);
     this.#header.append(heading, this.#connectionPanel);
 
     this.#loading = element(this.#document, "section", "state-panel");
@@ -276,22 +282,23 @@ export class HomeView {
 
   #connectionCopy(model: HomeViewRender): ConnectionCopy {
     if (model.state.connection === "not_running") {
-      return { heading: "Herdr is not running" };
+      return { heading: "Herdr is not running", tone: "offline" };
     }
     if (model.state.connection === "incompatible") {
-      return { heading: "Cannot use this Herdr" };
+      return { heading: "Cannot use this Herdr", tone: "offline" };
     }
     if (model.reachability === "offline") {
-      return { heading: "Offline", action: "Reconnect" };
+      return { heading: "Offline", action: "Reconnect", tone: "offline" };
     }
     if (model.reachability === "reconnecting" || model.state.connection === "reconnecting") {
-      return { heading: "Reconnecting" };
+      return { heading: "Reconnecting", tone: "reconnecting" };
     }
-    return { heading: "Live" };
+    return { heading: "Live", tone: "live" };
   }
 
   #updateConnection(copy: ConnectionCopy): void {
     setText(this.#connectionHeading, copy.heading);
+    setClass(this.#connectionDot, `connection-dot connection-dot-${copy.tone}`);
     setHidden(this.#connectionAction, copy.action !== "Reconnect");
   }
 
@@ -313,13 +320,13 @@ export class HomeView {
     const nodes = this.#workspaceSet(workspace);
     const expanded = this.#expandedSets.get(workspace.id) ?? false;
     setAttribute(nodes.disclosure, "aria-expanded", String(expanded));
-    setText(nodes.title, workspace.label);
+    setAttribute(nodes.disclosure, "aria-label", `${expanded ? "Collapse" : "Expand"} ${workspace.label} workspaces`);
     setText(nodes.meta, this.#setSummary(workspace.agent_counts ?? {}, 1 + (workspace.worktrees?.length ?? 0)));
     setHidden(nodes.contents, !expanded);
 
+    const parent = this.#renderWorkspace(workspace, false, actionsAvailable, usedTabs);
+    reconcileChildren(nodes.parent, parent ? [parent, nodes.disclosure] : [nodes.disclosure]);
     const contents: Node[] = [];
-    const parent = this.#renderWorkspace(workspace, false, actionsAvailable, usedTabs, true);
-    if (parent) contents.push(parent);
     for (const worktree of workspace.worktrees ?? []) {
       const section = this.#renderWorkspace(worktree, false, actionsAvailable, usedTabs);
       if (section) contents.push(section);
@@ -332,21 +339,21 @@ export class HomeView {
     const existing = this.#workspaceSets.get(workspace.id);
     if (existing) return existing;
     const section = element(this.#document, "section", "workspace-set");
-    const heading = element(this.#document, "h2", "workspace-set-heading");
+    const parent = element(this.#document, "div", "workspace-set-parent");
     const disclosure = this.#button("", () => {
       this.#expandedSets.set(workspace.id, !this.#expandedSets.get(workspace.id));
       if (this.#lastRender) this.render(this.#lastRender);
     });
-    const title = element(this.#document, "span", "workspace-set-title");
-    const meta = element(this.#document, "span", "workspace-set-meta");
+    const meta = element(this.#document, "p", "workspace-set-meta");
     const marker = element(this.#document, "span", "workspace-set-marker", "⌄");
     marker.setAttribute("aria-hidden", "true");
     disclosure.className = "workspace-set-disclosure";
-    disclosure.append(title, meta, marker);
-    heading.append(disclosure);
+    disclosure.append(marker);
     const contents = element(this.#document, "div", "workspace-set-contents");
-    section.append(heading, contents);
-    const nodes = { contents, disclosure, heading, meta, section, title };
+    contents.id = `workspace-set-contents-${++this.#workspaceSetSequence}`;
+    disclosure.setAttribute("aria-controls", contents.id);
+    section.append(parent, meta, contents);
+    const nodes = { contents, disclosure, meta, parent, section };
     this.#workspaceSets.set(workspace.id, nodes);
     return nodes;
   }

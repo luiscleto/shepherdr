@@ -156,7 +156,7 @@ h3 {
   min-width: 9.5rem;
   min-height: 44px;
   flex: 0 1 19rem;
-  align-items: stretch;
+  align-items: center;
   justify-content: flex-end;
   gap: 0.75rem;
   border: 0;
@@ -165,15 +165,35 @@ h3 {
   text-align: right;
 }
 
-.home-connection strong {
+.connection-indicator {
   display: flex;
   align-items: center;
-  justify-content: center;
-  margin: 0;
+  justify-content: flex-end;
+  gap: 0.42rem;
   min-width: 9.5rem;
-  border: 1px solid #817d72;
-  padding: 0.7rem 0.75rem;
-  text-align: center;
+  min-height: 44px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.connection-dot {
+  width: 0.58rem;
+  height: 0.58rem;
+  flex: 0 0 auto;
+  border: 1px solid rgba(41, 41, 37, 0.35);
+  border-radius: 50%;
+}
+
+.connection-dot-live {
+  background: #3d8a63;
+}
+
+.connection-dot-reconnecting {
+  background: #d0a32f;
+}
+
+.connection-dot-offline {
+  background: #b94a35;
 }
 
 .workspace {
@@ -191,49 +211,46 @@ h3 {
 }
 
 .workspace-set {
-  border-top: 1px solid #817d72;
   margin-top: 1.5rem;
 }
 
-.workspace-set-heading {
+.workspace-set-parent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: start;
+  gap: 0.25rem;
+  border-top: 1px solid #817d72;
+  padding-top: 1rem;
+}
+
+.workspace-set-parent > .workspace {
+  min-width: 0;
+  border: 0;
   margin: 0;
+  padding: 0;
 }
 
 .workspace-set-disclosure {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  width: 100%;
-  min-height: 60px;
+  width: 44px;
+  min-height: 54px;
+  place-items: center;
   border: 0;
   border-radius: 0;
-  padding: 0.7rem 0;
-  text-align: left;
-}
-
-.workspace-set-title,
-.workspace-set-meta {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.workspace-set-title {
-  align-self: end;
-  font-size: 1.15rem;
+  padding: 0;
+  color: #8d3f22;
+  background: transparent;
 }
 
 .workspace-set-meta {
-  grid-column: 1;
+  margin: 0.15rem 0 0.5rem;
   color: #6b675f;
   font-size: 0.82rem;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .workspace-set-marker {
-  grid-row: 1 / span 2;
-  grid-column: 2;
-  align-self: center;
-  margin-left: 0.75rem;
-  color: #8d3f22;
   font-size: 1.3rem;
 }
 

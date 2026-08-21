@@ -186,23 +186,28 @@ test("Home shows one real initial or unavailable state with the transport-owned 
 
   render(view, loading, { actionsAvailable: false });
   const connection = requiredElement(app, ".home-connection");
-  assert.equal(requiredElement(connection, "strong").textContent, "Reconnecting");
+  assert.equal(requiredElement(connection, ".connection-label").textContent, "Reconnecting");
+  assert.equal(requiredElement(connection, ".connection-label").localName, "span");
+  assert.equal(requiredElement(connection, ".connection-dot").className, "connection-dot connection-dot-reconnecting");
   assert.equal(connection.childElementCount, 2);
   assert.equal(connection.querySelectorAll("p, details").length, 0);
+  assert.equal(connection.querySelectorAll("strong").length, 0);
   assert.match(app.textContent ?? "", /Loading terminals/);
   assert.equal(app.querySelectorAll(".attention-bar").length, 0);
 
   render(view, { ...loading, connection: "incompatible", detail: "unsupported detail" }, { actionsAvailable: false });
-  assert.equal(requiredElement(connection, "strong").textContent, "Cannot use this Herdr");
+  assert.equal(requiredElement(connection, ".connection-label").textContent, "Cannot use this Herdr");
+  assert.equal(requiredElement(connection, ".connection-dot").className, "connection-dot connection-dot-offline");
   assert.doesNotMatch(connection.textContent ?? "", /unsupported detail|Values below|fresh view|may be stale/);
 
   render(view, { ...loading, connection: "not_running" }, { actionsAvailable: false, reachability: "offline" });
-  assert.equal(requiredElement(connection, "strong").textContent, "Herdr is not running");
+  assert.equal(requiredElement(connection, ".connection-label").textContent, "Herdr is not running");
   assert.match(app.textContent ?? "", /Home unavailable/);
   assert.doesNotMatch(app.textContent ?? "", /Offline/);
 
   render(view, state());
-  assert.equal(requiredElement(connection, "strong").textContent, "Live");
+  assert.equal(requiredElement(connection, ".connection-label").textContent, "Live");
+  assert.equal(requiredElement(connection, ".connection-dot").className, "connection-dot connection-dot-live");
   assert.equal(connection.childElementCount, 2);
   assert.equal(requiredRow(view, "pane-one").localName, "button");
   assert.equal(requiredRow(view, "pane-one").getAttribute("aria-disabled"), null);
@@ -309,7 +314,8 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   assert.equal(unavailableRow.getAttribute("aria-disabled"), null);
   assert.equal(app.querySelectorAll("button.terminal-row").length, 0);
   assert.equal(app.querySelectorAll(".terminal-row").length, 1);
-  assert.equal(requiredElement(connection, "strong").textContent, "Reconnecting");
+  assert.equal(requiredElement(connection, ".connection-label").textContent, "Reconnecting");
+  assert.equal(requiredElement(connection, ".connection-dot").className, "connection-dot connection-dot-reconnecting");
   assert.equal(connection.childElementCount, 2);
   assert.equal(reconnectAction.hidden, true);
   assert.doesNotMatch(connection.textContent ?? "", /State below|fresh view|Values below/);
@@ -317,7 +323,8 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   assert.equal(opens, 1);
 
   render(view, stale, { actionsAvailable: false, reachability: "offline" });
-  assert.equal(requiredElement(connection, "strong").textContent, "Offline");
+  assert.equal(requiredElement(connection, ".connection-label").textContent, "Offline");
+  assert.equal(requiredElement(connection, ".connection-dot").className, "connection-dot connection-dot-offline");
   assert.equal(connection.childElementCount, 2);
   assert.equal(reconnectAction.hidden, false);
   reconnectAction.click();
@@ -382,30 +389,45 @@ test("opaque workspace and tab ids cannot collide during reconciliation", () => 
 
 test("worktree sets disclose exact ordered totals and manual choices win for the visit", () => {
   const window = new Window({ url: "http://localhost/" });
-  const { app, view } = makeView(window);
-  const current = state(groupedHome());
+  const opened: string[] = [];
+  const { app, view } = makeView(window, { onOpen: (entry) => opened.push(entry.terminal.pane_id) });
+  const home = groupedHome();
+  home.workspaces[0].tabs[0].terminals = [home.workspaces[0].tabs[0].terminals[0]];
+  const current = state(home);
   render(view, current);
 
   const disclosure = requiredElement(app, ".workspace-set-disclosure");
+  const parentRow = requiredRow(view, "parent-pane");
   assert.equal(disclosure.getAttribute("aria-expanded"), "true");
+  assert.equal(disclosure.getAttribute("aria-label"), "Collapse Main project <script> workspaces");
   assert.equal(
-    requiredElement(disclosure, ".workspace-set-meta").textContent,
+    requiredElement(app, ".workspace-set-meta").textContent,
     "3 workspaces · 1 working · 1 blocked · 1 idle · 1 done · 1 unknown",
   );
   assert.doesNotMatch(disclosure.textContent ?? "", /Open/);
-  assert.equal(app.querySelectorAll(".terminal-row").length, 6);
+  assert.equal(disclosure.textContent, "⌄");
+  assert.equal(parentRow.localName, "button");
+  assert.equal(parentRow.getAttribute("aria-label"), "Open Builder, workspace Main project <script>, working");
+  assert.equal(requiredElement(parentRow, ".status").textContent, "working");
+  assert.equal(app.querySelectorAll(".terminal-row").length, 5);
   assert.equal(requiredElement(app, ".workspace-expand-action").textContent, "Collapse all");
   assert.equal(app.querySelector("script") === null, true);
 
+  parentRow.click();
+  assert.deepEqual(opened, ["parent-pane"]);
   disclosure.click();
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
+  assert.equal(disclosure.getAttribute("aria-label"), "Expand Main project <script> workspaces");
+  assert.equal(requiredElement(app, ".workspace-set-contents").hidden, true);
+  assert.equal(parentRow.closest("[hidden]") === null, true);
+  assert.deepEqual(opened, ["parent-pane"]);
   assert.equal(requiredElement(app, ".workspace-expand-action").textContent, "Expand all");
 
   const quieter = structuredClone(current);
   quieter.home.workspaces[0].agent_counts = { done: 5 };
   render(view, quieter);
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
-  assert.equal(requiredElement(disclosure, ".workspace-set-meta").textContent, "3 workspaces · 5 done");
+  assert.equal(requiredElement(app, ".workspace-set-meta").textContent, "3 workspaces · 5 done");
 
   requiredElement(app, ".workspace-expand-action").click();
   assert.equal(disclosure.getAttribute("aria-expanded"), "true");
