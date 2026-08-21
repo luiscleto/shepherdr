@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path/filepath"
 	"sort"
 	"time"
 )
@@ -23,6 +24,12 @@ type WorkspaceActionTarget struct {
 	Workspace         WorkspaceInfo
 	ScopeWorkspaceIDs []string
 	CheckoutPath      string
+	WorktreeSource    CreateWorktreeSource
+}
+
+type CreateWorktreeSource struct {
+	WorkspaceID string
+	CWD         string
 }
 
 func AvailableWorkspaceActions(snapshot Snapshot, workspaceID string) []WorkspaceAction {
@@ -56,10 +63,21 @@ func ResolveWorkspaceAction(snapshot Snapshot, action WorkspaceAction, workspace
 	repositoryRoot := workspace.Worktree != nil && workspace.Worktree.Valid && !workspace.Worktree.IsLinkedWorktree
 	switch action {
 	case WorkspaceActionCreateWorktree:
-		if !topLevel {
+		if !uniqueWorkspace(snapshot, workspaceID) {
 			return target, true, false
 		}
-		target.CheckoutPath = workspace.Worktree.CheckoutPath
+		if topLevel {
+			target.CheckoutPath = workspace.Worktree.CheckoutPath
+			target.WorktreeSource.WorkspaceID = workspaceID
+		} else if workspace.Worktree == nil {
+			cwd, resolved := resolveOrdinaryWorkspaceCWD(snapshot, workspace)
+			if !resolved {
+				return target, true, false
+			}
+			target.WorktreeSource.CWD = cwd
+		} else {
+			return target, true, false
+		}
 	case WorkspaceActionCloseWorkspace:
 		if repositoryRoot {
 			return target, true, false
@@ -93,6 +111,86 @@ func findWorkspace(snapshot Snapshot, workspaceID string) (WorkspaceInfo, bool) 
 		}
 	}
 	return WorkspaceInfo{}, false
+}
+
+func uniqueWorkspace(snapshot Snapshot, workspaceID string) bool {
+	matches := 0
+	for _, workspace := range snapshot.Workspaces {
+		if workspace.WorkspaceID == workspaceID {
+			matches++
+		}
+	}
+	return matches == 1
+}
+
+func resolveOrdinaryWorkspaceCWD(snapshot Snapshot, workspace WorkspaceInfo) (string, bool) {
+	panes := make([]PaneInfo, 0, 1)
+	for _, pane := range snapshot.Panes {
+		if pane.WorkspaceID == workspace.WorkspaceID {
+			panes = append(panes, pane)
+		}
+	}
+	if len(panes) == 1 {
+		pane := panes[0]
+		_, paneUnique := findPane(snapshot, pane.PaneID)
+		tab, unique := findTab(snapshot, pane.TabID)
+		if pane.PaneID == "" || !paneUnique || !unique || tab.WorkspaceID != workspace.WorkspaceID || !filepath.IsAbs(pane.CWD) {
+			return "", false
+		}
+		return pane.CWD, true
+	}
+	if len(panes) < 2 || workspace.ActiveTabID == "" {
+		return "", false
+	}
+
+	tab, unique := findTab(snapshot, workspace.ActiveTabID)
+	if !unique || tab.WorkspaceID != workspace.WorkspaceID {
+		return "", false
+	}
+	layout, unique := findLayout(snapshot, tab.TabID)
+	if !unique || layout.WorkspaceID != workspace.WorkspaceID || layout.FocusedPaneID == "" {
+		return "", false
+	}
+	pane, unique := findPane(snapshot, layout.FocusedPaneID)
+	if !unique || pane.WorkspaceID != workspace.WorkspaceID || pane.TabID != tab.TabID || !filepath.IsAbs(pane.CWD) {
+		return "", false
+	}
+	return pane.CWD, true
+}
+func findPane(snapshot Snapshot, paneID string) (PaneInfo, bool) {
+	var match PaneInfo
+	matches := 0
+	for _, pane := range snapshot.Panes {
+		if pane.PaneID == paneID {
+			match = pane
+			matches++
+		}
+	}
+	return match, matches == 1
+}
+
+func findTab(snapshot Snapshot, tabID string) (TabInfo, bool) {
+	var match TabInfo
+	matches := 0
+	for _, tab := range snapshot.Tabs {
+		if tab.TabID == tabID {
+			match = tab
+			matches++
+		}
+	}
+	return match, matches == 1
+}
+
+func findLayout(snapshot Snapshot, tabID string) (LayoutInfo, bool) {
+	var match LayoutInfo
+	matches := 0
+	for _, layout := range snapshot.Layouts {
+		if layout.TabID == tabID {
+			match = layout
+			matches++
+		}
+	}
+	return match, matches == 1
 }
 
 func isTopLevelRepository(snapshot Snapshot, workspace WorkspaceInfo) bool {
@@ -141,14 +239,18 @@ func (c *Client) CreateWorkspace(ctx context.Context, workingDirectory string, l
 	}, expectMutationResult("workspace_created", "workspace", "tab", "root_pane"))
 }
 
-func (c *Client) CreateWorktree(ctx context.Context, workspaceID string, branch *string) error {
+func (c *Client) CreateWorktree(ctx context.Context, source CreateWorktreeSource, branch *string) error {
 	type params struct {
-		WorkspaceID string  `json:"workspace_id"`
+		WorkspaceID string  `json:"workspace_id,omitempty"`
+		CWD         string  `json:"cwd,omitempty"`
 		Branch      *string `json:"branch,omitempty"`
 		Focus       bool    `json:"focus"`
 	}
+	if (source.WorkspaceID == "") == (source.CWD == "") || source.CWD != "" && !filepath.IsAbs(source.CWD) {
+		return &MutationError{Err: fmt.Errorf("worktree source must contain exactly one confirmed workspace id or absolute cwd")}
+	}
 	return c.mutate(ctx, "worktree-create", "worktree.create", params{
-		WorkspaceID: workspaceID, Branch: branch, Focus: false,
+		WorkspaceID: source.WorkspaceID, CWD: source.CWD, Branch: branch, Focus: false,
 	}, expectMutationResult("worktree_created", "workspace", "tab", "root_pane", "worktree"))
 }
 

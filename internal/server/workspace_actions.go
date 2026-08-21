@@ -21,7 +21,7 @@ const maxWorkspaceActionRequest = 16 << 10
 type workspaceActionClient interface {
 	Snapshot(context.Context) (herdr.Snapshot, error)
 	CreateWorkspace(context.Context, string, *string) error
-	CreateWorktree(context.Context, string, *string) error
+	CreateWorktree(context.Context, herdr.CreateWorktreeSource, *string) error
 	CloseWorkspace(context.Context, string) error
 	RemoveWorktree(context.Context, string) error
 }
@@ -184,7 +184,7 @@ func (c *workspaceActionCoordinator) runCreateWorktree(writer http.ResponseWrite
 		writeRefusal(writer, http.StatusServiceUnavailable, "herdr_unavailable", err.Error())
 		return
 	}
-	_, found, applicable := herdr.ResolveWorkspaceAction(snapshot, herdr.WorkspaceActionCreateWorktree, workspaceID)
+	target, found, applicable := herdr.ResolveWorkspaceAction(snapshot, herdr.WorkspaceActionCreateWorktree, workspaceID)
 	if !found {
 		writeRefusal(writer, http.StatusNotFound, "not_found", "")
 		return
@@ -193,7 +193,7 @@ func (c *workspaceActionCoordinator) runCreateWorktree(writer http.ResponseWrite
 		writeRefusal(writer, http.StatusConflict, "not_applicable", "")
 		return
 	}
-	c.finishMutation(writer, c.client.CreateWorktree(context.Background(), workspaceID, branch))
+	c.finishMutation(writer, c.client.CreateWorktree(context.Background(), target.WorktreeSource, branch))
 }
 
 func (c *workspaceActionCoordinator) runDestructive(writer http.ResponseWriter, fields map[string]json.RawMessage, action herdr.WorkspaceAction) {

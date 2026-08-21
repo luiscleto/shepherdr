@@ -50,6 +50,7 @@ type AgentInfo struct {
 }
 
 type PaneInfo struct {
+	CWD                   string `json:"cwd"`
 	Focused               bool   `json:"focused"`
 	PaneID                string `json:"pane_id"`
 	TabID                 string `json:"tab_id"`

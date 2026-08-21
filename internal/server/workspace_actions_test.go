@@ -100,7 +100,7 @@ func TestCreationExpandsOnlyTildeAndOmitsBlankOptionalFields(t *testing.T) {
 		label *string
 	}
 	var spaces []createCall
-	var worktreeID string
+	var worktreeSource herdr.CreateWorktreeSource
 	var worktreeBranch *string
 	client := &fakeWorkspaceActionClient{
 		snapshot: func(context.Context) (herdr.Snapshot, error) { return snapshot, nil },
@@ -108,8 +108,8 @@ func TestCreationExpandsOnlyTildeAndOmitsBlankOptionalFields(t *testing.T) {
 			spaces = append(spaces, createCall{cwd: cwd, label: label})
 			return nil
 		},
-		createWorktree: func(_ context.Context, workspaceID string, branch *string) error {
-			worktreeID, worktreeBranch = workspaceID, branch
+		createWorktree: func(_ context.Context, source herdr.CreateWorktreeSource, branch *string) error {
+			worktreeSource, worktreeBranch = source, branch
 			return nil
 		},
 	}
@@ -138,8 +138,8 @@ func TestCreationExpandsOnlyTildeAndOmitsBlankOptionalFields(t *testing.T) {
 		t.Fatalf("optional label = %v, want Useful", spaces[4].label)
 	}
 	assertOutcome(t, performActionRequest(t, handler, "/api/workspace-actions", `{"action":"create_worktree","workspace_id":"opaque-parent","branch":""}`), http.StatusOK, "succeeded", "")
-	if worktreeID != "opaque-parent" || worktreeBranch != nil {
-		t.Fatalf("create worktree target=%q branch=%v", worktreeID, worktreeBranch)
+	if worktreeSource != (herdr.CreateWorktreeSource{WorkspaceID: "opaque-parent"}) || worktreeBranch != nil {
+		t.Fatalf("create worktree source=%+v branch=%v", worktreeSource, worktreeBranch)
 	}
 	assertOutcome(t, performActionRequest(t, handler, "/api/workspace-actions", `{"action":"create_worktree","workspace_id":"opaque-parent","branch":"feature/exact"}`), http.StatusOK, "succeeded", "")
 	if worktreeBranch == nil || *worktreeBranch != "feature/exact" {
@@ -149,6 +149,112 @@ func TestCreationExpandsOnlyTildeAndOmitsBlankOptionalFields(t *testing.T) {
 	coordinator.homeDir = func() (string, error) { return "", errors.New("unavailable") }
 	response := performActionRequest(t, handler, "/api/workspace-actions", `{"action":"create_space","working_directory":"~"}`)
 	assertOutcome(t, response, http.StatusBadRequest, "refused", "invalid_request")
+}
+
+func TestCreateWorktreeUsesFreshOrdinaryPaneState(t *testing.T) {
+	current := ordinaryOnePaneActionSnapshot("/shown/one-pane")
+	home, err := herdr.Project(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := home.Workspaces[0].Actions; !containsWorkspaceAction(got, herdr.WorkspaceActionCreateWorktree) {
+		t.Fatalf("one-pane Home actions = %v, want create_worktree", got)
+	}
+
+	var sources []herdr.CreateWorktreeSource
+	client := &fakeWorkspaceActionClient{
+		snapshot: func(context.Context) (herdr.Snapshot, error) { return current, nil },
+		createWorktree: func(_ context.Context, source herdr.CreateWorktreeSource, _ *string) error {
+			sources = append(sources, source)
+			return nil
+		},
+	}
+	handler := actionHandler(client, &countingHomeRefresher{})
+	current.Panes[0].CWD = "/fresh/one-pane"
+	assertOutcome(t, performActionRequest(t, handler, "/api/workspace-actions", `{"action":"create_worktree","workspace_id":"ordinary"}`), http.StatusOK, "succeeded", "")
+
+	current = ordinaryMultiPaneActionSnapshot()
+	home, err = herdr.Project(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := home.Workspaces[0].Actions; !containsWorkspaceAction(got, herdr.WorkspaceActionCreateWorktree) {
+		t.Fatalf("multi-pane Home actions = %v, want create_worktree", got)
+	}
+	current.Workspaces[0].ActiveTabID = "tab-two"
+	current.Layouts[1].FocusedPaneID = "pane-three"
+	current.Panes[2].CWD = "/fresh/active-focused"
+	assertOutcome(t, performActionRequest(t, handler, "/api/workspace-actions", `{"action":"create_worktree","workspace_id":"ordinary","branch":""}`), http.StatusOK, "succeeded", "")
+
+	want := []herdr.CreateWorktreeSource{{CWD: "/fresh/one-pane"}, {CWD: "/fresh/active-focused"}}
+	if len(sources) != len(want) {
+		t.Fatalf("create worktree sources = %+v, want %+v", sources, want)
+	}
+	for index := range want {
+		if sources[index] != want[index] {
+			t.Fatalf("create worktree source %d = %+v, want %+v", index, sources[index], want[index])
+		}
+	}
+}
+
+func TestCreateWorktreeRefusesUnresolvedOrdinaryPaneWithoutCallingHerdr(t *testing.T) {
+	tests := map[string]func(*herdr.Snapshot){
+		"missing cwd": func(snapshot *herdr.Snapshot) {
+			snapshot.Panes[0].CWD = ""
+		},
+		"ambiguous layout": func(snapshot *herdr.Snapshot) {
+			snapshot.Layouts = append(snapshot.Layouts, snapshot.Layouts[0])
+		},
+		"mismatched focused pane": func(snapshot *herdr.Snapshot) {
+			snapshot.Layouts[0].FocusedPaneID = "pane-three"
+		},
+		"non-absolute cwd": func(snapshot *herdr.Snapshot) {
+			snapshot.Panes[0].CWD = "relative/path"
+		},
+	}
+	for name, change := range tests {
+		t.Run(name, func(t *testing.T) {
+			snapshot := ordinaryMultiPaneActionSnapshot()
+			snapshot.Workspaces[0].ActiveTabID = "tab-one"
+			change(&snapshot)
+			var createCalls atomic.Int32
+			refresh := &countingHomeRefresher{}
+			client := &fakeWorkspaceActionClient{
+				snapshot: func(context.Context) (herdr.Snapshot, error) { return snapshot, nil },
+				createWorktree: func(context.Context, herdr.CreateWorktreeSource, *string) error {
+					createCalls.Add(1)
+					return nil
+				},
+			}
+			response := performActionRequest(t, actionHandler(client, refresh), "/api/workspace-actions", `{"action":"create_worktree","workspace_id":"ordinary"}`)
+			assertOutcome(t, response, http.StatusConflict, "refused", "not_applicable")
+			if createCalls.Load() != 0 || refresh.count.Load() != 0 {
+				t.Fatalf("unresolved source reached Herdr %d times or refreshed Home %d times", createCalls.Load(), refresh.count.Load())
+			}
+		})
+	}
+}
+
+func TestOrdinaryWorktreeHerdrRefusalLeavesHomeUnchanged(t *testing.T) {
+	var createCalls atomic.Int32
+	refresh := &countingHomeRefresher{}
+	client := &fakeWorkspaceActionClient{
+		snapshot: func(context.Context) (herdr.Snapshot, error) {
+			return ordinaryOnePaneActionSnapshot("/not/a/repository"), nil
+		},
+		createWorktree: func(_ context.Context, source herdr.CreateWorktreeSource, _ *string) error {
+			createCalls.Add(1)
+			if source != (herdr.CreateWorktreeSource{CWD: "/not/a/repository"}) {
+				t.Fatalf("Herdr source = %+v", source)
+			}
+			return &herdr.APIError{Code: "worktree_create_failed", Message: "not a Git repository"}
+		},
+	}
+	response := performActionRequest(t, actionHandler(client, refresh), "/api/workspace-actions", `{"action":"create_worktree","workspace_id":"ordinary"}`)
+	assertOutcome(t, response, http.StatusUnprocessableEntity, "refused", "herdr_refused")
+	if createCalls.Load() != 1 || refresh.count.Load() != 0 {
+		t.Fatalf("Herdr calls=%d Home refreshes=%d, want 1 and 0", createCalls.Load(), refresh.count.Load())
+	}
 }
 
 func TestOneMutationAtATimeAndClientDisconnectDoesNotCancelIt(t *testing.T) {
@@ -264,6 +370,8 @@ func TestActionRoutesRequireStrictSameOriginJSON(t *testing.T) {
 	handler := actionHandler(&fakeWorkspaceActionClient{}, nil)
 	unknown := performActionRequest(t, handler, "/api/workspace-actions", `{"action":"create_space","working_directory":"/work","force":true}`)
 	assertOutcome(t, unknown, http.StatusBadRequest, "refused", "invalid_request")
+	browserCWD := performActionRequest(t, handler, "/api/workspace-actions", `{"action":"create_worktree","workspace_id":"ordinary","cwd":"/browser/chosen"}`)
+	assertOutcome(t, browserCWD, http.StatusBadRequest, "refused", "invalid_request")
 
 	wrongType := httptest.NewRequest("POST", "http://localhost/api/workspace-actions", strings.NewReader(`{"action":"create_space","working_directory":"/work"}`))
 	wrongType.Header.Set("Content-Type", "text/plain")
@@ -314,7 +422,7 @@ func TestInvalidNonNullWorktreeProvenanceCannotReachClose(t *testing.T) {
 type fakeWorkspaceActionClient struct {
 	snapshot        func(context.Context) (herdr.Snapshot, error)
 	createWorkspace func(context.Context, string, *string) error
-	createWorktree  func(context.Context, string, *string) error
+	createWorktree  func(context.Context, herdr.CreateWorktreeSource, *string) error
 	closeWorkspace  func(context.Context, string) error
 	removeWorktree  func(context.Context, string) error
 }
@@ -333,11 +441,11 @@ func (c *fakeWorkspaceActionClient) CreateWorkspace(ctx context.Context, cwd str
 	return c.createWorkspace(ctx, cwd, label)
 }
 
-func (c *fakeWorkspaceActionClient) CreateWorktree(ctx context.Context, workspaceID string, branch *string) error {
+func (c *fakeWorkspaceActionClient) CreateWorktree(ctx context.Context, source herdr.CreateWorktreeSource, branch *string) error {
 	if c.createWorktree == nil {
 		return nil
 	}
-	return c.createWorktree(ctx, workspaceID, branch)
+	return c.createWorktree(ctx, source, branch)
 }
 
 func (c *fakeWorkspaceActionClient) CloseWorkspace(ctx context.Context, workspaceID string) error {
@@ -408,6 +516,45 @@ func actionGroupSnapshot() herdr.Snapshot {
 			{WorkspaceID: "opaque-child", AgentStatus: herdr.StatusDone},
 		},
 	}
+}
+
+func ordinaryOnePaneActionSnapshot(cwd string) herdr.Snapshot {
+	return herdr.Snapshot{
+		Workspaces: []herdr.WorkspaceInfo{{ActiveTabID: "tab-one", WorkspaceID: "ordinary", Label: "Ordinary"}},
+		Tabs:       []herdr.TabInfo{{TabID: "tab-one", WorkspaceID: "ordinary"}},
+		Panes: []herdr.PaneInfo{{
+			CWD: cwd, PaneID: "pane-one", TabID: "tab-one", TerminalID: "terminal-one", WorkspaceID: "ordinary",
+		}},
+	}
+}
+
+func ordinaryMultiPaneActionSnapshot() herdr.Snapshot {
+	return herdr.Snapshot{
+		Workspaces: []herdr.WorkspaceInfo{{ActiveTabID: "tab-one", WorkspaceID: "ordinary", Label: "Ordinary"}},
+		Tabs: []herdr.TabInfo{
+			{TabID: "tab-one", WorkspaceID: "ordinary"},
+			{TabID: "tab-two", WorkspaceID: "ordinary"},
+		},
+		Panes: []herdr.PaneInfo{
+			{CWD: "/tab-one/current", PaneID: "pane-one", TabID: "tab-one", TerminalID: "terminal-one", WorkspaceID: "ordinary"},
+			{CWD: "/tab-two/other", Focused: true, PaneID: "pane-two", TabID: "tab-two", TerminalID: "terminal-two", WorkspaceID: "ordinary"},
+			{CWD: "/tab-two/shown-focused", PaneID: "pane-three", TabID: "tab-two", TerminalID: "terminal-three", WorkspaceID: "ordinary"},
+		},
+		Layouts: []herdr.LayoutInfo{
+			{FocusedPaneID: "pane-one", TabID: "tab-one", WorkspaceID: "ordinary"},
+			{FocusedPaneID: "pane-two", TabID: "tab-two", WorkspaceID: "ordinary"},
+		},
+		FocusedPaneID: "pane-one",
+	}
+}
+
+func containsWorkspaceAction(actions []herdr.WorkspaceAction, want herdr.WorkspaceAction) bool {
+	for _, action := range actions {
+		if action == want {
+			return true
+		}
+	}
+	return false
 }
 
 func equalStrings(left, right []string) bool {
