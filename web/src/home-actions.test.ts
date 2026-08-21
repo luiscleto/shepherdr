@@ -209,8 +209,9 @@ test("a pending Home action cannot repaint the shared root after Terminal naviga
   window.close();
 });
 
-test("workspace menu is immediately after Open and keyboard reaches fresh group confirmation", async () => {
+test("workspace menu is immediately after Open and keyboard reaches fresh close confirmation", async () => {
   const window = new Window({ url: "http://localhost/" });
+  let prepareRequest: { action: "close_workspace" | "close_group" | "delete_checkout"; workspace_id: string } | undefined;
   let runRequest: RunWorkspaceActionRequest | undefined;
   const prepared = {
     outcome: "prepared" as const,
@@ -224,7 +225,10 @@ test("workspace menu is immediately after Open and keyboard reaches fresh group 
     },
   };
   const { app, view } = makeView(window, {
-    prepare: async () => prepared,
+    prepare: async (request) => {
+      prepareRequest = request;
+      return prepared;
+    },
     run: async (request) => {
       runRequest = request;
       return { outcome: "unknown" };
@@ -246,10 +250,10 @@ test("workspace menu is immediately after Open and keyboard reaches fresh group 
   const trigger = requiredElement<HTMLButtonElement>(actionRow, ".workspace-menu-trigger");
   trigger.click();
   const items = Array.from(actionRow.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
-  assert.deepEqual(items.map((item) => item.textContent), ["New worktree", "Close group"]);
+  assert.deepEqual(items.map((item) => item.textContent), ["New worktree", "Close workspace"]);
   assert.equal(window.document.activeElement?.textContent, "New worktree");
   items[0].dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
-  assert.equal(window.document.activeElement?.textContent, "Close group");
+  assert.equal(window.document.activeElement?.textContent, "Close workspace");
   items[1].dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   assert.equal((window.document.activeElement as HTMLElement | null)?.getAttribute("aria-label"), "Actions for Parent <script>");
   assert.equal(requiredElement(actionRow, '[role="menu"]').hidden, true);
@@ -259,15 +263,22 @@ test("workspace menu is immediately after Open and keyboard reaches fresh group 
   await settle();
   const panel = requiredElement(app, ".home-action-panel");
   const text = panel.textContent ?? "";
-  assert.match(text, /Close Parent <script>\?/);
-  assert.match(text, /whole group and 7 agents/);
-  assert.match(text, /Agents may be interrupted: 2 working, 1 blocked, 3 unknown\./);
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "Close Parent <script>?");
+  assert.match(text, /1 additional linked workspace will also close\./);
+  assert.match(text, /7 agents will be affected\./);
+  assert.equal(
+    requiredElement(panel, ".home-action-warning").textContent,
+    "Agents may be interrupted: 2 working, 1 blocked, 3 unknown.",
+  );
   assert.doesNotMatch(text, /opaque-child|opaque-parent/);
   assert.equal(panel.querySelectorAll("script").length, 0);
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
+  assert.equal(JSON.stringify(prepareRequest), '{"action":"close_group","workspace_id":"opaque-parent"}');
+  assert.equal(requiredElement<HTMLButtonElement>(panel, ".home-action-primary").textContent, "Close workspace");
 
   requiredElement<HTMLButtonElement>(panel, ".home-action-primary").click();
   await settle();
+  assert.equal(runRequest && "action" in runRequest ? runRequest.action : "", "close_group");
   assert.equal(
     runRequest && "expected" in runRequest ? JSON.stringify(runRequest.expected) : "",
     JSON.stringify(prepared.expected),
@@ -278,6 +289,62 @@ test("workspace menu is immediately after Open and keyboard reaches fresh group 
   requiredElement<HTMLButtonElement>(app, ".home-action-panel button").click();
   assert.equal((window.document.activeElement as HTMLElement | null)?.getAttribute("aria-label"), "Actions for Parent <script>");
   window.close();
+});
+
+test("close confirmation describes only current nonzero scope and agent facts", async () => {
+  const cases = [{
+    name: "top-level repository without linked workspaces or agents",
+    scope_workspace_ids: ["opaque-parent"],
+    agent_total: 0,
+    expectedCopy: "This closes this workspace. Its terminals will end, and unsaved work can be lost. The folder and branch remain.",
+  }, {
+    name: "repository with linked workspaces and no agents",
+    scope_workspace_ids: ["opaque-child-a", "opaque-child-b", "opaque-parent"],
+    agent_total: 0,
+    expectedCopy: "This closes this workspace. 2 additional linked workspaces will also close. Their terminals will end, and unsaved work can be lost. Linked checkout folders and branches remain.",
+  }, {
+    name: "repository with only idle or done agents",
+    scope_workspace_ids: ["opaque-parent"],
+    agent_total: 4,
+    expectedCopy: "This closes this workspace. 4 agents will be affected. Its terminals will end, and unsaved work can be lost. The folder and branch remain.",
+  }];
+
+  for (const closeCase of cases) {
+    const window = new Window({ url: "http://localhost/" });
+    const { app } = makeView(window, {
+      prepare: async () => ({
+        outcome: "prepared",
+        action: "close_group",
+        workspace_id: "opaque-parent",
+        expected: {
+          workspace_label: "Parent <script>",
+          scope_workspace_ids: closeCase.scope_workspace_ids,
+          agent_total: closeCase.agent_total,
+          interruption_counts: { working: 0, blocked: 0, unknown: 0 },
+        },
+      }),
+    });
+    const trigger = requiredMatchingElement<HTMLButtonElement>(
+      app,
+      ".workspace-menu-trigger",
+      (button) => button.getAttribute("aria-label") === "Actions for Parent <script>",
+    );
+    trigger.click();
+    const closeAction = requiredMatchingElement<HTMLButtonElement>(
+      app,
+      '[role="menuitem"]',
+      (button) => button.textContent === "Close workspace",
+    );
+    closeAction.click();
+    await settle();
+
+    const panel = requiredElement(app, ".home-action-panel");
+    assert.equal(requiredElement(panel, ".home-action-title").textContent, "Close Parent <script>?", closeCase.name);
+    assert.equal(requiredElement(panel, ".home-action-copy").textContent, closeCase.expectedCopy, closeCase.name);
+    assert.equal(panel.querySelectorAll(".home-action-warning").length, 0, closeCase.name);
+    assert.doesNotMatch(panel.textContent ?? "", /whole group|Close group|0 agents/, closeCase.name);
+    window.close();
+  }
 });
 
 test("delete confirmation and dirty refusal keep hostile path and detail inert", async () => {
@@ -385,12 +452,12 @@ test("server refusal detail is displayed as inert text", async () => {
     (button) => button.getAttribute("aria-label") === "Actions for Parent <script>",
   );
   trigger.click();
-  const closeGroup = requiredMatchingElement<HTMLButtonElement>(
+  const closeWorkspace = requiredMatchingElement<HTMLButtonElement>(
     app,
     '[role="menuitem"]',
-    (button) => button.textContent === "Close group",
+    (button) => button.textContent === "Close workspace",
   );
-  closeGroup.click();
+  closeWorkspace.click();
   await settle();
 
   assert.equal(requiredElement(app, ".home-action-detail").textContent, detail);
@@ -446,7 +513,7 @@ test("collapsed groups with zero or multiple parent terminals keep their group a
     trigger.click();
     assert.deepEqual(
       Array.from(header.querySelectorAll('[role="menuitem"]'), (node) => node.textContent),
-      ["New worktree", "Close group"],
+      ["New worktree", "Close workspace"],
     );
     window.close();
   }

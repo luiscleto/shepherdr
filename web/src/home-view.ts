@@ -708,7 +708,7 @@ export class HomeView {
     const labels: Record<WorkspaceAction, string> = {
       create_worktree: "New worktree",
       close_workspace: "Close workspace",
-      close_group: "Close group",
+      close_group: "Close workspace",
       delete_checkout: "Delete checkout",
     };
     const items: Node[] = [];
@@ -978,23 +978,14 @@ export class HomeView {
     const content: Node[] = [];
     let heading: string;
     let confirmLabel: string;
-    if (prepared.action === "close_group") {
-      heading = `Close ${facts.workspace_label}?`;
-      confirmLabel = "Close group";
-      content.push(element(
-        this.#document,
-        "p",
-        "home-action-copy",
-        `This closes the whole group and ${this.#agentTotal(facts.agent_total)}. Its terminals will end, and unsaved work can be lost. Linked checkout folders and branches remain.`,
-      ));
-    } else if (prepared.action === "close_workspace") {
+    if (prepared.action === "close_group" || prepared.action === "close_workspace") {
       heading = `Close ${facts.workspace_label}?`;
       confirmLabel = "Close workspace";
       content.push(element(
         this.#document,
         "p",
         "home-action-copy",
-        `This closes this workspace and ${this.#agentTotal(facts.agent_total)}. Its terminals will end, and unsaved work can be lost. The folder and branch remain.`,
+        this.#closeConfirmationCopy(facts),
       ));
     } else {
       heading = `Delete checkout for ${facts.workspace_label}?`;
@@ -1023,6 +1014,23 @@ export class HomeView {
     });
     content.push(actions.container);
     this.#showActionLayer(heading, content, () => this.#closeActionLayer(), actions.primary);
+  }
+
+  #closeConfirmationCopy(facts: ConfirmationFacts): string {
+    const additionalWorkspaceCount = facts.scope_workspace_ids.length - 1;
+    const sentences = ["This closes this workspace."];
+    if (additionalWorkspaceCount > 0) {
+      sentences.push(
+        `${additionalWorkspaceCount} additional linked ${additionalWorkspaceCount === 1 ? "workspace" : "workspaces"} will also close.`,
+      );
+    }
+    if (facts.agent_total > 0) sentences.push(`${this.#agentTotal(facts.agent_total)} will be affected.`);
+    sentences.push(
+      additionalWorkspaceCount > 0
+        ? "Their terminals will end, and unsaved work can be lost. Linked checkout folders and branches remain."
+        : "Its terminals will end, and unsaved work can be lost. The folder and branch remain.",
+    );
+    return sentences.join(" ");
   }
 
   #agentTotal(total: number): string {
