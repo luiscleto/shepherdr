@@ -172,7 +172,6 @@ h3 {
   gap: 0.42rem;
   min-width: 9.5rem;
   min-height: 44px;
-  font-weight: 650;
   white-space: nowrap;
 }
 
@@ -240,14 +239,6 @@ h3 {
   padding: 0;
   color: #8d3f22;
   background: transparent;
-}
-
-.workspace-set-meta {
-  margin: 0.15rem 0 0.5rem;
-  color: #6b675f;
-  font-size: 0.82rem;
-  font-weight: 600;
-  overflow-wrap: anywhere;
 }
 
 .workspace-set-marker {

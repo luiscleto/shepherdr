@@ -387,7 +387,7 @@ test("opaque workspace and tab ids cannot collide during reconciliation", () => 
   window.close();
 });
 
-test("worktree sets disclose exact ordered totals and manual choices win for the visit", () => {
+test("worktree sets keep the parent Open separate from the worktree disclosure", () => {
   const window = new Window({ url: "http://localhost/" });
   const opened: string[] = [];
   const { app, view } = makeView(window, { onOpen: (entry) => opened.push(entry.terminal.pane_id) });
@@ -399,11 +399,8 @@ test("worktree sets disclose exact ordered totals and manual choices win for the
   const disclosure = requiredElement(app, ".workspace-set-disclosure");
   const parentRow = requiredRow(view, "parent-pane");
   assert.equal(disclosure.getAttribute("aria-expanded"), "true");
-  assert.equal(disclosure.getAttribute("aria-label"), "Collapse Main project <script> workspaces");
-  assert.equal(
-    requiredElement(app, ".workspace-set-meta").textContent,
-    "3 workspaces · 1 working · 1 blocked · 1 idle · 1 done · 1 unknown",
-  );
+  assert.equal(disclosure.getAttribute("aria-label"), "Collapse Main project <script> worktrees");
+  assert.equal(app.querySelectorAll(".workspace-set-meta").length, 0);
   assert.doesNotMatch(disclosure.textContent ?? "", /Open/);
   assert.equal(disclosure.textContent, "⌄");
   assert.equal(parentRow.localName, "button");
@@ -417,7 +414,7 @@ test("worktree sets disclose exact ordered totals and manual choices win for the
   assert.deepEqual(opened, ["parent-pane"]);
   disclosure.click();
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
-  assert.equal(disclosure.getAttribute("aria-label"), "Expand Main project <script> workspaces");
+  assert.equal(disclosure.getAttribute("aria-label"), "Expand Main project <script> worktrees");
   assert.equal(requiredElement(app, ".workspace-set-contents").hidden, true);
   assert.equal(parentRow.closest("[hidden]") === null, true);
   assert.deepEqual(opened, ["parent-pane"]);
@@ -427,7 +424,6 @@ test("worktree sets disclose exact ordered totals and manual choices win for the
   quieter.home.workspaces[0].agent_counts = { done: 5 };
   render(view, quieter);
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
-  assert.equal(requiredElement(app, ".workspace-set-meta").textContent, "3 workspaces · 5 done");
 
   requiredElement(app, ".workspace-expand-action").click();
   assert.equal(disclosure.getAttribute("aria-expanded"), "true");

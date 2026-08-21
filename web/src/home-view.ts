@@ -6,7 +6,6 @@ import {
   terminalCount,
   visibleTabs,
   workspaceSets,
-  type AgentCounts,
   type HomeState,
   type Tab,
   type TerminalEntry,
@@ -40,7 +39,6 @@ interface WorkspaceNodes {
 interface WorkspaceSetNodes {
   contents: HTMLElement;
   disclosure: HTMLButtonElement;
-  meta: HTMLElement;
   parent: HTMLElement;
   section: HTMLElement;
 }
@@ -320,8 +318,7 @@ export class HomeView {
     const nodes = this.#workspaceSet(workspace);
     const expanded = this.#expandedSets.get(workspace.id) ?? false;
     setAttribute(nodes.disclosure, "aria-expanded", String(expanded));
-    setAttribute(nodes.disclosure, "aria-label", `${expanded ? "Collapse" : "Expand"} ${workspace.label} workspaces`);
-    setText(nodes.meta, this.#setSummary(workspace.agent_counts ?? {}, 1 + (workspace.worktrees?.length ?? 0)));
+    setAttribute(nodes.disclosure, "aria-label", `${expanded ? "Collapse" : "Expand"} ${workspace.label} worktrees`);
     setHidden(nodes.contents, !expanded);
 
     const parent = this.#renderWorkspace(workspace, false, actionsAvailable, usedTabs);
@@ -344,7 +341,6 @@ export class HomeView {
       this.#expandedSets.set(workspace.id, !this.#expandedSets.get(workspace.id));
       if (this.#lastRender) this.render(this.#lastRender);
     });
-    const meta = element(this.#document, "p", "workspace-set-meta");
     const marker = element(this.#document, "span", "workspace-set-marker", "⌄");
     marker.setAttribute("aria-hidden", "true");
     disclosure.className = "workspace-set-disclosure";
@@ -352,19 +348,10 @@ export class HomeView {
     const contents = element(this.#document, "div", "workspace-set-contents");
     contents.id = `workspace-set-contents-${++this.#workspaceSetSequence}`;
     disclosure.setAttribute("aria-controls", contents.id);
-    section.append(parent, meta, contents);
-    const nodes = { contents, disclosure, meta, parent, section };
+    section.append(parent, contents);
+    const nodes = { contents, disclosure, parent, section };
     this.#workspaceSets.set(workspace.id, nodes);
     return nodes;
-  }
-
-  #setSummary(counts: AgentCounts, workspaceCount: number): string {
-    const parts = [`${workspaceCount} workspaces`];
-    for (const status of ["working", "blocked", "idle", "done", "unknown"] as const) {
-      const count = counts[status] ?? 0;
-      if (count > 0) parts.push(`${count} ${status}`);
-    }
-    return parts.join(" · ");
   }
 
   #workspace(workspace: Workspace): WorkspaceNodes {
