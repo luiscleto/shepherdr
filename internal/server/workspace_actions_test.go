@@ -279,6 +279,38 @@ func TestActionRoutesRequireStrictSameOriginJSON(t *testing.T) {
 	assertOutcome(t, crossOriginResponse, http.StatusBadRequest, "refused", "invalid_request")
 }
 
+func TestInvalidNonNullWorktreeProvenanceCannotReachClose(t *testing.T) {
+	snapshot := herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{
+		WorkspaceID: "ambiguous", Label: "Ambiguous", Worktree: &herdr.WorktreeInfo{},
+	}}}
+	var closeCalls atomic.Int32
+	client := &fakeWorkspaceActionClient{
+		snapshot: func(context.Context) (herdr.Snapshot, error) { return snapshot, nil },
+		closeWorkspace: func(context.Context, string) error {
+			closeCalls.Add(1)
+			return nil
+		},
+	}
+	handler := actionHandler(client, nil)
+
+	prepared := performActionRequest(t, handler, "/api/workspace-actions/prepare", `{"action":"close_workspace","workspace_id":"ambiguous"}`)
+	assertOutcome(t, prepared, http.StatusConflict, "refused", "not_applicable")
+	run := performActionRequest(t, handler, "/api/workspace-actions", `{
+		"action":"close_workspace",
+		"workspace_id":"ambiguous",
+		"expected":{
+			"workspace_label":"Ambiguous",
+			"scope_workspace_ids":["ambiguous"],
+			"agent_total":0,
+			"interruption_counts":{"working":0,"blocked":0,"unknown":0}
+		}
+	}`)
+	assertOutcome(t, run, http.StatusConflict, "refused", "not_applicable")
+	if closeCalls.Load() != 0 {
+		t.Fatalf("invalid worktree provenance reached workspace.close %d times", closeCalls.Load())
+	}
+}
+
 type fakeWorkspaceActionClient struct {
 	snapshot        func(context.Context) (herdr.Snapshot, error)
 	createWorkspace func(context.Context, string, *string) error

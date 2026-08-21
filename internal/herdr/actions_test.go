@@ -15,6 +15,7 @@ func TestProjectDerivesOnlyConfirmedWorkspaceActions(t *testing.T) {
 		{WorkspaceID: "child", Label: "Feature", Worktree: &WorktreeInfo{Valid: true, RepoKey: "repo", CheckoutPath: "/repo-feature", IsLinkedWorktree: true}},
 		{WorkspaceID: "ordinary", Label: "Scratch"},
 		{WorkspaceID: "linked-without-path", Label: "Incomplete", Worktree: &WorktreeInfo{Valid: true, RepoKey: "other", IsLinkedWorktree: true}},
+		{WorkspaceID: "malformed", Label: "Untrusted provenance", Worktree: &WorktreeInfo{}},
 	}}
 	home, err := Project(snapshot)
 	if err != nil {
@@ -38,6 +39,9 @@ func TestProjectDerivesOnlyConfirmedWorkspaceActions(t *testing.T) {
 	}
 	if got, want := home.Workspaces[2].Actions, []WorkspaceAction{WorkspaceActionCloseWorkspace}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("linked workspace without a confirmed path actions = %v, want %v", got, want)
+	}
+	if got := home.Workspaces[3].Actions; len(got) != 0 {
+		t.Fatalf("workspace with invalid non-null provenance actions = %v, want none", got)
 	}
 }
 

@@ -49,6 +49,9 @@ func ResolveWorkspaceAction(snapshot Snapshot, action WorkspaceAction, workspace
 		Workspace:         workspace,
 		ScopeWorkspaceIDs: []string{workspaceID},
 	}
+	if workspace.Worktree != nil && !workspace.Worktree.Valid {
+		return target, true, false
+	}
 	topLevel := isTopLevelRepository(snapshot, workspace)
 	repositoryRoot := workspace.Worktree != nil && workspace.Worktree.Valid && !workspace.Worktree.IsLinkedWorktree
 	switch action {
