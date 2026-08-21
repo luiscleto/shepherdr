@@ -47,18 +47,18 @@
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: stretch;
   gap: 0.4rem;
-  border-top: 1px solid #37463f;
+  border-top: 1px solid var(--line-strong);
   padding: 0.4rem;
-  background: #101715;
+  background: var(--paper-raised);
 }
 
 .reader-composer textarea {
   min-width: 0;
   padding: 0.55rem;
-  border: 1px solid #4a5a54;
+  border: 1px solid var(--line-strong);
   border-radius: 3px;
-  background: #18231f;
-  color: inherit;
+  background: var(--paper-recessed);
+  color: var(--ink);
   font: 1rem/1.3 "IBM Plex Mono", "Cascadia Mono", monospace;
   resize: vertical;
 }
@@ -68,10 +68,10 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 0.4rem;
-  border-top: 1px solid #37463f;
+  border-top: 1px solid var(--line-strong);
   padding: 0.4rem;
-  background: #101715;
-  color: #efcb82;
+  background: var(--paper-raised);
+  color: var(--accent);
   font-size: 0.82rem;
 }
 

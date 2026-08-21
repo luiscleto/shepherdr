@@ -38,15 +38,15 @@ With current sign-in-off access, Home opens directly and quietly keeps **Sign-in
 
 Think of a well-used drafting table made comfortable for a small screen:
 
-- warm off-white or lightly tinted paper surfaces, without making everything beige;
+- warm off-white paper surfaces with a slightly raised workspace surface, without making everything beige;
 - charcoal text and fine, confident dividing rules;
-- almost no shadow and very little corner rounding;
+- shallow shadow only where it separates a major workspace surface, with flat internal rows and little corner rounding;
 - one restrained accent for focus and the main action;
 - status colors used sparingly and never as the only signal;
 - typography, spacing, and alignment doing most of the work;
 - no gradients, glass panels, glowing controls, hacker decoration, or stacks of generic rounded cards.
 
-Choose display and body typefaces with a clear character. Use a monospaced face only for exact technical values. Final fonts and colors come later.
+Use a strong sans-serif face for the product name, workspace names, and terminal names. Use a monospaced face only for exact technical values, statuses, and compact counts. Keep the normal Home masthead to **Shepherdr**; do not spend a second line repeating **Home**. A temporary view such as **Blocked** keeps its own visible heading.
 
 ## Home and attention
 
@@ -59,9 +59,13 @@ Home first answers:
 
 Home shows every real workspace and every real terminal exactly once. Agent identity and one of Herdr's exact status words are optional terminal information. An ordinary terminal has no status badge and does not contribute to attention.
 
-Keep ordinary flat Home compact. When Herdr establishes a valid worktree nest, replace its top-level workspace's ordinary position with one nested section. The section heading uses that workspace title once, **N workspaces**, and only nonzero actual agent totals in this order: **working**, **blocked**, **idle**, **done**, **unknown**. Counts do not open or filter anything.
+Home includes one client-side text filter over visible workspace, tab, terminal, and agent names. Its label is **Filter workspaces and terminals**. It filters only the last complete Home already in the browser; it does not trigger another read, change global working or blocked counts, or renumber displayed titles. A workspace or tab name match keeps its current rows together. A terminal or agent match shows that row with the minimum workspace context. While filtering, reveal matching nested content without changing remembered expansion choices. Show **No matches** and “Try another filter.” when nothing matches.
 
-Expanding a nest shows every workspace and every terminal in it. The heading is one clear disclosure target; it does not add another **Open**. Expanded top-level and worktree workspaces keep their ordinary terminal rows and **Open** actions. Never fall back to the first terminal. Accessible names use **Open**, followed by the terminal title and its place. Do not expose internal terminology. Chevrons on terminal rows are decorative.
+Keep ordinary flat Home compact. Terminal rows use a strong human title, optional agent identity and exact status below it, and a small terminal glyph at the aligned trailing edge. The whole live row remains the **Open** action; the glyph is not a second button. Do not add an info action until there is useful approved metadata and a real flow for showing it.
+
+When Herdr establishes a valid worktree nest, replace its top-level workspace's ordinary position with one nested section. Show only nonzero actual agent totals under the top-level name, in this order: **working**, **blocked**, **idle**, **done**, **unknown**. Each compact badge retains both its number and status word; never communicate it by color alone. Do not show a workspace-count badge. Counts do not open or filter anything.
+
+When a nest's top-level workspace has exactly one terminal, keep that real terminal row visible as the parent row whether the nest is expanded or collapsed. Give it a separate leading disclosure action and keep its trailing terminal glyph aligned with other terminal rows. Expanding reveals only the worktree rows beneath it. If the top-level workspace has zero or multiple terminals, use a neutral disclosure heading and show all of its ordinary terminal rows when expanded. Never fall back to the first terminal. Accessible terminal names use **Open**, followed by the terminal title and its place. Do not expose internal terminology.
 
 On the first loaded visit, expand nests containing working or blocked agents and collapse the others. After that, the person's manual expand or collapse choice wins for the visit even when statuses change. Show compact **Expand all** when any nest is collapsed and **Collapse all** when all are expanded. Omit both when there are no nests and in **Blocked**.
 
@@ -92,6 +96,8 @@ Slice 1 is Home only. It has no **New worktree**, **Branch**, **Actions**, **Clo
 ## Terminal
 
 Terminal uses the human terminal title and a short connection or input state. Those states describe the terminal, not the agent, and never replace or embellish an agent's Herdr status.
+
+Terminal header, command bar, text composer, and feedback controls use the same paper, charcoal, dividing-rule, and accent palette as Home. The terminal rendering surface keeps its own high-contrast colors. Do not recolor terminal output or derive terminal colors from the surrounding application chrome.
 
 On a phone, use Reader for stable reading, browser selection, text entry, and terminal shortcuts. Do not add persistent control buttons to Reader. On a desktop, use the full terminal renderer and the desktop controls recorded in `terminal-direction.md`.
 

@@ -44,8 +44,9 @@ Serve production browser files with revalidation so a normal refresh cannot reta
 - Group only exact, nonempty `repo_key` matches containing one ordinary checkout and at least one linked worktree. Missing, malformed, linked-only, or ambiguous cases stay flat. Never infer grouping from names, paths, branches, Git, or order.
 - Keep the parent at its original top-level place, move its linked worktrees inside it, and preserve Herdr order for everything else.
 - An expanded set shows every workspace and terminal exactly once. Agent presence never decides whether a terminal exists.
-- The set heading shows the parent title, `N workspaces`, and only nonzero exact agent totals in `working`, `blocked`, `idle`, `done`, `unknown` order.
-- The heading is disclosure only. It has no separate **Open**. Expanded parent and worktree workspaces keep their ordinary terminal rows and existing **Open** actions.
+- A set shows only nonzero exact agent totals under the parent name in `working`, `blocked`, `idle`, `done`, `unknown` order. Each total keeps its status word and there is no workspace-count badge.
+- With exactly one parent terminal, keep that real **Open** row visible and give it a separate disclosure action that reveals only worktree rows. With zero or multiple parent terminals, use a neutral disclosure heading and show every parent terminal when expanded. Never choose a representative terminal.
+- The local Home filter matches visible workspace, tab, terminal, and agent names without another Herdr read, changing global attention counts, renumbering titles, or overwriting expansion choices.
 - Start sets containing working or blocked agents expanded and the others collapsed. Later manual choices win for the browser visit. Show **Expand all** or **Collapse all** only when useful.
 - Keep the working count persistent. When agents are blocked, **N blocked** shows only those terminals with enough workspace context. **Show all terminals** restores prior expansion, focus, and scroll.
 - Every target is at least 44 by 44 CSS pixels. Rotation and return from Terminal preserve a readable layout and the person's place.
@@ -85,7 +86,7 @@ Prefer a few direct tests of the simple loop and Home result:
 - unchanged Home sends nothing;
 - status and topology changes replace Home once;
 - connection loss and recovery use the connection badge only;
-- disclosure, blocked attention, focus, scroll, and current asset revalidation; and
+- local filtering, disclosure, blocked attention, focus, scroll, and current asset revalidation; and
 - hostile text stays inert.
 
 Do not recreate Herdr with a large mock system. Do not test every possible event ordering. Real Herdr through the production executable is the acceptance path.
@@ -105,7 +106,7 @@ After both approve, an integrator starts from this brief's pinned commit, integr
 The human checks:
 
 1. Flat and linked-worktree cases match Herdr; every workspace, terminal, and status total is accounted for.
-2. Disclosure, Expand/Collapse all, blocked attention, rotation, focus, and return place work.
+2. Local filtering, disclosure, Expand/Collapse all, blocked attention, rotation, focus, and return place work.
 3. Ordinary agent activity updates Home without **Home is updating**, badge flicker, page movement, or a refresh storm.
 4. A normal phone refresh loads the current interface without clearing site data or using Incognito.
 5. Herdr disconnect and restart produce the truthful badge and recover through the existing reconnect path.

@@ -54,7 +54,9 @@ Do not use `tailscale funnel`. Funnel makes the service public.
 - Show every current terminal under Herdr's workspace and tab structure.
 - Show agent identity and Herdr's working, blocked, idle, done, and unknown status when a terminal has an agent. Ordinary terminals have no invented status.
 - Show how many agents are working. When agents are blocked, show those same terminal rows in a filtered list without duplicating them on Home.
+- Filter the current Home locally by workspace, tab, terminal, or agent name without making another Herdr read or changing the global attention counts.
 - Keep a single-terminal workspace compact and make the whole terminal row the open action.
+- Keep a single-terminal worktree parent as a real open row with a separate disclosure action, and show compact nonzero status totals under its name.
 - Add small displayed-order numbers only to same-named single-terminal workspaces across Home or same-titled terminal rows in the same workspace and, when shown, tab. Matching titles in unrelated workspace/tab contexts stay unnumbered, and filtering never renumbers them.
 - Open any current real Herdr terminal, whether or not it has an agent.
 - From a phone, send one text or shortcut batch and release control after it is acknowledged. See [Terminal direction](docs/terminal-direction.md).

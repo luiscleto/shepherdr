@@ -52,7 +52,9 @@ Use the exact, nonempty `repo_key` and `is_linked_worktree` values in the snapsh
 
 Keep unrelated workspaces in Herdr order. An expanded set shows every workspace and every terminal exactly once. Agent presence never determines whether a terminal exists.
 
-The set heading contains its title, workspace count, nonzero agent status totals, and disclosure. It has no separate Terminal action. When expanded, the top-level workspace keeps the same ordinary terminal rows and **Open** actions as every other workspace. When collapsed, the heading only expands the set.
+The browser may filter its last complete Home by visible workspace, tab, terminal, and agent names. This is a local projection only: it adds no server state or Herdr read, preserves global attention counts, and does not overwrite expansion choices.
+
+A set shows only its nonzero agent status totals under the top-level name. When the top-level workspace has exactly one terminal, keep that real terminal row visible and place a separate disclosure action beside it; expanding reveals only the worktree rows. With zero or multiple top-level terminals, use a neutral disclosure heading and show all top-level terminal rows when expanded. Never select one terminal as a representative or fallback.
 
 Sets with working or blocked agents start expanded; the rest start collapsed. A person's later choice wins for that browser visit. **Expand all** and **Collapse all** appear only when useful.
 

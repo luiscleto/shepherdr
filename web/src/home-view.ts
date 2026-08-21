@@ -7,6 +7,7 @@ import {
   visibleTabs,
   workspaceSets,
   type AgentCounts,
+  type Home,
   type HomeState,
   type Tab,
   type TerminalEntry,
@@ -38,12 +39,17 @@ interface WorkspaceNodes {
 }
 
 interface WorkspaceSetNodes {
+  body: HTMLElement;
   contents: HTMLElement;
   disclosure: HTMLButtonElement;
+  header: HTMLElement;
+  heading: HTMLElement;
   marker: HTMLElement;
   parent: HTMLElement;
   section: HTMLElement;
   summary: HTMLElement;
+  summaryStatuses: Map<keyof AgentCounts, HTMLElement>;
+  title: HTMLElement;
 }
 
 interface TabNodes {
@@ -58,6 +64,7 @@ interface RowNodes {
   agent: HTMLElement;
   chevron: HTMLElement;
   main: HTMLElement;
+  meta: HTMLElement;
   name: HTMLElement;
   row: HTMLElement;
   status: HTMLElement;
@@ -122,16 +129,20 @@ export class HomeView {
   readonly #empty: HTMLElement;
   readonly #expandAction: HTMLButtonElement;
   readonly #expandedSets = new Map<string, boolean>();
+  readonly #filterInput: HTMLInputElement;
   readonly #header: HTMLElement;
   readonly #headerHeading: HTMLElement;
+  readonly #homeTools: HTMLElement;
   readonly #loading: HTMLElement;
   readonly #loadingHeading: HTMLElement;
+  readonly #noMatches: HTMLElement;
   readonly #rows = new Map<string, RowNodes>();
   readonly #items = new Map<string, HTMLLIElement>();
   readonly #tabs = new Map<string, Map<string, TabNodes>>();
   readonly #workspaces = new Map<string, WorkspaceNodes>();
   readonly #workspaceSets = new Map<string, WorkspaceSetNodes>();
   readonly #entries = new Map<string, TerminalEntry>();
+  #filterValue = "";
   #lastRender: HomeViewRender | undefined;
   #workspaceHeadingSequence = 0;
   #workspaceSetSequence = 0;
@@ -186,6 +197,28 @@ export class HomeView {
       if (this.#lastRender) this.render(this.#lastRender);
     });
     this.#expandAction.className = "workspace-expand-action";
+
+    const filterLabel = element(this.#document, "label", "home-filter");
+    const filterIcon = element(this.#document, "span", "home-filter-icon");
+    filterIcon.setAttribute("aria-hidden", "true");
+    this.#filterInput = element(this.#document, "input");
+    this.#filterInput.type = "search";
+    this.#filterInput.placeholder = "Filter workspaces and terminals";
+    this.#filterInput.setAttribute("aria-label", "Filter workspaces and terminals");
+    this.#filterInput.addEventListener("input", () => {
+      this.#filterValue = this.#filterInput.value;
+      if (this.#lastRender) this.render(this.#lastRender);
+    });
+    filterLabel.append(filterIcon, this.#filterInput);
+    this.#homeTools = element(this.#document, "section", "home-tools");
+    this.#homeTools.setAttribute("aria-label", "Home controls");
+    this.#homeTools.append(filterLabel, this.#expandAction);
+
+    this.#noMatches = element(this.#document, "section", "state-panel home-no-matches");
+    this.#noMatches.append(
+      element(this.#document, "strong", undefined, "No matches"),
+      element(this.#document, "p", undefined, "Try another filter."),
+    );
   }
 
   render(model: HomeViewRender): void {
@@ -194,6 +227,7 @@ export class HomeView {
     const oldScroll = model.restore?.scroll ?? view?.scrollY ?? 0;
     setClass(this.#app, "home");
     setText(this.#headerHeading, model.mode === "blocked" ? "Blocked" : "Home");
+    setHidden(this.#headerHeading, model.mode === "all");
 
     const live = model.reachability === "current" && model.state.connection === "live" && !model.state.last_known;
 
@@ -201,7 +235,9 @@ export class HomeView {
     const connection = this.#connectionCopy(model);
     this.#updateConnection(connection);
 
-    const allWorkspaceValues = allWorkspaces(model.state.home);
+    const filterActive = model.mode === "all" && this.#filterValue.trim() !== "";
+    const visibleHome = filterActive ? this.#filteredHome(model.state.home, this.#filterValue) : model.state.home;
+    const allWorkspaceValues = allWorkspaces(visibleHome);
     const usedWorkspaces = new Set(allWorkspaceValues.map((workspace) => workspace.id));
     const usedTabs: UsedTabs = new Map();
     const usedSets = new Set<string>();
@@ -225,22 +261,24 @@ export class HomeView {
           if (section) desired.push(section);
         }
       } else {
-        const sets = workspaceSets(model.state.home);
+        const sets = workspaceSets(visibleHome);
         for (const workspace of sets) {
           if (!this.#expandedSets.has(workspace.id)) {
             const counts = workspace.agent_counts ?? {};
             this.#expandedSets.set(workspace.id, (counts.working ?? 0) > 0 || (counts.blocked ?? 0) > 0);
           }
         }
-        if (sets.length > 0) {
+        setHidden(this.#expandAction, filterActive || sets.length === 0);
+        desired.push(this.#homeTools);
+        if (sets.length > 0 && !filterActive) {
           const expand = sets.some((workspace) => !this.#expandedSets.get(workspace.id));
           setText(this.#expandAction, expand ? "Expand all" : "Collapse all");
-          desired.push(this.#expandAction);
         }
-        for (const workspace of model.state.home.workspaces) {
+        if (filterActive && allWorkspaceValues.length === 0) desired.push(this.#noMatches);
+        for (const workspace of visibleHome.workspaces) {
           if ((workspace.worktrees?.length ?? 0) > 0) {
             usedSets.add(workspace.id);
-            desired.push(this.#renderWorkspaceSet(workspace, model.actionsAvailable, usedTabs));
+            desired.push(this.#renderWorkspaceSet(workspace, model.actionsAvailable, usedTabs, filterActive));
             continue;
           }
           const section = this.#renderWorkspace(workspace, false, model.actionsAvailable, usedTabs);
@@ -317,23 +355,44 @@ export class HomeView {
     return nodes.section;
   }
 
-  #renderWorkspaceSet(workspace: Workspace, actionsAvailable: boolean, usedTabs: UsedTabs): HTMLElement {
+  #renderWorkspaceSet(
+    workspace: Workspace,
+    actionsAvailable: boolean,
+    usedTabs: UsedTabs,
+    forceExpanded = false,
+  ): HTMLElement {
     const nodes = this.#workspaceSet(workspace);
-    const expanded = this.#expandedSets.get(workspace.id) ?? false;
+    const expanded = forceExpanded || (this.#expandedSets.get(workspace.id) ?? false);
     setAttribute(nodes.disclosure, "aria-expanded", String(expanded));
     setAttribute(nodes.disclosure, "aria-label", `${expanded ? "Collapse" : "Expand"} ${workspace.label} worktrees`);
-    setText(nodes.marker, expanded ? "−" : "+");
-    setText(nodes.summary, this.#groupSummary(workspace.agent_counts ?? {}, 1 + (workspace.worktrees?.length ?? 0)));
-    setHidden(nodes.contents, !expanded);
+    setText(nodes.marker, expanded ? "⌄" : "›");
+    setText(nodes.title, workspace.label);
+    this.#updateGroupSummary(nodes, workspace.agent_counts ?? {});
+    setHidden(nodes.body, !expanded);
 
-    const parent = this.#renderWorkspace(workspace, false, actionsAvailable, usedTabs);
-    const parentMain = parent?.querySelector<HTMLElement>(".terminal-main");
-    if (parentMain && nodes.summary.parentElement !== parentMain) {
-      parentMain.append(nodes.summary);
-    } else if (!parentMain) {
-      nodes.summary.remove();
+    const parentTerminalCount = terminalCount(workspace);
+    const parent = parentTerminalCount > 0
+      ? this.#renderWorkspace(workspace, false, actionsAvailable, usedTabs, true)
+      : undefined;
+    if (parentTerminalCount === 1 && parent) {
+      const parentMain = parent.querySelector<HTMLElement>(".terminal-main");
+      const parentMeta = parentMain?.querySelector<HTMLElement>(".terminal-meta");
+      if (parentMain && (nodes.summary.parentElement !== parentMain || nodes.summary.nextSibling !== parentMeta)) {
+        parentMain.insertBefore(nodes.summary, parentMeta ?? null);
+      }
+      const parentRow = parent.querySelector<HTMLElement>(".terminal-row");
+      const summaryLabel = this.#groupSummaryLabel(workspace.agent_counts ?? {});
+      const rowLabel = parentRow?.getAttribute("aria-label");
+      if (parentRow && rowLabel && summaryLabel) {
+        setAttribute(parentRow, "aria-label", `${rowLabel}, workspace totals: ${summaryLabel}`);
+      }
+      reconcileChildren(nodes.header, [nodes.disclosure, parent]);
+      reconcileChildren(nodes.parent, []);
+    } else {
+      if (nodes.summary.parentElement !== nodes.heading) nodes.heading.append(nodes.summary);
+      reconcileChildren(nodes.header, [nodes.disclosure, nodes.heading]);
+      reconcileChildren(nodes.parent, parent ? [parent] : []);
     }
-    reconcileChildren(nodes.parent, parent ? [nodes.disclosure, parent] : [nodes.disclosure]);
     const contents: Node[] = [];
     for (const worktree of workspace.worktrees ?? []) {
       const section = this.#renderWorkspace(worktree, false, actionsAvailable, usedTabs);
@@ -347,6 +406,8 @@ export class HomeView {
     const existing = this.#workspaceSets.get(workspace.id);
     if (existing) return existing;
     const section = element(this.#document, "section", "workspace-set");
+    const header = element(this.#document, "div", "workspace-set-header");
+    const body = element(this.#document, "div", "workspace-set-body");
     const parent = element(this.#document, "div", "workspace-set-parent");
     const disclosure = this.#button("", () => {
       this.#expandedSets.set(workspace.id, !this.#expandedSets.get(workspace.id));
@@ -355,29 +416,47 @@ export class HomeView {
     const marker = element(this.#document, "span", "workspace-set-marker");
     marker.setAttribute("aria-hidden", "true");
     disclosure.className = "workspace-set-disclosure";
-    disclosure.append(marker);
+    const heading = element(this.#document, "span", "workspace-set-heading");
+    const title = element(this.#document, "span", "workspace-set-title");
     const summary = element(this.#document, "span", "workspace-set-summary");
+    heading.append(title, summary);
+    disclosure.append(marker);
     const contents = element(this.#document, "div", "workspace-set-contents");
-    contents.id = `workspace-set-contents-${++this.#workspaceSetSequence}`;
-    disclosure.setAttribute("aria-controls", contents.id);
-    section.append(parent, contents);
-    const nodes = { contents, disclosure, marker, parent, section, summary };
+    body.id = `workspace-set-contents-${++this.#workspaceSetSequence}`;
+    disclosure.setAttribute("aria-controls", body.id);
+    body.append(parent, contents);
+    header.append(disclosure, heading);
+    section.append(header, body);
+    const summaryStatuses = new Map<keyof AgentCounts, HTMLElement>();
+    const nodes = { body, contents, disclosure, header, heading, marker, parent, section, summary, summaryStatuses, title };
     this.#workspaceSets.set(workspace.id, nodes);
     return nodes;
   }
 
-  #groupSummary(counts: AgentCounts, workspaceCount: number): string {
+  #updateGroupSummary(nodes: WorkspaceSetNodes, counts: AgentCounts): void {
     const statuses = ["working", "blocked", "idle", "done", "unknown"] as const;
-    const agentCount = statuses.reduce((total, status) => total + (counts[status] ?? 0), 0);
-    const parts = [
-      `${workspaceCount} workspace${workspaceCount === 1 ? "" : "s"}`,
-      `${agentCount} agent${agentCount === 1 ? "" : "s"}`,
-    ];
+    const parts: Node[] = [];
     for (const status of statuses) {
       const count = counts[status] ?? 0;
-      if (count > 0) parts.push(`${count} ${status}`);
+      if (count > 0) {
+        let badge = nodes.summaryStatuses.get(status);
+        if (!badge) {
+          badge = element(this.#document, "span", `workspace-summary-status workspace-summary-${status}`);
+          nodes.summaryStatuses.set(status, badge);
+        }
+        setText(badge, `${count} ${status}`);
+        parts.push(badge);
+      }
     }
-    return parts.join(" · ");
+    reconcileChildren(nodes.summary, parts);
+  }
+
+  #groupSummaryLabel(counts: AgentCounts): string {
+    const statuses = ["working", "blocked", "idle", "done", "unknown"] as const;
+    return statuses
+      .filter((status) => (counts[status] ?? 0) > 0)
+      .map((status) => `${counts[status]} ${status}`)
+      .join(", ");
   }
 
   #workspace(workspace: Workspace): WorkspaceNodes {
@@ -508,11 +587,14 @@ export class HomeView {
       const name = element(this.#document, "span", "terminal-name");
       const agent = element(this.#document, "span", "terminal-agent");
       const status = element(this.#document, "span", "status");
-      const chevron = element(this.#document, "span", "terminal-chevron", "›");
-      main.append(name, agent, status);
+      const meta = element(this.#document, "span", "terminal-meta");
+      const chevron = element(this.#document, "span", "terminal-chevron");
+      chevron.setAttribute("aria-hidden", "true");
+      meta.append(agent, status);
+      main.append(name, meta);
       row.append(main, chevron);
       row.dataset.paneKey = entry.terminal.pane_id;
-      nodes = { agent, chevron, main, name, row, status };
+      nodes = { agent, chevron, main, meta, name, row, status };
       this.#rows.set(entry.terminal.pane_id, nodes);
     }
 
@@ -534,6 +616,48 @@ export class HomeView {
       setHidden(nodes.status, true);
     }
     return nodes;
+  }
+
+  #filteredHome(home: Home, value: string): Home {
+    const query = value.trim().toLocaleLowerCase();
+    const workspaces = home.workspaces
+      .map((workspace) => this.#filteredWorkspace(workspace, query))
+      .filter((workspace): workspace is Workspace => workspace !== undefined);
+    return { ...home, workspaces };
+  }
+
+  #filteredWorkspace(workspace: Workspace, query: string): Workspace | undefined {
+    const matches = (value: string | undefined): boolean => value?.toLocaleLowerCase().includes(query) ?? false;
+    if (matches(workspace.label)) return workspace;
+
+    const tabs = workspace.tabs
+      .map((tab) => ({
+        ...tab,
+        terminals: matches(tab.label)
+          ? tab.terminals
+          : tab.terminals.filter((terminal) => matches(terminal.title) || matches(terminal.agent?.name)),
+      }))
+      .filter((tab) => tab.terminals.length > 0);
+    const worktrees = (workspace.worktrees ?? [])
+      .map((worktree) => this.#filteredWorkspace(worktree, query))
+      .filter((worktree): worktree is Workspace => worktree !== undefined);
+    if (tabs.length === 0 && worktrees.length === 0) return undefined;
+
+    const filtered = { ...workspace, tabs, worktrees };
+    if (workspace.agent_counts) filtered.agent_counts = this.#agentCounts(filtered);
+    return filtered;
+  }
+
+  #agentCounts(workspace: Workspace): AgentCounts {
+    const counts: AgentCounts = {};
+    for (const current of [workspace, ...(workspace.worktrees ?? [])]) {
+      for (const tab of current.tabs) {
+        for (const terminal of tab.terminals) {
+          if (terminal.agent) counts[terminal.agent.status] = (counts[terminal.agent.status] ?? 0) + 1;
+        }
+      }
+    }
+    return counts;
   }
 
   #prune(usedWorkspaces: Set<string>, usedTabs: UsedTabs, usedSets: Set<string>, paneIDs: Set<string>): void {

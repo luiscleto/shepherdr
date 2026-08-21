@@ -38,9 +38,11 @@ Home shows every real Herdr workspace and terminal exactly once. Agent identity 
 
 Do not replace them with more precise-sounding words or give an ordinary terminal an invented status.
 
-Ordinary flat Home stays compact. When Herdr establishes a worktree relationship, Home mirrors it as one nested set: one top-level workspace and its worktree workspaces. Shepherdr does not store or invent another organization. A set opens to show every workspace and every terminal. Its heading uses the top-level workspace title once, the workspace total, and only nonzero real agent totals in Herdr's fixed status order. Those totals are information, not controls.
+Home has one local text filter over the names already present in its complete current view: workspaces, tabs, terminals, and agents. Filtering makes no additional Herdr read, never renumbers titles, keeps enough workspace context to understand each match, and leaves the global attention counts unchanged. Matching nested content is revealed while the filter is active without overwriting the person's expansion choices; clearing the filter restores those choices.
 
-The set heading expands or collapses the set; it does not add another Terminal action. When expanded, the top-level workspace and its worktrees keep their ordinary terminal rows and **Open** actions. Shepherdr never substitutes the first terminal or another surviving terminal.
+Ordinary flat Home stays compact. When Herdr establishes a worktree relationship, Home mirrors it as one nested set: one top-level workspace and its worktree workspaces. Shepherdr does not store or invent another organization. The set shows only nonzero real agent totals under its top-level name, in Herdr's fixed status order. Each total keeps the status word visible; color supports the label but never replaces it. The totals are information, not controls, and there is no workspace-count badge.
+
+When the top-level workspace has exactly one terminal, its ordinary terminal row stays visible as the set's parent row. A separate disclosure action on that row expands or collapses only the worktree rows, while the terminal row remains its real **Open** action. If the top-level workspace has zero or multiple terminals, use a neutral set heading and show all of its ordinary terminal rows when expanded. Shepherdr never substitutes the first terminal or another surviving terminal.
 
 On the first load of a visit, sets with working or blocked agents are expanded and the rest are collapsed. A person's later expand or collapse choice wins for that loaded visit even if agent statuses change. Home offers one compact **Expand all** or **Collapse all** action when useful.
 

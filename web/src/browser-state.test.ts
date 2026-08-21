@@ -401,14 +401,24 @@ test("worktree sets keep the parent Open separate from the worktree disclosure",
   assert.equal(disclosure.getAttribute("aria-expanded"), "true");
   assert.equal(disclosure.getAttribute("aria-label"), "Collapse Main project <script> worktrees");
   assert.equal(app.querySelectorAll(".workspace-set-meta").length, 0);
-  assert.equal(
-    requiredElement(parentRow, ".workspace-set-summary").textContent,
-    "3 workspaces · 5 agents · 1 working · 1 blocked · 1 idle · 1 done · 1 unknown",
+  assert.deepEqual(
+    Array.from(parentRow.querySelectorAll(".workspace-summary-status"), (badge) => badge.textContent),
+    ["1 working", "1 blocked", "1 idle", "1 done", "1 unknown"],
+  );
+  assert.doesNotMatch(requiredElement(parentRow, ".workspace-set-summary").textContent ?? "", /workspace|agent/);
+  assert.equal(parentRow.closest(".workspace-set-header") !== null, true);
+  assert.equal(parentRow.closest(".workspace-set-body"), null);
+  assert.deepEqual(
+    Array.from(requiredElement(parentRow, ".terminal-main").children, (child) => child.className),
+    ["terminal-name", "workspace-set-summary", "terminal-meta"],
   );
   assert.doesNotMatch(disclosure.textContent ?? "", /Open/);
-  assert.equal(disclosure.textContent, "−");
+  assert.equal(disclosure.textContent, "⌄");
   assert.equal(parentRow.localName, "button");
-  assert.equal(parentRow.getAttribute("aria-label"), "Open Builder, workspace Main project <script>, working");
+  assert.equal(
+    parentRow.getAttribute("aria-label"),
+    "Open Builder, workspace Main project <script>, working, workspace totals: 1 working, 1 blocked, 1 idle, 1 done, 1 unknown",
+  );
   assert.equal(requiredElement(parentRow, ".status").textContent, "working");
   assert.equal(app.querySelectorAll(".terminal-row").length, 5);
   assert.equal(requiredElement(app, ".workspace-expand-action").textContent, "Collapse all");
@@ -419,21 +429,67 @@ test("worktree sets keep the parent Open separate from the worktree disclosure",
   disclosure.click();
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
   assert.equal(disclosure.getAttribute("aria-label"), "Expand Main project <script> worktrees");
-  assert.equal(disclosure.textContent, "+");
-  assert.equal(requiredElement(app, ".workspace-set-contents").hidden, true);
+  assert.equal(disclosure.textContent, "›");
+  assert.equal(requiredElement(app, ".workspace-set-body").hidden, true);
   assert.equal(parentRow.closest("[hidden]") === null, true);
   assert.deepEqual(opened, ["parent-pane"]);
   assert.equal(requiredElement(app, ".workspace-expand-action").textContent, "Expand all");
 
   const quieter = structuredClone(current);
   quieter.home.workspaces[0].agent_counts = { blocked: 1 };
+  const blockedBadge = requiredElement(parentRow, ".workspace-summary-blocked");
   render(view, quieter);
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
-  assert.equal(requiredElement(parentRow, ".workspace-set-summary").textContent, "3 workspaces · 1 agent · 1 blocked");
+  assert.deepEqual(
+    Array.from(parentRow.querySelectorAll(".workspace-summary-status"), (badge) => badge.textContent),
+    ["1 blocked"],
+  );
+  assert.equal(requiredElement(parentRow, ".workspace-summary-blocked") === blockedBadge, true);
 
   requiredElement(app, ".workspace-expand-action").click();
   assert.equal(disclosure.getAttribute("aria-expanded"), "true");
   assert.equal(requiredElement(app, ".workspace-expand-action").textContent, "Collapse all");
+  window.close();
+});
+
+test("Home filters visible names locally without changing group expansion or global attention", () => {
+  const window = new Window({ url: "http://localhost/" });
+  let blockedClicks = 0;
+  const { app, view } = makeView(window, { onShowBlocked: () => blockedClicks++ });
+  render(view, state(groupedHome()));
+
+  const homeHeading = requiredElement(app, ".masthead h1");
+  assert.equal(homeHeading.hidden, true);
+  const filter = requiredElement(app, ".home-filter input") as HTMLInputElement;
+  const expandAction = requiredElement(app, ".workspace-expand-action");
+  const blockedAction = Array.from(app.querySelectorAll<HTMLButtonElement>(".attention-bar button"))
+    .find((button) => !button.hidden && button.textContent === "1 blocked");
+  assert.ok(blockedAction);
+  blockedAction.click();
+  assert.equal(blockedClicks, 1);
+
+  filter.value = "Reviewer";
+  filter.dispatchEvent(new window.Event("input", { bubbles: true }));
+  assert.deepEqual(Array.from(app.querySelectorAll(".terminal-name"), (node) => node.textContent), ["Review branch"]);
+  assert.equal(requiredElement(app, ".workspace-set-disclosure").getAttribute("aria-expanded"), "true");
+  assert.equal(expandAction.hidden, true);
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".workspace-summary-status"), (badge) => badge.textContent),
+    ["1 blocked"],
+  );
+  assert.equal(requiredElement(app, ".attention-bar strong").textContent, "1 working");
+  assert.equal(blockedAction.hidden, false);
+
+  filter.value = "missing value";
+  filter.dispatchEvent(new window.Event("input", { bubbles: true }));
+  assert.equal(app.querySelectorAll(".terminal-row").length, 0);
+  assert.equal(requiredElement(app, ".home-no-matches strong").textContent, "No matches");
+
+  filter.value = "";
+  filter.dispatchEvent(new window.Event("input", { bubbles: true }));
+  assert.equal(app.querySelectorAll(".terminal-row").length, 6);
+  assert.equal(requiredElement(app, ".workspace-set-disclosure").getAttribute("aria-expanded"), "true");
+  assert.equal(expandAction.hidden, false);
   window.close();
 });
 
