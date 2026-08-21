@@ -43,6 +43,8 @@ On the first visit where Push is supported and permission is undecided, show one
 - Do not show the invitation when permission is already granted or blocked, or when Push is unavailable.
 - Clearing that browser's site data may make it eligible for the invitation again.
 
+The invitation appears only after the operator has configured a valid VAPID contact. Without one, keep the Notifications settings action but show **Notifications aren't set up** and explain: **On the machine running Shepherdr, start it with `-vapid-contact` and a contact email or website.** Do not request permission or expose subscription controls until setup exists.
+
 Home and Terminal each have one **Notifications** settings action. The settings explain that they apply only to this browser or installed app. The person can enable notifications, change individual event choices, or turn notifications off later. It is not an inbox.
 
 Defaults for a new subscription:
@@ -60,11 +62,13 @@ Use standard Web Push with a maintained Go library. If the library choice would 
 
 Use one stable private HTTPS origin for phone subscriptions. Shepherdr remains bound to localhost; publishing it through the private network remains an operator action. Agents must not start, stop, or reconfigure Tailscale.
 
-Store one VAPID key pair and the minimum subscription and event settings for each browser in one versioned, atomically replaced file outside the repository. Its parent directory and file are readable and writable only by the Shepherdr operating-system user. Create it when notifications are first enabled and keep the key stable across ordinary restarts. The VAPID public key is browser-visible; the private key and subscription authentication values are secrets. Do not store device names, Herdr snapshots, events, notification bodies, history, seen state, or delivery results. A corrupt or unreadable store disables notifications without breaking Home or Terminal and without silently replacing its key.
+Store the operator's VAPID contact, one VAPID key pair, and the minimum subscription and event settings for each browser in one versioned, atomically replaced file outside the repository. Its parent directory and file are readable and writable only by the Shepherdr operating-system user. Create it when the operator first configures push and keep the key stable across ordinary restarts. The VAPID public key and operator contact are browser-visible; the private key and subscription authentication values are secrets. Do not store device names, Herdr snapshots, events, notification bodies, history, seen state, or delivery results. A corrupt or unreadable store disables notifications without breaking Home or Terminal and without silently replacing its key.
+
+Add `-vapid-contact` to normal startup. It accepts only a real `mailto:` or HTTPS URI, saves it, and starts Shepherdr. An invalid value stops startup with a plain error. Later starts reuse the saved value. Supplying a different valid value updates only the contact; it does not rotate the VAPID pair or remove subscriptions. The README explains that each open-source installation supplies its own operator contact and that browser push providers receive it.
 
 Subscriptions belong to the Shepherdr deployment. They survive Shepherdr and machine restarts and continue if the operator later selects another Herdr socket. That new connection still begins with a silent baseline; only subsequent observed changes notify. Do not add session-binding or migration machinery.
 
-Provide one local `-reset-notifications` command-line action. The operator stops Shepherdr before running it. It clears every stored subscription and the VAPID pair, reports the result, and exits without starting the server. Browsers must explicitly enable notifications again. It must affect no other Shepherdr state.
+Provide one local `-reset-notifications` command-line action. The operator stops Shepherdr before running it. It clears every stored subscription, the VAPID pair, and the saved contact, reports the result, and exits without starting the server. Push remains unavailable until the operator supplies `-vapid-contact` again, and browsers must then explicitly enable notifications again. It must affect no other Shepherdr state.
 
 Subscription endpoints and keys are secrets and untrusted input. Keep them out of logs and source control. Require same-origin settings requests, strictly validate sizes and shapes, and ensure outbound push requests cannot reach local, private, link-local, or private-network addresses through redirects or name resolution. Use short request and response limits. Do not implement Web Push encryption or VAPID signing by hand.
 
@@ -104,6 +108,7 @@ Use a few focused tests for:
 - silent initial and post-gap baselines;
 - per-browser defaults and independent settings;
 - first-visit invitation and remembered **Not now**;
+- missing, valid, invalid, persisted, and updated VAPID contact behavior;
 - strict subscription input, secret handling, and outbound endpoint safety;
 - persistent settings and VAPID identity across restart;
 - generic payloads, five-minute expiry, no automatic retry, and exact links; and
@@ -127,7 +132,7 @@ Integration is not product acceptance.
 
 The human supplies the running private HTTPS route and witnesses the real Android phone checks. Agents do not operate Tailscale.
 
-1. On Android Chrome, verify the quiet first-visit invitation. Choose **Not now**, refresh, and confirm it stays dismissed while settings remain reachable from Home and Terminal.
+1. Start without a VAPID contact. Confirm Home and Terminal work, no invitation appears, and Notifications settings explain the local `-vapid-contact` setup. Stop Shepherdr, start it with a valid operator contact, then confirm the quiet first-visit invitation appears on Android Chrome. Choose **Not now**, refresh, and confirm it stays dismissed while settings remain reachable from Home and Terminal.
 2. Open settings without triggering permission. Then deny the explicit permission request and confirm Shepherdr explains that notification permission must be changed in browser settings without prompting again.
 3. Restore permission in Android browser settings, enable Android Chrome through an explicit tap, and confirm `blocked` and `done` start on while every other event starts off.
 4. On Android Chrome, with Shepherdr in the background, drive real agents into `blocked` and `done`. Confirm generic notifications arrive and open the exact current Terminal. Repeat once while Shepherdr is visibly open and confirm the subscribed push still appears.
@@ -135,7 +140,7 @@ The human supplies the running private HTTPS route and witnesses the real Androi
 6. Make a notified terminal stale before tapping. Confirm **Terminal unavailable** and the route to Home, with no fallback terminal.
 7. Restart Shepherdr and interrupt/recover Herdr. Confirm settings survive, recovery is a silent baseline, and Home and Terminal still behave as accepted.
 8. Configure a second browser or profile differently. Confirm settings remain independent and turning off one subscription does not change the other.
-9. With disposable notification state, stop Shepherdr, run the local reset action, and restart it. Confirm every browser must enable again and Home and Terminal remain usable.
+9. With disposable notification state, stop Shepherdr, run the local reset action, and restart it. Confirm the contact, keys, and subscriptions are gone; Home and Terminal remain usable; settings explain setup; and every browser must enable again after the operator configures a contact.
 10. Keep a phone offline beyond five minutes and confirm Shepherdr makes no replay, history, read-state, or delivery claim.
 
 Human acceptance gates the next slice.

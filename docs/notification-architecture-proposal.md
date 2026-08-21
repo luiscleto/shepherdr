@@ -9,6 +9,8 @@ Use standard Web Push from the existing Shepherdr process. Each browser or insta
 
 On the first eligible browser visit, Shepherdr quietly offers **Turn on notifications** and **Not now**. This is not a browser permission request; only the enable tap requests permission. Shepherdr remembers **Not now** for that browser.
 
+A browser becomes eligible only after the operator supplies a valid VAPID contact on the machine running Shepherdr. Without it, Home and Terminal continue normally, the invitation stays hidden, and Notifications settings explain how the operator enables push.
+
 Home and Terminal each offer one **Notifications** settings action afterward. It can enable notifications, change event choices, or turn notifications off. Opening settings does not itself ask for browser permission.
 
 Lock-screen text is generic, for example **A workspace needs attention** or **A workspace finished**. A status notification links to the exact Terminal identified when the transition was observed. Shepherdr opens it only if that same terminal still exists in the current Herdr snapshot. Otherwise it shows the existing **Terminal unavailable** state with a way back to Home; it never guesses another terminal. Workspace notices open Home.
@@ -87,7 +89,9 @@ Subscriptions belong to this Shepherdr deployment, not to one Herdr session iden
 
 Store one owner-readable local state file outside the repository: the VAPID key pair and each subscription's endpoint, browser keys, optional expiry, and event selections. Replace it atomically. Do not store snapshots, history, device names, seen state, or delivery claims.
 
-The VAPID private key and subscription authentication values are secrets. The VAPID public key is intentionally browser-visible; the private key and subscription secrets are not. Keep secrets out of logs, source control, browser responses, and unprotected backups. Keep the VAPID key stable across restarts. With Shepherdr stopped, a local reset command clears every subscription and the VAPID pair, then exits. Browsers must enable notifications again. If state is corrupt or unreadable, disable notifications without breaking Home or Terminal and report the error instead of creating a new identity.
+The operator enables push with `-vapid-contact` followed by a real `mailto:` or HTTPS URI. Validate and save it in the notification state. Later starts reuse it; supplying the flag again updates only the contact without rotating keys or removing subscriptions. The contact belongs to the operator of that installation and is shared with browser push providers. It is not a Shepherdr project contact.
+
+The VAPID private key and subscription authentication values are secrets. The VAPID public key and operator contact are intentionally browser-visible; the private key and subscription secrets are not. Keep secrets out of logs, source control, browser responses, and unprotected backups. Keep the VAPID key stable across restarts. With Shepherdr stopped, the local reset command clears every subscription, the VAPID pair, and the saved contact, then exits. Browsers must enable notifications again after the operator configures a contact. If state is corrupt or unreadable, disable notifications without breaking Home or Terminal and report the error instead of creating a new identity.
 
 A subscription endpoint is an untrusted URL and a server-side request boundary. Accept only valid HTTPS endpoints, reject embedded credentials and fragments, do not follow redirects, resolve and reject local, private, link-local, and tailnet destinations, defend against DNS rebinding, and use tight request size and time limits. Use a maintained Web Push library for encryption and signing. These controls avoid turning subscription enrollment into SSRF while remaining independent of a particular push vendor.
 
@@ -108,6 +112,7 @@ Use a five-minute time to live. Do not retry after acceptance, timeout, or an am
 9. **Offer one quiet invitation on the first eligible browser visit.** Provide **Turn on notifications** and **Not now**, remember **Not now** locally, and request permission only after the enable tap. Do not invite when unsupported, granted, or blocked.
 10. **Gate the first slice on a real Android phone plus a second browser or profile.** Keep standards-based iOS support, but do not require an unavailable iPhone or claim untested acceptance.
 11. **Keep subscriptions deployment-bound.** They survive restarts and a changed Herdr socket; each new connection starts from a silent baseline. A local reset command clears all notification subscriptions and keys.
+12. **Require an operator-supplied VAPID contact before push is available.** `-vapid-contact` accepts and persists a real `mailto:` or HTTPS URI. Without it, the interface explains setup and sends no push. Reset clears the contact with the subscriptions and keys.
 
 These product and security choices are approved direction.
 
