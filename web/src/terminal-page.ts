@@ -172,15 +172,15 @@ export class TerminalPage {
     this.#commandButtons.push(action("Write text", () => reader.showComposer(), "terminal-write-text"));
     const keys: Array<[string, string, string]> = [
       ["escape", "Esc", "Escape"],
-      ["ctrl-c", "Ctrl C", "Control C"],
-      ["ctrl-d", "Ctrl D", "Control D"],
-      ["ctrl-z", "Ctrl Z", "Control Z"],
-      ["tab", "Tab", "Tab"],
+      ["enter", "Enter", "Enter"],
       ["left", "←", "Left arrow"],
       ["up", "↑", "Up arrow"],
       ["down", "↓", "Down arrow"],
       ["right", "→", "Right arrow"],
-      ["enter", "Enter", "Enter"],
+      ["ctrl-c", "Ctrl C", "Control C"],
+      ["ctrl-d", "Ctrl D", "Control D"],
+      ["ctrl-z", "Ctrl Z", "Control Z"],
+      ["tab", "Tab", "Tab"],
       ["backspace", "⌫", "Backspace"],
     ];
     for (const [key, label, accessibleName] of keys) {
