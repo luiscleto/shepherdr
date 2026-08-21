@@ -60,7 +60,7 @@ func run() error {
 	}
 	terminal := server.NewTerminalBridge(herdrBinary, *socketPath, logger, projector)
 	defer terminal.Close()
-	application := server.New(assets, projector, terminal, *terminalLabEnabled)
+	application := server.New(assets, projector, terminal, *terminalLabEnabled, client)
 
 	listener, err := net.Listen("tcp", *listenAddress)
 	if err != nil {

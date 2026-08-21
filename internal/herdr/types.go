@@ -80,6 +80,7 @@ type WorkspaceInfo struct {
 type WorktreeInfo struct {
 	IsLinkedWorktree bool   `json:"is_linked_worktree"`
 	RepoKey          string `json:"repo_key"`
+	CheckoutPath     string `json:"checkout_path"`
 	Valid            bool   `json:"-"`
 }
 
@@ -91,9 +92,13 @@ func (w *WorktreeInfo) UnmarshalJSON(data []byte) error {
 	}
 	linked, hasLinked := fields["is_linked_worktree"]
 	repoKey, hasRepoKey := fields["repo_key"]
+	checkoutPath := fields["checkout_path"]
 	if !hasLinked || !hasRepoKey || json.Unmarshal(linked, &w.IsLinkedWorktree) != nil ||
 		json.Unmarshal(repoKey, &w.RepoKey) != nil || w.RepoKey == "" {
 		return nil
+	}
+	if checkoutPath != nil {
+		_ = json.Unmarshal(checkoutPath, &w.CheckoutPath)
 	}
 	w.Valid = true
 	return nil
@@ -155,12 +160,14 @@ type Tab struct {
 }
 
 type Workspace struct {
-	AgentCounts *AgentCounts `json:"agent_counts,omitempty"`
-	ID          string       `json:"id"`
-	Label       string       `json:"label"`
-	Number      uint         `json:"number"`
-	Tabs        []Tab        `json:"tabs"`
-	Worktrees   []Workspace  `json:"worktrees,omitempty"`
+	AgentCounts  *AgentCounts      `json:"agent_counts,omitempty"`
+	Actions      []WorkspaceAction `json:"actions"`
+	CheckoutPath string            `json:"checkout_path,omitempty"`
+	ID           string            `json:"id"`
+	Label        string            `json:"label"`
+	Number       uint              `json:"number"`
+	Tabs         []Tab             `json:"tabs"`
+	Worktrees    []Workspace       `json:"worktrees,omitempty"`
 }
 
 type AgentCounts struct {
@@ -294,7 +301,11 @@ func Project(snapshot Snapshot) (Home, error) {
 
 	for _, workspaceSource := range snapshot.Workspaces {
 		workspace := Workspace{
-			ID: workspaceSource.WorkspaceID, Label: displayWorkspaceLabel(workspaceSource.Label), Number: workspaceSource.Number, Tabs: []Tab{},
+			Actions: AvailableWorkspaceActions(snapshot, workspaceSource.WorkspaceID), ID: workspaceSource.WorkspaceID,
+			Label: displayWorkspaceLabel(workspaceSource.Label), Number: workspaceSource.Number, Tabs: []Tab{},
+		}
+		if target, found, applicable := ResolveWorkspaceAction(snapshot, WorkspaceActionCreateWorktree, workspace.ID); found && applicable && target.CheckoutPath != "" {
+			workspace.CheckoutPath = target.CheckoutPath
 		}
 		tabs := append([]TabInfo(nil), tabsByWorkspace[workspace.ID]...)
 		sort.Slice(tabs, func(i, j int) bool {

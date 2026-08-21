@@ -30,7 +30,8 @@ type State struct {
 }
 
 type Projector struct {
-	client *Client
+	client  *Client
+	refresh chan struct{}
 
 	mu        sync.RWMutex
 	state     State
@@ -39,12 +40,20 @@ type Projector struct {
 
 func NewProjector(client *Client) *Projector {
 	return &Projector{
-		client: client,
+		client:  client,
+		refresh: make(chan struct{}, 1),
 		state: State{
 			Connection: ConnectionReconnecting,
 			Home:       Home{Workspaces: []Workspace{}},
 		},
 		listeners: make(map[chan State]struct{}),
+	}
+}
+
+func (p *Projector) RequestRefresh() {
+	select {
+	case p.refresh <- struct{}{}:
+	default:
 	}
 }
 
@@ -154,8 +163,10 @@ func (p *Projector) followSubscription(ctx context.Context, subscription *Subscr
 			case err := <-lost:
 				return subscriptionResult{err: err}
 			case <-changed:
+			case <-p.refresh:
 			}
 		}
+		takeRefreshSignals(changed, p.refresh)
 
 		candidate, err := p.client.Snapshot(ctx)
 		if err != nil {
@@ -170,13 +181,23 @@ func (p *Projector) followSubscription(ctx context.Context, subscription *Subscr
 			return subscriptionResult{resubscribe: true, snapshot: candidate}
 		}
 		p.publishLive(candidate)
-		select {
-		case <-changed:
-			readNow = true
-		default:
-			readNow = false
-		}
+		readNow = takeRefreshSignals(changed, p.refresh)
 	}
+}
+
+func takeRefreshSignals(changed, requested <-chan struct{}) bool {
+	dirty := false
+	select {
+	case <-changed:
+		dirty = true
+	default:
+	}
+	select {
+	case <-requested:
+		dirty = true
+	default:
+	}
+	return dirty
 }
 
 func subscriptionCoversSnapshot(subscribed, candidate Snapshot) bool {
