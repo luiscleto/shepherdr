@@ -175,13 +175,15 @@ h3 {
 
 .home-connection {
   display: flex;
-  height: 44px;
-  min-width: 7.75rem;
+  width: 7.75rem;
+  height: auto;
+  min-width: 6.25rem;
   min-height: 44px;
-  flex: 0 1 19rem;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.75rem;
+  flex: 0 1 7.75rem;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
   border: 0;
   margin: 0;
   padding: 0;
@@ -193,13 +195,27 @@ h3 {
   align-items: center;
   justify-content: flex-end;
   gap: 0.42rem;
-  min-width: 7.75rem;
-  min-height: 44px;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
   color: #514b47;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.86rem;
   font-weight: 600;
-  white-space: nowrap;
+  line-height: 1.15;
+  white-space: normal;
+}
+
+.home-connection > button {
+  min-width: 44px;
+  min-height: 44px;
+  align-self: flex-end;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  padding: 0 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .connection-dot {
