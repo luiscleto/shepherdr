@@ -14,6 +14,16 @@ import {
   type Workspace,
 } from "./home-model";
 import type { HomeReachability } from "./home-connection";
+import {
+  type ConfirmationFacts,
+  type PreparedWorkspaceAction,
+  type PreparedWorkspaceActionResponse,
+  type PrepareWorkspaceActionRequest,
+  type RefusedWorkspaceAction,
+  type RunWorkspaceActionRequest,
+  type RunWorkspaceActionResponse,
+  type WorkspaceAction,
+} from "./workspace-actions";
 
 type HomeMode = "all" | "blocked";
 
@@ -23,6 +33,8 @@ interface HomeViewActions {
   onReconnect: () => void;
   onShowAll: () => void;
   onShowBlocked: () => void;
+  prepareWorkspaceAction: (request: PrepareWorkspaceActionRequest) => Promise<PreparedWorkspaceActionResponse>;
+  runWorkspaceAction: (request: RunWorkspaceActionRequest) => Promise<RunWorkspaceActionResponse>;
 }
 
 export interface HomeViewRender {
@@ -36,6 +48,14 @@ export interface HomeViewRender {
 interface WorkspaceNodes {
   heading: HTMLHeadingElement;
   section: HTMLElement;
+}
+
+interface WorkspaceMenuNodes {
+  container: HTMLElement;
+  items: Map<WorkspaceAction, HTMLButtonElement>;
+  menu: HTMLElement;
+  menuRoot: HTMLElement;
+  trigger: HTMLButtonElement;
 }
 
 interface WorkspaceSetNodes {
@@ -129,21 +149,31 @@ export class HomeView {
   readonly #empty: HTMLElement;
   readonly #expandAction: HTMLButtonElement;
   readonly #expandedSets = new Map<string, boolean>();
+  readonly #filterLabel: HTMLLabelElement;
   readonly #filterInput: HTMLInputElement;
   readonly #header: HTMLElement;
   readonly #headerHeading: HTMLElement;
   readonly #homeTools: HTMLElement;
   readonly #loading: HTMLElement;
   readonly #loadingHeading: HTMLElement;
+  readonly #newSpaceAction: HTMLButtonElement;
   readonly #noMatches: HTMLElement;
+  readonly #actionLayer: HTMLElement;
+  readonly #actionPanel: HTMLElement;
   readonly #rows = new Map<string, RowNodes>();
   readonly #items = new Map<string, HTMLLIElement>();
   readonly #tabs = new Map<string, Map<string, TabNodes>>();
   readonly #workspaces = new Map<string, WorkspaceNodes>();
   readonly #workspaceSets = new Map<string, WorkspaceSetNodes>();
+  readonly #workspaceMenus = new Map<string, WorkspaceMenuNodes>();
+  readonly #workspaceValues = new Map<string, Workspace>();
   readonly #entries = new Map<string, TerminalEntry>();
+  #actionCancel: (() => void) | undefined;
+  #actionRunning = false;
   #filterValue = "";
   #lastRender: HomeViewRender | undefined;
+  #openMenuWorkspaceID: string | undefined;
+  #returnFocus: HTMLElement | undefined;
   #workspaceHeadingSequence = 0;
   #workspaceSetSequence = 0;
 
@@ -198,7 +228,7 @@ export class HomeView {
     });
     this.#expandAction.className = "workspace-expand-action";
 
-    const filterLabel = element(this.#document, "label", "home-filter");
+    this.#filterLabel = element(this.#document, "label", "home-filter");
     const filterIcon = element(this.#document, "span", "home-filter-icon");
     filterIcon.setAttribute("aria-hidden", "true");
     this.#filterInput = element(this.#document, "input");
@@ -209,16 +239,31 @@ export class HomeView {
       this.#filterValue = this.#filterInput.value;
       if (this.#lastRender) this.render(this.#lastRender);
     });
-    filterLabel.append(filterIcon, this.#filterInput);
+    this.#filterLabel.append(filterIcon, this.#filterInput);
     this.#homeTools = element(this.#document, "section", "home-tools");
     this.#homeTools.setAttribute("aria-label", "Home controls");
-    this.#homeTools.append(filterLabel, this.#expandAction);
+    this.#newSpaceAction = this.#button("New space", () => this.#openNewSpace());
+    this.#newSpaceAction.className = "new-space-action";
+    this.#homeTools.append(this.#filterLabel, this.#expandAction, this.#newSpaceAction);
 
     this.#noMatches = element(this.#document, "section", "state-panel home-no-matches");
     this.#noMatches.append(
       element(this.#document, "strong", undefined, "No matches"),
       element(this.#document, "p", undefined, "Try another filter."),
     );
+
+    this.#actionLayer = element(this.#document, "div", "home-action-layer");
+    this.#actionLayer.hidden = true;
+    this.#actionPanel = element(this.#document, "section", "home-action-panel");
+    this.#actionPanel.setAttribute("role", "dialog");
+    this.#actionPanel.setAttribute("aria-modal", "true");
+    this.#actionPanel.tabIndex = -1;
+    this.#actionLayer.append(this.#actionPanel);
+    this.#actionLayer.addEventListener("keydown", (event) => this.#handleDialogKey(event));
+    this.#document.addEventListener("click", (event) => {
+      const target = event.target;
+      if (target instanceof this.#document.defaultView!.Element && !target.closest(".workspace-menu")) this.#closeMenu();
+    });
   }
 
   render(model: HomeViewRender): void {
@@ -242,6 +287,9 @@ export class HomeView {
     const usedTabs: UsedTabs = new Map();
     const usedSets = new Set<string>();
     const completePaneIDs = new Set(allTerminals(model.state.home).map(({ terminal }) => terminal.pane_id));
+    const managementAvailable = model.actionsAvailable && !this.#actionRunning;
+    this.#workspaceValues.clear();
+    for (const workspace of allWorkspaces(model.state.home)) this.#workspaceValues.set(workspace.id, workspace);
 
     if (!model.state.has_home) {
       setText(
@@ -257,7 +305,7 @@ export class HomeView {
 
       if (model.mode === "blocked") {
         for (const workspace of allWorkspaceValues) {
-          const section = this.#renderWorkspace(workspace, true, model.actionsAvailable, usedTabs);
+          const section = this.#renderWorkspace(workspace, true, model.actionsAvailable, false, usedTabs);
           if (section) desired.push(section);
         }
       } else {
@@ -269,6 +317,11 @@ export class HomeView {
           }
         }
         setHidden(this.#expandAction, filterActive || sets.length === 0);
+        reconcileChildren(this.#homeTools, [
+          this.#filterLabel,
+          this.#expandAction,
+          ...(managementAvailable ? [this.#newSpaceAction] : []),
+        ]);
         desired.push(this.#homeTools);
         if (sets.length > 0 && !filterActive) {
           const expand = sets.some((workspace) => !this.#expandedSets.get(workspace.id));
@@ -278,10 +331,16 @@ export class HomeView {
         for (const workspace of visibleHome.workspaces) {
           if ((workspace.worktrees?.length ?? 0) > 0) {
             usedSets.add(workspace.id);
-            desired.push(this.#renderWorkspaceSet(workspace, model.actionsAvailable, usedTabs, filterActive));
+            desired.push(this.#renderWorkspaceSet(
+              workspace,
+              model.actionsAvailable,
+              managementAvailable,
+              usedTabs,
+              filterActive,
+            ));
             continue;
           }
-          const section = this.#renderWorkspace(workspace, false, model.actionsAvailable, usedTabs);
+          const section = this.#renderWorkspace(workspace, false, model.actionsAvailable, managementAvailable, usedTabs);
           if (section) desired.push(section);
         }
       }
@@ -294,6 +353,8 @@ export class HomeView {
       setHidden(this.#attentionShowAll, !showAll);
       desired.push(this.#attention);
     }
+
+    desired.push(this.#actionLayer);
 
     reconcileChildren(this.#app, desired);
     this.#prune(usedWorkspaces, usedTabs, usedSets, completePaneIDs);
@@ -345,19 +406,30 @@ export class HomeView {
     workspace: Workspace,
     blockedOnly: boolean,
     actionsAvailable: boolean,
+    managementAvailable: boolean,
     usedTabs: UsedTabs,
     hideTitle = false,
   ): HTMLElement | undefined {
     const tabs = visibleTabs(workspace, blockedOnly);
     if (blockedOnly && tabs.length === 0) return undefined;
     const nodes = this.#workspace(workspace);
-    this.#updateWorkspace(nodes, workspace, tabs, actionsAvailable, usedTabs, hideTitle, blockedOnly);
+    this.#updateWorkspace(
+      nodes,
+      workspace,
+      tabs,
+      actionsAvailable,
+      managementAvailable,
+      usedTabs,
+      hideTitle,
+      blockedOnly,
+    );
     return nodes.section;
   }
 
   #renderWorkspaceSet(
     workspace: Workspace,
     actionsAvailable: boolean,
+    managementAvailable: boolean,
     usedTabs: UsedTabs,
     forceExpanded = false,
   ): HTMLElement {
@@ -372,7 +444,14 @@ export class HomeView {
 
     const parentTerminalCount = terminalCount(workspace);
     const parent = parentTerminalCount > 0
-      ? this.#renderWorkspace(workspace, false, actionsAvailable, usedTabs, true)
+      ? this.#renderWorkspace(
+          workspace,
+          false,
+          actionsAvailable,
+          parentTerminalCount === 1 && managementAvailable,
+          usedTabs,
+          true,
+        )
       : undefined;
     if (parentTerminalCount === 1 && parent) {
       const parentMain = parent.querySelector<HTMLElement>(".terminal-main");
@@ -390,12 +469,15 @@ export class HomeView {
       reconcileChildren(nodes.parent, []);
     } else {
       if (nodes.summary.parentElement !== nodes.heading) nodes.heading.append(nodes.summary);
-      reconcileChildren(nodes.header, [nodes.disclosure, nodes.heading]);
+      reconcileChildren(nodes.header, [
+        nodes.disclosure,
+        this.#workspaceActionRow(workspace, nodes.heading, managementAvailable),
+      ]);
       reconcileChildren(nodes.parent, parent ? [parent] : []);
     }
     const contents: Node[] = [];
     for (const worktree of workspace.worktrees ?? []) {
-      const section = this.#renderWorkspace(worktree, false, actionsAvailable, usedTabs);
+      const section = this.#renderWorkspace(worktree, false, actionsAvailable, managementAvailable, usedTabs);
       if (section) contents.push(section);
     }
     reconcileChildren(nodes.contents, contents);
@@ -477,16 +559,30 @@ export class HomeView {
     workspace: Workspace,
     tabs: ReturnType<typeof visibleTabs>,
     actionsAvailable: boolean,
+    managementAvailable: boolean,
     usedTabs: UsedTabs,
     hideTitle: boolean,
     blockedOnly: boolean,
   ): void {
     if (tabs.length === 0) {
+      setClass(
+        nodes.section,
+        managementAvailable && workspace.actions.length > 0 ? "workspace workspace-heading-menu" : "workspace",
+      );
       setClass(nodes.heading, hideTitle ? "visually-hidden" : "workspace-title");
       setText(nodes.heading, workspace.label);
-      reconcileChildren(nodes.section, [nodes.heading]);
+      if (managementAvailable && workspace.actions.length > 0) {
+        const menu = this.#workspaceMenu(workspace.id);
+        this.#updateWorkspaceMenu(menu, workspace);
+        setClass(menu.menuRoot, "workspace-menu workspace-menu-heading");
+        reconcileChildren(nodes.section, [nodes.heading, menu.menuRoot]);
+      } else {
+        reconcileChildren(nodes.section, [nodes.heading]);
+      }
       return;
     }
+
+    setClass(nodes.section, "workspace");
 
     const flattened = !blockedOnly && terminalCount(workspace) === 1;
     const tabsShown = showTabHeadings(workspace);
@@ -495,13 +591,21 @@ export class HomeView {
       const entry = { workspace, tab: tabs[0].tab, terminal };
       setClass(nodes.heading, "visually-hidden");
       setText(nodes.heading, terminal.title);
-      reconcileChildren(nodes.section, [nodes.heading, this.#terminalRow(entry, false, actionsAvailable).row]);
+      reconcileChildren(nodes.section, [
+        nodes.heading,
+        this.#workspaceActionRow(
+          workspace,
+          this.#terminalRow(entry, false, actionsAvailable).row,
+          managementAvailable,
+        ),
+      ]);
       return;
     }
 
     setClass(nodes.heading, hideTitle ? "visually-hidden" : "workspace-title");
     setText(nodes.heading, workspace.label);
     const children: Node[] = [nodes.heading];
+    let managementPending = managementAvailable;
     for (const group of tabs) {
       let workspaceTabs = usedTabs.get(workspace.id);
       if (!workspaceTabs) {
@@ -510,7 +614,16 @@ export class HomeView {
       }
       workspaceTabs.add(group.tab.id);
       const tab = this.#tab(workspace.id, group.tab.id);
-      this.#updateTab(tab, workspace, group.tab, group.terminals, tabsShown, actionsAvailable);
+      this.#updateTab(
+        tab,
+        workspace,
+        group.tab,
+        group.terminals,
+        tabsShown,
+        actionsAvailable,
+        managementPending,
+      );
+      managementPending = false;
       children.push(tab.group);
     }
     reconcileChildren(nodes.section, children);
@@ -541,19 +654,119 @@ export class HomeView {
     terminals: Tab["terminals"],
     tabsShown: boolean,
     actionsAvailable: boolean,
+    showManagement: boolean,
   ): void {
     setText(nodes.title, tab.label);
     const headingChildren: Node[] = [nodes.title];
     if (tab.current) headingChildren.push(nodes.current);
     reconcileChildren(nodes.heading, headingChildren);
-    const items = terminals.map((terminal) => {
+    const items = terminals.map((terminal, index) => {
       const entry = { workspace, tab, terminal };
       const item = this.#item(terminal.pane_id);
-      reconcileChildren(item, [this.#terminalRow(entry, tabsShown, actionsAvailable).row]);
+      const row = this.#terminalRow(entry, tabsShown, actionsAvailable).row;
+      reconcileChildren(item, [
+        index === 0 && showManagement ? this.#workspaceActionRow(workspace, row, true) : row,
+      ]);
       return item;
     });
     reconcileChildren(nodes.list, items);
     reconcileChildren(nodes.group, tabsShown ? [nodes.heading, nodes.list] : [nodes.list]);
+  }
+
+  #workspaceActionRow(workspace: Workspace, primary: HTMLElement, managementAvailable: boolean): HTMLElement {
+    if (!managementAvailable || workspace.actions.length === 0) return primary;
+    const nodes = this.#workspaceMenu(workspace.id);
+    this.#updateWorkspaceMenu(nodes, workspace);
+    setClass(nodes.menuRoot, "workspace-menu");
+    reconcileChildren(nodes.container, [primary, nodes.menuRoot]);
+    return nodes.container;
+  }
+
+  #workspaceMenu(workspaceID: string): WorkspaceMenuNodes {
+    const existing = this.#workspaceMenus.get(workspaceID);
+    if (existing) return existing;
+    const container = element(this.#document, "div", "workspace-action-row");
+    const menuRoot = element(this.#document, "div", "workspace-menu");
+    const trigger = this.#button("⋮", () => this.#toggleMenu(workspaceID));
+    trigger.className = "workspace-menu-trigger";
+    trigger.setAttribute("aria-haspopup", "menu");
+    trigger.setAttribute("aria-expanded", "false");
+    const menu = element(this.#document, "div", "workspace-menu-popover");
+    menu.setAttribute("role", "menu");
+    menu.hidden = true;
+    menu.addEventListener("keydown", (event) => this.#handleMenuKey(event, workspaceID));
+    menuRoot.append(trigger, menu);
+    const nodes = { container, items: new Map(), menu, menuRoot, trigger };
+    this.#workspaceMenus.set(workspaceID, nodes);
+    return nodes;
+  }
+
+  #updateWorkspaceMenu(nodes: WorkspaceMenuNodes, workspace: Workspace): void {
+    setAttribute(nodes.trigger, "aria-label", `Actions for ${workspace.label}`);
+    const order: WorkspaceAction[] = ["create_worktree", "close_workspace", "close_group", "delete_checkout"];
+    const labels: Record<WorkspaceAction, string> = {
+      create_worktree: "New worktree",
+      close_workspace: "Close workspace",
+      close_group: "Close group",
+      delete_checkout: "Delete checkout",
+    };
+    const items: Node[] = [];
+    for (const action of order) {
+      if (!workspace.actions.includes(action)) continue;
+      let item = nodes.items.get(action);
+      if (!item) {
+        item = this.#button(labels[action], () => this.#chooseWorkspaceAction(workspace.id, action, nodes.trigger));
+        item.setAttribute("role", "menuitem");
+        nodes.items.set(action, item);
+      }
+      items.push(item);
+    }
+    reconcileChildren(nodes.menu, items);
+    const open = this.#openMenuWorkspaceID === workspace.id;
+    setHidden(nodes.menu, !open);
+    setAttribute(nodes.trigger, "aria-expanded", String(open));
+  }
+
+  #toggleMenu(workspaceID: string): void {
+    this.#openMenuWorkspaceID = this.#openMenuWorkspaceID === workspaceID ? undefined : workspaceID;
+    if (this.#lastRender) this.render(this.#lastRender);
+    if (this.#openMenuWorkspaceID === workspaceID) {
+      const first = this.#workspaceMenus.get(workspaceID)?.menu.querySelector<HTMLButtonElement>("button");
+      first?.focus({ preventScroll: true });
+    }
+  }
+
+  #closeMenu(returnFocus = false): void {
+    const workspaceID = this.#openMenuWorkspaceID;
+    if (!workspaceID) return;
+    this.#openMenuWorkspaceID = undefined;
+    const nodes = this.#workspaceMenus.get(workspaceID);
+    if (nodes) {
+      nodes.menu.hidden = true;
+      setAttribute(nodes.trigger, "aria-expanded", "false");
+      if (returnFocus) nodes.trigger.focus({ preventScroll: true });
+    }
+  }
+
+  #handleMenuKey(event: KeyboardEvent, workspaceID: string): void {
+    const nodes = this.#workspaceMenus.get(workspaceID);
+    if (!nodes) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      this.#closeMenu(true);
+      return;
+    }
+    const items = Array.from(nodes.menu.querySelectorAll<HTMLButtonElement>("button"));
+    const current = items.indexOf(this.#document.activeElement as HTMLButtonElement);
+    let next: number | undefined;
+    if (event.key === "ArrowDown") next = current < 0 ? 0 : (current + 1) % items.length;
+    if (event.key === "ArrowUp") next = current < 0 ? items.length - 1 : (current - 1 + items.length) % items.length;
+    if (event.key === "Home") next = 0;
+    if (event.key === "End") next = items.length - 1;
+    if (next !== undefined && items[next]) {
+      event.preventDefault();
+      items[next].focus({ preventScroll: true });
+    }
   }
 
   #item(paneID: string): HTMLLIElement {
@@ -618,6 +831,355 @@ export class HomeView {
     return nodes;
   }
 
+  #openNewSpace(): void {
+    if (this.#actionRunning || !this.#lastRender) return;
+    this.#returnFocus = this.#newSpaceAction;
+    const copy = element(this.#document, "p", "home-action-copy", "Add a workspace for an existing folder.");
+    const form = element(this.#document, "form", "home-action-form");
+    const directoryLabel = element(this.#document, "label", "home-action-field");
+    directoryLabel.append(element(this.#document, "span", undefined, "Working directory"));
+    const directory = element(this.#document, "input");
+    directory.name = "working_directory";
+    directory.required = true;
+    directory.value = "~";
+    directory.autocomplete = "off";
+    directory.spellcheck = false;
+    directoryLabel.append(directory);
+
+    const suggestions = Array.from(new Set(
+      this.#lastRender.state.home.workspaces
+        .map((workspace) => workspace.checkout_path)
+        .filter((path): path is string => path !== undefined),
+    ));
+    const suggestionRegion = element(this.#document, "div", "checkout-suggestions");
+    const updateSuggestions = (): void => {
+      const entered = directory.value.toLocaleLowerCase();
+      const query = entered === "~" ? "" : entered;
+      const matches = suggestions.filter((path) => path.toLocaleLowerCase().includes(query));
+      const buttons = matches.map((path) => {
+        const suggestion = this.#button(path, () => {
+          directory.value = path;
+          updateSuggestions();
+          directory.focus({ preventScroll: true });
+        });
+        suggestion.className = "checkout-suggestion";
+        return suggestion;
+      });
+      reconcileChildren(suggestionRegion, buttons);
+      setHidden(suggestionRegion, buttons.length === 0);
+    };
+    directory.addEventListener("input", updateSuggestions);
+    updateSuggestions();
+
+    const labelField = element(this.#document, "label", "home-action-field");
+    labelField.append(element(this.#document, "span", undefined, "Label (optional)"));
+    const label = element(this.#document, "input");
+    label.name = "label";
+    labelField.append(label);
+
+    const actions = this.#formActions("Create space", () => this.#closeActionLayer());
+    form.append(directoryLabel, suggestionRegion, labelField, actions.container);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      const request: RunWorkspaceActionRequest = {
+        action: "create_space",
+        working_directory: directory.value,
+        ...(label.value.trim() === "" ? {} : { label: label.value }),
+      };
+      void this.#submitAction(request);
+    });
+    this.#showActionLayer("New space", [copy, form], () => this.#closeActionLayer(), directory);
+  }
+
+  #openNewWorktree(workspace: Workspace, returnFocus: HTMLElement): void {
+    if (this.#actionRunning) return;
+    this.#returnFocus = returnFocus;
+    const copy = element(this.#document, "p", "home-action-copy", "This adds a workspace in a new folder.");
+    const form = element(this.#document, "form", "home-action-form");
+    const branchField = element(this.#document, "label", "home-action-field");
+    branchField.append(element(this.#document, "span", undefined, "Branch (optional)"));
+    const branch = element(this.#document, "input");
+    branch.name = "branch";
+    branch.autocomplete = "off";
+    branch.spellcheck = false;
+    branchField.append(branch);
+    const help = element(
+      this.#document,
+      "p",
+      "home-action-help",
+      "Branch is optional. Leave it blank to let Herdr choose.",
+    );
+    const actions = this.#formActions("New worktree", () => this.#closeActionLayer());
+    form.append(branchField, help, actions.container);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const request: RunWorkspaceActionRequest = {
+        action: "create_worktree",
+        workspace_id: workspace.id,
+        ...(branch.value.trim() === "" ? {} : { branch: branch.value }),
+      };
+      void this.#submitAction(request);
+    });
+    this.#showActionLayer(`New worktree for ${workspace.label}`, [copy, form], () => this.#closeActionLayer(), branch);
+  }
+
+  #formActions(primaryLabel: string, cancel: () => void): { container: HTMLElement; primary: HTMLButtonElement } {
+    const container = element(this.#document, "div", "home-action-buttons");
+    const primary = element(this.#document, "button", "home-action-primary", primaryLabel);
+    primary.type = "submit";
+    const cancelButton = this.#button("Cancel", cancel);
+    container.append(primary, cancelButton);
+    return { container, primary };
+  }
+
+  #chooseWorkspaceAction(workspaceID: string, action: WorkspaceAction, returnFocus: HTMLElement): void {
+    const workspace = this.#workspaceValues.get(workspaceID);
+    if (!workspace || !workspace.actions.includes(action) || this.#actionRunning) return;
+    this.#closeMenu();
+    if (action === "create_worktree") {
+      this.#openNewWorktree(workspace, returnFocus);
+      return;
+    }
+    this.#returnFocus = returnFocus;
+    void this.#prepareAction({ action, workspace_id: workspace.id });
+  }
+
+  async #prepareAction(request: PrepareWorkspaceActionRequest): Promise<void> {
+    if (this.#actionRunning) return;
+    this.#actionRunning = true;
+    this.#showWorking("Checking workspace");
+    this.#renderAgain();
+    let response: PreparedWorkspaceActionResponse | undefined;
+    try {
+      response = await this.#actions.prepareWorkspaceAction(request);
+    } catch {
+      // Preparing performs no mutation, so a failed check is not an unknown action result.
+    }
+    this.#actionRunning = false;
+    this.#renderAgain();
+    if (!response) {
+      this.#showResult(
+        "Could not check this workspace",
+        "Home has not changed. Check the connection, then open the action again.",
+      );
+      return;
+    }
+    if (response.outcome === "refused") {
+      this.#showRefusal(response);
+      return;
+    }
+    this.#openConfirmation(response);
+  }
+
+  #openConfirmation(prepared: PreparedWorkspaceAction): void {
+    const facts = prepared.expected;
+    const content: Node[] = [];
+    let heading: string;
+    let confirmLabel: string;
+    if (prepared.action === "close_group") {
+      heading = `Close ${facts.workspace_label}?`;
+      confirmLabel = "Close group";
+      content.push(element(
+        this.#document,
+        "p",
+        "home-action-copy",
+        `This closes the whole group and ${this.#agentTotal(facts.agent_total)}. Its terminals will end, and unsaved work can be lost. Linked checkout folders and branches remain.`,
+      ));
+    } else if (prepared.action === "close_workspace") {
+      heading = `Close ${facts.workspace_label}?`;
+      confirmLabel = "Close workspace";
+      content.push(element(
+        this.#document,
+        "p",
+        "home-action-copy",
+        `This closes this workspace and ${this.#agentTotal(facts.agent_total)}. Its terminals will end, and unsaved work can be lost. The folder and branch remain.`,
+      ));
+    } else {
+      heading = `Delete checkout for ${facts.workspace_label}?`;
+      confirmLabel = "Delete checkout";
+      content.push(element(
+        this.#document,
+        "p",
+        "home-action-copy",
+        `This deletes the checkout and closes this workspace and ${this.#agentTotal(facts.agent_total)}. Its terminals will end, and unsaved work can be lost. The Git branch remains.`,
+      ));
+      const path = element(this.#document, "code", "checkout-path", facts.checkout_path ?? "");
+      const pathLine = element(this.#document, "p", "checkout-path-line");
+      pathLine.append(element(this.#document, "span", undefined, "Checkout: "), path);
+      content.push(pathLine);
+    }
+    const warning = this.#interruptionWarning(facts);
+    if (warning) content.push(warning);
+    const actions = this.#formActions(confirmLabel, () => this.#closeActionLayer());
+    actions.primary.addEventListener("click", (event) => {
+      event.preventDefault();
+      void this.#submitAction({
+        action: prepared.action,
+        workspace_id: prepared.workspace_id,
+        expected: prepared.expected,
+      });
+    });
+    content.push(actions.container);
+    this.#showActionLayer(heading, content, () => this.#closeActionLayer(), actions.primary);
+  }
+
+  #agentTotal(total: number): string {
+    return `${total} ${total === 1 ? "agent" : "agents"}`;
+  }
+
+  #interruptionWarning(facts: ConfirmationFacts): HTMLElement | undefined {
+    const statuses = (["working", "blocked", "unknown"] as const)
+      .filter((status) => facts.interruption_counts[status] > 0)
+      .map((status) => `${facts.interruption_counts[status]} ${status}`);
+    if (statuses.length === 0) return undefined;
+    return element(
+      this.#document,
+      "p",
+      "home-action-warning",
+      `Agents may be interrupted: ${statuses.join(", ")}.`,
+    );
+  }
+
+  async #submitAction(request: RunWorkspaceActionRequest): Promise<void> {
+    if (this.#actionRunning) return;
+    this.#actionRunning = true;
+    this.#showWorking(this.#workingHeading(request.action));
+    this.#renderAgain();
+    let response: RunWorkspaceActionResponse;
+    try {
+      response = await this.#actions.runWorkspaceAction(request);
+    } catch {
+      response = { outcome: "unknown" };
+    }
+    this.#actionRunning = false;
+    this.#renderAgain();
+    if (response.outcome === "refused") {
+      this.#showRefusal(response);
+    } else if (response.outcome === "unknown") {
+      this.#showUnknown(request.action);
+    } else {
+      this.#showSuccess(request.action);
+    }
+  }
+
+  #workingHeading(action: RunWorkspaceActionRequest["action"]): string {
+    const headings: Record<RunWorkspaceActionRequest["action"], string> = {
+      create_space: "Creating space",
+      create_worktree: "Creating worktree",
+      close_workspace: "Closing workspace",
+      close_group: "Closing group",
+      delete_checkout: "Deleting checkout",
+    };
+    return headings[action];
+  }
+
+  #showSuccess(action: RunWorkspaceActionRequest["action"]): void {
+    const copy: Record<RunWorkspaceActionRequest["action"], [string, string]> = {
+      create_space: ["Space created", "Home will update when the new space is ready."],
+      create_worktree: ["Worktree created", "Home will update when the new worktree is ready."],
+      close_workspace: ["Workspace closed", "Its folder and branch remain. Home will update when it is ready."],
+      close_group: ["Group closed", "Linked checkout folders and branches remain. Home will update when it is ready."],
+      delete_checkout: ["Checkout deleted", "The Git branch remains. Home will update when it is ready."],
+    };
+    this.#showResult(copy[action][0], copy[action][1]);
+  }
+
+  #showUnknown(action: RunWorkspaceActionRequest["action"]): void {
+    const message = action === "create_worktree"
+      ? "Result unknown. Check Home before starting another worktree."
+      : action === "create_space"
+        ? "Result unknown. Check Home before starting another space."
+        : "Result unknown. Check Home before trying this action again.";
+    this.#showResult("Result unknown", message);
+  }
+
+  #showRefusal(refusal: RefusedWorkspaceAction): void {
+    if (refusal.reason === "checkout_has_changes") {
+      this.#showResult(
+        "Checkout not deleted",
+        "This folder has changes. It was not removed. Resolve the changes in the terminal, then try again.",
+      );
+      return;
+    }
+    const messages: Record<Exclude<RefusedWorkspaceAction["reason"], "checkout_has_changes">, string> = {
+      invalid_request: "Shepherdr could not use this request.",
+      not_found: "This workspace is no longer here.",
+      not_applicable: "This action is no longer available.",
+      busy: "Another workspace action is running. Try again when it finishes.",
+      stale: "This workspace changed. Open the action again to check the latest details.",
+      herdr_unavailable: "Herdr is not available. Try again when it is running.",
+      herdr_refused: "Herdr refused this action.",
+    };
+    this.#showResult("Action not completed", messages[refusal.reason], refusal.detail);
+  }
+
+  #showWorking(heading: string): void {
+    const status = element(this.#document, "p", "home-action-copy", "Wait for Herdr to finish.");
+    status.setAttribute("role", "status");
+    this.#showActionLayer(heading, [status], undefined, this.#actionPanel);
+  }
+
+  #showResult(heading: string, message: string, detail?: string): void {
+    const content: Node[] = [element(this.#document, "p", "home-action-copy", message)];
+    if (detail) content.push(element(this.#document, "pre", "home-action-detail", detail));
+    const done = this.#button("Done", () => this.#closeActionLayer());
+    const buttons = element(this.#document, "div", "home-action-buttons");
+    buttons.append(done);
+    content.push(buttons);
+    this.#showActionLayer(heading, content, () => this.#closeActionLayer(), done);
+  }
+
+  #showActionLayer(
+    heading: string,
+    content: readonly Node[],
+    cancel: (() => void) | undefined,
+    initialFocus: HTMLElement | undefined,
+  ): void {
+    const title = element(this.#document, "h2", "home-action-title", heading);
+    title.id = "home-action-title";
+    this.#actionPanel.setAttribute("aria-labelledby", title.id);
+    reconcileChildren(this.#actionPanel, [title, ...content]);
+    this.#actionCancel = cancel;
+    this.#actionLayer.hidden = false;
+    initialFocus?.focus({ preventScroll: true });
+  }
+
+  #closeActionLayer(): void {
+    if (this.#actionRunning) return;
+    this.#actionLayer.hidden = true;
+    this.#actionCancel = undefined;
+    reconcileChildren(this.#actionPanel, []);
+    const target = this.#returnFocus?.isConnected ? this.#returnFocus : this.#filterInput;
+    this.#returnFocus = undefined;
+    target.focus({ preventScroll: true });
+  }
+
+  #handleDialogKey(event: KeyboardEvent): void {
+    if (event.key === "Escape" && this.#actionCancel) {
+      event.preventDefault();
+      this.#actionCancel();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(this.#actionPanel.querySelectorAll<HTMLElement>("button, input"))
+      .filter((node) => !node.hasAttribute("disabled") && !node.hidden);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const current = focusable.indexOf(this.#document.activeElement as HTMLElement);
+    const next = event.shiftKey
+      ? (current <= 0 ? focusable.length - 1 : current - 1)
+      : (current < 0 || current === focusable.length - 1 ? 0 : current + 1);
+    event.preventDefault();
+    focusable[next].focus({ preventScroll: true });
+  }
+
+  #renderAgain(): void {
+    if (this.#lastRender) this.render(this.#lastRender);
+  }
+
   #filteredHome(home: Home, value: string): Home {
     const query = value.trim().toLocaleLowerCase();
     const workspaces = home.workspaces
@@ -661,7 +1223,13 @@ export class HomeView {
   }
 
   #prune(usedWorkspaces: Set<string>, usedTabs: UsedTabs, usedSets: Set<string>, paneIDs: Set<string>): void {
-    for (const key of this.#workspaces.keys()) if (!usedWorkspaces.has(key)) this.#workspaces.delete(key);
+    for (const key of this.#workspaces.keys()) {
+      if (!usedWorkspaces.has(key)) {
+        this.#workspaces.delete(key);
+        this.#workspaceMenus.delete(key);
+        if (this.#openMenuWorkspaceID === key) this.#openMenuWorkspaceID = undefined;
+      }
+    }
     for (const [key, nodes] of this.#workspaceSets) {
       if (!usedSets.has(key)) {
         nodes.summary.remove();

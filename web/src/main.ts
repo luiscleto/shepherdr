@@ -13,8 +13,10 @@ import {
   type HomeState,
   type TerminalEntry,
 } from "./home-model";
+import { parseCompleteHomeState } from "./home-parser";
 import { TerminalPage } from "./terminal-page";
 import { returningToHome } from "./terminal-route";
+import { WorkspaceActionsClient } from "./workspace-actions";
 
 interface HomeHeartbeat {
   epoch: string;
@@ -29,22 +31,10 @@ function isHomeHeartbeat(message: unknown): message is HomeHeartbeat {
     "epoch" in message && typeof message.epoch === "string" && serverEpochPattern.test(message.epoch);
 }
 
-function isCompleteHomeState(message: unknown): message is HomeState {
-  if (typeof message !== "object" || message === null) return false;
-  const value = message as Record<string, unknown>;
-  const home = value.home;
-  return typeof value.epoch === "string" && serverEpochPattern.test(value.epoch) &&
-    ["reconnecting", "live", "not_running", "incompatible"].includes(String(value.connection)) &&
-    Number.isSafeInteger(value.gap) && typeof value.has_home === "boolean" && typeof value.last_known === "boolean" &&
-    typeof home === "object" && home !== null &&
-    Number.isSafeInteger((home as Record<string, unknown>).blocked_count) &&
-    Number.isSafeInteger((home as Record<string, unknown>).working_count) &&
-    Array.isArray((home as Record<string, unknown>).workspaces);
-}
-
 const appNode = document.querySelector<HTMLElement>("#app");
 if (!appNode) throw new Error("Application root is missing");
 const app: HTMLElement = appNode;
+const workspaceActions = new WorkspaceActionsClient();
 
 let state: HomeState = {
   connection: "reconnecting",
@@ -77,6 +67,8 @@ const homeView = new HomeView(app, {
   onReconnect: reconnectHome,
   onShowAll: showAllTerminals,
   onShowBlocked: showBlockedTerminals,
+  prepareWorkspaceAction: (request) => workspaceActions.prepare(request),
+  runWorkspaceAction: (request) => workspaceActions.run(request),
 });
 
 function element<K extends keyof HTMLElementTagNameMap>(
@@ -128,9 +120,10 @@ function connectHome(): void {
         scheduleHomeCheck();
         return;
       }
-      if (!isCompleteHomeState(parsed)) throw new Error("invalid Home frame");
+      const completeState = parseCompleteHomeState(parsed);
+      if (!completeState) throw new Error("invalid Home frame");
       lastValidHomeFrameAt = now;
-      const next = parsed;
+      const next = completeState;
       const changed = raw !== publishedStateSignature ||
         state.connection !== next.connection || state.last_known !== next.last_known;
       state = next;
