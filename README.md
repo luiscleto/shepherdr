@@ -36,6 +36,28 @@ Shepherdr prints its localhost address. Open that address directly on the machin
 
 Sign-in is off. Anyone who can reach Shepherdr can view the configured Herdr terminals and send terminal input.
 
+## Turn on notifications
+
+Each Shepherdr installation needs a real operator contact before browsers can enable notifications. Start Shepherdr with either a `mailto:` address or an HTTPS website:
+
+```sh
+./bin/shepherdr -vapid-contact mailto:you@example.com
+```
+
+The contact is saved outside the repository with the installation's notification keys and subscriptions. Later starts reuse it. Supplying a different valid contact updates the contact without changing notification keys or browser subscriptions. Browser push providers receive this operator contact as part of standard Web Push; it is not a Shepherdr project contact.
+
+Without a configured contact, Home and Terminal continue to work and Notifications settings explain the local setup command. After configuration, each browser or installed app enables and configures its own notifications from **Notifications** on Home or Terminal. `blocked` and `done` start on; the other Herdr statuses and workspace opened or closed notices start off.
+
+A phone needs one stable private HTTPS address. Android Chrome does not require installation. On iPhone or iPad, add Shepherdr to the Home Screen and open it there before enabling notifications.
+
+To clear the saved contact, notification keys, and every browser subscription, stop Shepherdr and run:
+
+```sh
+./bin/shepherdr -reset-notifications
+```
+
+Then configure `-vapid-contact` again and explicitly enable each browser again. Notifications are best effort: browsers and operating systems may delay, duplicate, or miss them, and Shepherdr keeps no notification history.
+
 ## Keep it on a private network
 
 Always make Shepherdr reachable only on a trusted private network. A trusted private network contains only users and devices you are willing to give access to the machine running Herdr. Public internet access is not supported.
@@ -65,6 +87,8 @@ Do not use `tailscale funnel`. Funnel makes the service public.
 - Open any current real Herdr terminal, whether or not it has an agent.
 - From a phone, send one text or shortcut batch and release control after it is acknowledged. See [Terminal direction](docs/terminal-direction.md).
 - Keep Home up to date after a connection drops. Shepherdr shows clearly labelled last-known values without presenting them as openable until it reconnects.
+- Send per-browser, generic notifications for selected Herdr status transitions and workspace openings or closings.
+- Open the exact current terminal from a status notification, or show **Terminal unavailable** when that exact terminal is gone.
 
 If Herdr stops, start it again and Shepherdr will reconnect automatically.
 

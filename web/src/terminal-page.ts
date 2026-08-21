@@ -17,6 +17,7 @@ export interface TerminalPageTarget {
 
 interface TerminalPageOptions {
   onHome(): void;
+  onNotifications?(): void;
 }
 
 const reconnectDelayMilliseconds = 1_000;
@@ -83,7 +84,8 @@ export class TerminalPage {
     this.#controlAction = element("button", "terminal-control-action", "Control");
     this.#controlAction.type = "button";
     this.#controlAction.hidden = true;
-    header.append(home, title, this.#controlAction);
+    const notifications = action("Notifications", () => options.onNotifications?.(), "terminal-notifications");
+    header.append(home, title, notifications, this.#controlAction);
 
     this.#surface = element("div", "terminal-production-surface");
     this.#surface.setAttribute("aria-label", target.title);

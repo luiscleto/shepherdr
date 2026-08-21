@@ -15,8 +15,9 @@ import {
 } from "./home-model";
 import { parseCompleteHomeState } from "./home-parser";
 import { TerminalPage } from "./terminal-page";
-import { returningToHome } from "./terminal-route";
+import { exactTerminalMatches, parseTerminalRoute, returningToHome } from "./terminal-route";
 import { WorkspaceActionsClient } from "./workspace-actions";
+import { NotificationsController } from "./notifications";
 
 interface HomeHeartbeat {
   epoch: string;
@@ -34,6 +35,9 @@ function isHomeHeartbeat(message: unknown): message is HomeHeartbeat {
 const appNode = document.querySelector<HTMLElement>("#app");
 if (!appNode) throw new Error("Application root is missing");
 const app: HTMLElement = appNode;
+const notificationsNode = document.querySelector<HTMLElement>("#notifications");
+if (!notificationsNode) throw new Error("Notifications root is missing");
+const notifications = new NotificationsController(notificationsNode);
 const workspaceActions = new WorkspaceActionsClient();
 
 let state: HomeState = {
@@ -65,6 +69,7 @@ const homeView = new HomeView(app, {
     lastFocusedHomePane = paneID;
   },
   onOpen: openTerminal,
+  onNotifications: () => notifications.openSettings(),
   onReconnect: reconnectHome,
   onShowAll: showAllTerminals,
   onShowBlocked: showBlockedTerminals,
@@ -201,20 +206,16 @@ function checkHomeConnection(): void {
 }
 
 function terminalPaneFromHash(): string | undefined {
-  if (!window.location.hash.startsWith("#terminal=")) return undefined;
-  try {
-    return decodeURIComponent(window.location.hash.slice("#terminal=".length));
-  } catch {
-    return undefined;
-  }
+  return parseTerminalRoute(window.location.hash)?.paneID;
 }
 
 function render(): void {
-  const paneID = terminalPaneFromHash();
+  const route = parseTerminalRoute(window.location.hash);
+  const paneID = route?.paneID;
   if (returningToHome(renderedTerminalPane, paneID)) restoreHomePlace = true;
   renderedTerminalPane = paneID;
   if (paneID) {
-    renderTerminal(paneID);
+    renderTerminal(paneID, route.terminalID);
   } else {
     renderHome();
   }
@@ -286,11 +287,19 @@ function openTerminal(entry: TerminalEntry): void {
   window.location.hash = `terminal=${encodeURIComponent(entry.terminal.pane_id)}`;
 }
 
-function renderTerminal(paneID: string): void {
+function renderTerminal(paneID: string, expectedTerminalID?: string): void {
   document.body.classList.add("terminal-active");
   window.scrollTo(0, 0);
+  if (expectedTerminalID && !liveActionsAvailable()) {
+    renderTerminalWaiting();
+    return;
+  }
   const current = findTerminal(state.home, paneID);
   const selected = selectedTerminal?.terminal.pane_id === paneID ? selectedTerminal : undefined;
+  if (current && !exactTerminalMatches(current.terminal.terminal_id, expectedTerminalID)) {
+    renderTerminalUnavailable();
+    return;
+  }
   if (current && selected && current.terminal.terminal_id !== selected.terminal.terminal_id) {
     renderTerminalUnavailable();
     return;
@@ -315,7 +324,7 @@ function renderTerminal(paneID: string): void {
     paneID,
     terminalID: entry.terminal.terminal_id,
     title: entry.terminal.title,
-  }, { onHome: leaveTerminal });
+  }, { onHome: leaveTerminal, onNotifications: () => notifications.openSettings() });
 }
 
 function renderTerminalWaiting(): void {
@@ -326,6 +335,7 @@ function renderTerminalWaiting(): void {
   panel.append(
     element("strong", undefined, "Connecting"),
     element("p", undefined, "Waiting for this terminal."),
+    button("Notifications", () => notifications.openSettings()),
     button("Home", leaveTerminal),
   );
   app.replaceChildren(panel);
@@ -339,6 +349,7 @@ function renderTerminalUnavailable(): void {
   panel.append(
     element("strong", undefined, "Terminal unavailable"),
     element("p", undefined, "This terminal is no longer here."),
+    button("Notifications", () => notifications.openSettings()),
     button("Home", leaveTerminal),
   );
   app.replaceChildren(panel);
@@ -357,3 +368,4 @@ window.addEventListener("online", connectHome);
 
 connectHome();
 render();
+void notifications.init();

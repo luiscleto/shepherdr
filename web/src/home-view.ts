@@ -31,6 +31,7 @@ interface HomeViewActions {
   isHomeActive: () => boolean;
   onFocusPane: (paneID: string) => void;
   onOpen: (entry: TerminalEntry) => void;
+  onNotifications?: () => void;
   onReconnect: () => void;
   onShowAll: () => void;
   onShowBlocked: () => void;
@@ -154,6 +155,7 @@ export class HomeView {
   readonly #filterInput: HTMLInputElement;
   readonly #header: HTMLElement;
   readonly #headerHeading: HTMLElement;
+  readonly #notificationsAction: HTMLButtonElement;
   readonly #homeTools: HTMLElement;
   readonly #loading: HTMLElement;
   readonly #loadingHeading: HTMLElement;
@@ -200,7 +202,11 @@ export class HomeView {
     connectionIndicator.append(this.#connectionDot, this.#connectionHeading);
     this.#connectionAction = this.#button("Reconnect", actions.onReconnect);
     this.#connectionPanel.append(connectionIndicator, this.#connectionAction);
-    this.#header.append(heading, this.#connectionPanel);
+    this.#notificationsAction = this.#button("Notifications", () => actions.onNotifications?.());
+    this.#notificationsAction.className = "home-notifications";
+    const mastheadActions = element(this.#document, "div", "masthead-actions");
+    mastheadActions.append(this.#notificationsAction, this.#connectionPanel);
+    this.#header.append(heading, mastheadActions);
 
     this.#loading = element(this.#document, "section", "state-panel");
     this.#loadingHeading = element(this.#document, "strong", undefined, "Loading terminals");

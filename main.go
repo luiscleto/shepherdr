@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/luisc/shepherdr/internal/herdr"
+	"github.com/luisc/shepherdr/internal/notifications"
 	"github.com/luisc/shepherdr/internal/server"
 )
 
@@ -38,7 +39,29 @@ func run() error {
 	listenAddress := flag.String("listen", "127.0.0.1:8787", "localhost address to listen on")
 	socketPath := flag.String("herdr-socket", defaultSocket, "Unix socket for the one Herdr session")
 	terminalLabEnabled := flag.Bool("terminal-lab", false, "enable the development-only terminal comparison lab")
+	var vapidContact optionalStringFlag
+	flag.Var(&vapidContact, "vapid-contact", "operator contact for Web Push (mailto: or HTTPS URI)")
+	resetNotifications := flag.Bool("reset-notifications", false, "clear notification subscriptions, keys, and contact, then exit")
 	flag.Parse()
+
+	notificationPath, notificationPathErr := notifications.DefaultStatePath()
+	if *resetNotifications {
+		if notificationPathErr != nil {
+			return notificationPathErr
+		}
+		if err := notifications.Reset(notificationPath); err != nil {
+			return err
+		}
+		fmt.Println("Notification state reset. Configure -vapid-contact and enable each browser again.")
+		return nil
+	}
+	contact := ""
+	if vapidContact.set {
+		contact, err = notifications.ValidateContact(vapidContact.value)
+		if err != nil {
+			return err
+		}
+	}
 
 	if err := server.ValidateListenAddress(*listenAddress); err != nil {
 		return err
@@ -52,8 +75,21 @@ func run() error {
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	var notificationStore *notifications.Store
+	var notificationWarning error
+	if notificationPathErr != nil {
+		notificationWarning = notificationPathErr
+		notificationStore = notifications.UnavailableStore(notificationWarning)
+	} else {
+		notificationStore, notificationWarning = notifications.OpenStore(notificationPath, contact)
+	}
+	if notificationWarning != nil {
+		logger.Error("Notifications are unavailable; Home and Terminal will continue", "error", notificationWarning)
+	}
+	notificationManager := notifications.NewManager(notificationStore, logger)
 	client := herdr.NewClient(*socketPath)
 	projector := herdr.NewProjector(client)
+	projector.SetSnapshotObserver(notificationManager)
 	herdrBinary, err := exec.LookPath("herdr")
 	if err != nil {
 		return fmt.Errorf("find herdr executable for terminal access: %w", err)
@@ -61,6 +97,7 @@ func run() error {
 	terminal := server.NewTerminalBridge(herdrBinary, *socketPath, logger, projector)
 	defer terminal.Close()
 	application := server.New(assets, projector, terminal, *terminalLabEnabled, client)
+	application.SetNotifications(notificationManager)
 
 	listener, err := net.Listen("tcp", *listenAddress)
 	if err != nil {
@@ -70,6 +107,7 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	notificationManager.Start(ctx)
 	go projector.Run(ctx)
 
 	httpServer := &http.Server{
@@ -96,6 +134,19 @@ func run() error {
 		}
 		return err
 	}
+}
+
+type optionalStringFlag struct {
+	set   bool
+	value string
+}
+
+func (f *optionalStringFlag) String() string { return f.value }
+
+func (f *optionalStringFlag) Set(value string) error {
+	f.set = true
+	f.value = value
+	return nil
 }
 
 func defaultHerdrSocket() (string, error) {

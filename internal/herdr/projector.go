@@ -29,6 +29,10 @@ type State struct {
 	Snapshot   Snapshot   `json:"-"`
 }
 
+type SnapshotObserver interface {
+	ObserveSnapshot(Snapshot, bool)
+}
+
 type Projector struct {
 	client  *Client
 	refresh chan struct{}
@@ -36,6 +40,13 @@ type Projector struct {
 	mu        sync.RWMutex
 	state     State
 	listeners map[chan State]struct{}
+	observer  SnapshotObserver
+}
+
+func (p *Projector) SetSnapshotObserver(observer SnapshotObserver) {
+	p.mu.Lock()
+	p.observer = observer
+	p.mu.Unlock()
 }
 
 func NewProjector(client *Client) *Projector {
@@ -82,6 +93,7 @@ func (p *Projector) Run(ctx context.Context) {
 	defer retry.Stop()
 	var subscriptionBasis Snapshot
 	haveSubscriptionBasis := false
+	baseline := true
 
 	for {
 		if !haveSubscriptionBasis {
@@ -108,14 +120,16 @@ func (p *Projector) Run(ctx context.Context) {
 			continue
 		}
 
-		result := p.followSubscription(ctx, subscription, subscriptionBasis)
+		result := p.followSubscription(ctx, subscription, subscriptionBasis, baseline)
 		_ = subscription.Close()
 		if result.resubscribe {
 			subscriptionBasis = result.snapshot
 			haveSubscriptionBasis = true
+			baseline = result.baseline
 			continue
 		}
 		haveSubscriptionBasis = false
+		baseline = true
 		if result.err != nil && ctx.Err() == nil {
 			if result.snapshotFailed {
 				p.publishError(result.err)
@@ -132,9 +146,10 @@ type subscriptionResult struct {
 	resubscribe    bool
 	snapshot       Snapshot
 	snapshotFailed bool
+	baseline       bool
 }
 
-func (p *Projector) followSubscription(ctx context.Context, subscription *Subscription, basis Snapshot) subscriptionResult {
+func (p *Projector) followSubscription(ctx context.Context, subscription *Subscription, basis Snapshot, baseline bool) subscriptionResult {
 	changed := make(chan struct{}, 1)
 	lost := make(chan error, 1)
 	go func() {
@@ -178,9 +193,13 @@ func (p *Projector) followSubscription(ctx context.Context, subscription *Subscr
 		default:
 		}
 		if !subscriptionCoversSnapshot(basis, candidate) {
-			return subscriptionResult{resubscribe: true, snapshot: candidate}
+			return subscriptionResult{resubscribe: true, snapshot: candidate, baseline: baseline}
 		}
-		p.publishLive(candidate)
+		if p.publishLiveObserved(candidate, baseline) {
+			baseline = false
+		} else {
+			baseline = true
+		}
 		readNow = takeRefreshSignals(changed, p.refresh)
 	}
 }
@@ -263,10 +282,20 @@ func (p *Projector) publishError(err error) {
 }
 
 func (p *Projector) publishLive(snapshot Snapshot) {
+	p.publishLiveObserved(snapshot, false)
+}
+
+func (p *Projector) publishLiveObserved(snapshot Snapshot, baseline bool) bool {
 	home, err := Project(snapshot)
 	if err != nil {
 		p.publishError(err)
-		return
+		return false
+	}
+	p.mu.RLock()
+	observer := p.observer
+	p.mu.RUnlock()
+	if observer != nil {
+		observer.ObserveSnapshot(snapshot, baseline)
 	}
 	p.mu.Lock()
 	state := p.state
@@ -278,6 +307,7 @@ func (p *Projector) publishLive(snapshot Snapshot) {
 	state.Snapshot = snapshot
 	p.publishLocked(state)
 	p.mu.Unlock()
+	return true
 }
 
 func (p *Projector) publishLocked(state State) {

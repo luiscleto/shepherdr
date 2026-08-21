@@ -1,0 +1,24 @@
+{
+  "name": "Shepherdr",
+  "short_name": "Shepherdr",
+  "description": "Check on Herdr workspaces and terminals.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f3f1",
+  "theme_color": "#f7f3f1",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

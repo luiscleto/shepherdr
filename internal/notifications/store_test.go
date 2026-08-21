@@ -1,0 +1,171 @@
+package notifications
+
+import (
+	"crypto/ecdh"
+	"crypto/rand"
+	"encoding/base64"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestStorePersistsContactKeysAndIndependentBrowserSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "notifications.json")
+	unconfigured, err := OpenStore(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, configured, err := unconfigured.Config(); err != nil || configured {
+		t.Fatalf("unconfigured store: configured=%t err=%v", configured, err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("opening without a contact created state: %v", err)
+	}
+
+	first, err := OpenStore(path, "mailto:operator@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contact, publicKey, configured, err := first.Config()
+	if err != nil || !configured || contact != "mailto:operator@example.com" || publicKey == "" {
+		t.Fatalf("configured store = contact %q key %q configured %t err %v", contact, publicKey, configured, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("state mode = %o, want 600", info.Mode().Perm())
+	}
+	parent, err := os.Stat(filepath.Dir(path))
+	if err != nil || parent.Mode().Perm() != 0o700 {
+		t.Fatalf("state directory mode = %v err=%v, want 700", parent.Mode().Perm(), err)
+	}
+
+	one := validSubscription(t, "https://push.example/one", EventSettings{Blocked: true})
+	two := validSubscription(t, "https://push.example/two", EventSettings{Done: true, WorkspaceClosed: true})
+	if err := first.Upsert(one); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Upsert(two); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted, err := OpenStore(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	restartedContact, restartedKey, configured, err := restarted.Config()
+	if err != nil || !configured || restartedContact != contact || restartedKey != publicKey {
+		t.Fatalf("restart changed installation state: contact=%q key=%q configured=%t err=%v", restartedContact, restartedKey, configured, err)
+	}
+	if settings, found, err := restarted.Lookup(two.Endpoint); err != nil || !found || settings != two.Events {
+		t.Fatalf("second browser settings = %+v found=%t err=%v", settings, found, err)
+	}
+
+	updated, err := OpenStore(path, "https://operator.example/contact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedContact, updatedKey, _, _ := updated.Config()
+	if updatedContact != "https://operator.example/contact" || updatedKey != publicKey {
+		t.Fatalf("contact update rotated identity: contact=%q key=%q", updatedContact, updatedKey)
+	}
+	if _, found, _ := updated.Lookup(one.Endpoint); !found {
+		t.Fatal("contact update removed a browser subscription")
+	}
+	persistedUpdate, err := OpenStore(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistedContact, persistedKey, _, _ := persistedUpdate.Config()
+	if persistedContact != "https://operator.example/contact" || persistedKey != publicKey {
+		t.Fatalf("updated contact did not persist without rotation: contact=%q key=%q", persistedContact, persistedKey)
+	}
+
+	if err := Reset(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("reset left notification state: %v", err)
+	}
+	afterReset, err := OpenStore(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, configured, err := afterReset.Config(); err != nil || configured {
+		t.Fatalf("reset state configured=%t err=%v, want unavailable until contact is supplied", configured, err)
+	}
+}
+
+func TestValidateContactRequiresRealMailtoOrHTTPSURI(t *testing.T) {
+	valid := []string{"mailto:operator@example.com", "https://operator.example/contact"}
+	for _, value := range valid {
+		if got, err := ValidateContact(value); err != nil || got != value {
+			t.Errorf("ValidateContact(%q) = %q, %v", value, got, err)
+		}
+	}
+	invalid := []string{"", "operator@example.com", "mailto:", "mailto:Name <operator@example.com>", "http://operator.example", "https://user@operator.example", "https://operator.example/#fragment"}
+	for _, value := range invalid {
+		if _, err := ValidateContact(value); err == nil {
+			t.Errorf("ValidateContact(%q) unexpectedly succeeded", value)
+		}
+	}
+	if _, err := OpenStore(filepath.Join(t.TempDir(), "notifications.json"), "http://operator.example"); err == nil {
+		t.Fatal("store accepted an invalid supplied contact")
+	}
+}
+
+func TestCorruptStoreStaysUnavailableUntilReset(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notifications.json")
+	if err := os.WriteFile(path, []byte("{not-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := OpenStore(path, "mailto:operator@example.com")
+	if err == nil {
+		t.Fatal("corrupt state unexpectedly loaded")
+	}
+	if _, _, configured, configErr := store.Config(); configErr == nil || configured {
+		t.Fatalf("corrupt store remained configured=%t err=%v", configured, configErr)
+	}
+	data, readErr := os.ReadFile(path)
+	if readErr != nil || string(data) != "{not-json" {
+		t.Fatalf("corrupt state was silently replaced: %q err=%v", data, readErr)
+	}
+}
+
+func TestInvalidPrivateScalarDisablesStoreWithoutPanicking(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notifications.json")
+	store, err := OpenStore(path, "mailto:operator@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := cloneState(store.state)
+	invalid.VAPIDPrivateKey = base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	if err := writeState(path, invalid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenStore(path, ""); err == nil {
+		t.Fatal("zero VAPID private scalar unexpectedly loaded")
+	}
+}
+
+func validSubscription(t *testing.T, endpoint string, events EventSettings) Subscription {
+	t.Helper()
+	privateKey, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth := make([]byte, 16)
+	if _, err := rand.Read(auth); err != nil {
+		t.Fatal(err)
+	}
+	return Subscription{
+		Endpoint: endpoint,
+		Keys: SubscriptionKeys{
+			Auth:   base64.RawURLEncoding.EncodeToString(auth),
+			P256dh: base64.RawURLEncoding.EncodeToString(privateKey.PublicKey().Bytes()),
+		},
+		Events: events,
+	}
+}

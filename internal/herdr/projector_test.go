@@ -108,6 +108,41 @@ func TestOrdinaryTitleChangePublishesCurrentHomeWithoutLifecycle(t *testing.T) {
 	}
 }
 
+type snapshotObservation struct {
+	baseline bool
+	snapshot Snapshot
+}
+
+type recordingSnapshotObserver struct {
+	observations []snapshotObservation
+}
+
+func (o *recordingSnapshotObserver) ObserveSnapshot(snapshot Snapshot, baseline bool) {
+	o.observations = append(o.observations, snapshotObservation{baseline: baseline, snapshot: snapshot})
+}
+
+func TestProjectorObservesOnlyValidatedPublicationsWithBaselineBoundary(t *testing.T) {
+	projector := NewProjector(nil)
+	observer := &recordingSnapshotObserver{}
+	projector.SetSnapshotObserver(observer)
+	snapshot := ordinaryTitleSnapshot()
+	if !projector.publishLiveObserved(snapshot, true) {
+		t.Fatal("valid baseline snapshot was rejected")
+	}
+	snapshot.Panes[0].TerminalTitleStripped = "changed"
+	if !projector.publishLiveObserved(snapshot, false) {
+		t.Fatal("valid contiguous snapshot was rejected")
+	}
+	invalid := snapshot
+	invalid.Panes[0].PaneID = ""
+	if projector.publishLiveObserved(invalid, false) {
+		t.Fatal("invalid snapshot was observed as a publication")
+	}
+	if len(observer.observations) != 2 || !observer.observations[0].baseline || observer.observations[1].baseline {
+		t.Fatalf("observations = %+v", observer.observations)
+	}
+}
+
 func TestWorktreeEventRefreshesOnceWithoutGapOrRetry(t *testing.T) {
 	fixture := newLoopFixture(t, stableProjectorSnapshot())
 	projector := NewProjector(NewClient(fixture.socketPath))

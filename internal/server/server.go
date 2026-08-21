@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/luisc/shepherdr/internal/herdr"
+	"github.com/luisc/shepherdr/internal/notifications"
 )
 
 const homeHeartbeatInterval = 2 * time.Second
@@ -25,8 +26,13 @@ type Server struct {
 	projector          *herdr.Projector
 	workspaceActions   *workspaceActionCoordinator
 	terminal           *TerminalBridge
+	notifications      *notifications.Manager
 	terminalLabEnabled bool
 	upgrader           websocket.Upgrader
+}
+
+func (s *Server) SetNotifications(manager *notifications.Manager) {
+	s.notifications = manager
 }
 
 func New(assets fs.FS, projector *herdr.Projector, terminal *TerminalBridge, terminalLabEnabled bool, actionClients ...*herdr.Client) *Server {
@@ -68,6 +74,12 @@ func (s *Server) Handler() http.Handler {
 	if s.terminal != nil {
 		mux.HandleFunc("GET /api/terminal", s.terminalSocket)
 		mux.HandleFunc("GET /api/terminal/read", s.terminalRead)
+	}
+	if s.notifications != nil {
+		mux.HandleFunc("POST /api/notifications/config", s.notificationConfig)
+		mux.HandleFunc("POST /api/notifications/settings/read", s.notificationSettingsRead)
+		mux.HandleFunc("POST /api/notifications/settings", s.notificationSettingsSave)
+		mux.HandleFunc("DELETE /api/notifications/settings", s.notificationSettingsRemove)
 	}
 	if s.terminalLabEnabled && s.terminal != nil {
 		mux.HandleFunc("GET /api/terminal-lab", s.terminal.socket)
@@ -177,6 +189,9 @@ func (s *Server) asset(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	contentType := mime.TypeByExtension(path.Ext(name))
+	if path.Ext(name) == ".webmanifest" {
+		contentType = "application/manifest+json"
+	}
 	if contentType != "" {
 		writer.Header().Set("Content-Type", contentType)
 	}

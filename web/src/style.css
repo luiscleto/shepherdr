@@ -92,6 +92,22 @@ button:disabled {
   min-height: 4rem;
 }
 
+.masthead-actions {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.home-notifications {
+  min-width: 44px;
+  min-height: 44px;
+  border-color: var(--line-strong);
+  background: var(--paper-raised);
+  padding: 0.4rem 0.55rem;
+  font-size: 0.75rem;
+}
+
 .masthead,
 .tab-heading,
 .terminal-row,
@@ -990,9 +1006,159 @@ button.terminal-row:hover {
 }
 
 .terminal-home,
+.terminal-notifications,
 .terminal-control-action {
   flex: 0 0 auto;
   padding: 0.35rem 0.6rem;
+}
+
+.notification-invitation {
+  position: fixed;
+  z-index: 40;
+  right: max(0.75rem, env(safe-area-inset-right));
+  bottom: calc(5.2rem + env(safe-area-inset-bottom));
+  left: max(0.75rem, env(safe-area-inset-left));
+  display: flex;
+  width: min(34rem, calc(100% - 1.5rem));
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid var(--line-strong);
+  margin: 0 auto;
+  background: var(--paper-raised);
+  box-shadow: 0 5px 18px rgba(33, 31, 29, 0.16);
+  padding: 0.8rem;
+}
+
+.notification-invitation strong {
+  display: block;
+  margin-bottom: 0.18rem;
+}
+
+.notification-invitation p {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.notification-invitation-actions,
+.notification-form-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.45rem;
+}
+
+.notification-invitation-actions button,
+.notification-form-actions button,
+.notification-primary,
+.notification-close {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.notification-invitation-actions button:first-child,
+.notification-primary {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper-raised);
+}
+
+.notification-layer {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  align-items: end;
+  overflow: auto;
+  background: rgba(33, 31, 29, 0.32);
+  padding: max(1rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) max(0.75rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
+}
+
+.notification-panel {
+  width: min(100%, 36rem);
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  margin: 0 auto;
+  background: var(--paper-raised);
+  box-shadow: 0 8px 26px rgba(33, 31, 29, 0.2);
+  padding: 1rem;
+}
+
+.notification-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 0.8rem;
+  padding-bottom: 0.6rem;
+}
+
+.notification-panel-header h2,
+.notification-panel p:last-child {
+  margin-bottom: 0;
+}
+
+.notification-close {
+  border: 0;
+  color: var(--accent);
+}
+
+.notification-scope,
+.notification-feedback {
+  color: var(--ink-muted);
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+.notification-form fieldset {
+  display: grid;
+  gap: 0;
+  border: 0;
+  margin: 1rem 0;
+  padding: 0;
+}
+
+.notification-form legend {
+  margin-bottom: 0.45rem;
+  font-weight: 750;
+}
+
+.notification-choice {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--line);
+  padding: 0.35rem 0;
+}
+
+.notification-choice input {
+  width: 1.25rem;
+  height: 1.25rem;
+  accent-color: var(--accent);
+}
+
+.notification-choice:nth-child(-n + 6) span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+@media (max-width: 520px) {
+  .notification-invitation {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .notification-invitation-actions button {
+    flex: 1;
+  }
+
+  .notification-form-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 .terminal-production-surface {
