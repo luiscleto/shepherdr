@@ -2,6 +2,7 @@ package notifications
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
@@ -45,7 +46,9 @@ func newWebPushSender(validator *endpointValidator) *webPushSender {
 	transport := &http.Transport{
 		Proxy:                  nil,
 		DialContext:            dialer.DialContext,
-		ForceAttemptHTTP2:      true,
+		DisableKeepAlives:      true,
+		ForceAttemptHTTP2:      false,
+		TLSNextProto:           map[string]func(string, *tls.Conn) http.RoundTripper{},
 		TLSHandshakeTimeout:    5 * time.Second,
 		ResponseHeaderTimeout:  5 * time.Second,
 		ExpectContinueTimeout:  time.Second,
@@ -61,8 +64,8 @@ func newWebPushSender(validator *endpointValidator) *webPushSender {
 	}}
 }
 
-func netDialer() net.Dialer {
-	return net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
+func netDialer() *net.Dialer {
+	return &net.Dialer{Timeout: 5 * time.Second}
 }
 
 func (s *webPushSender) Send(ctx context.Context, event Event, subscription Subscription, contact, publicKey, privateKey string) sendOutcome {

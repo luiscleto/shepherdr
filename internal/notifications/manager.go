@@ -55,7 +55,6 @@ func (m *Manager) ObserveSnapshot(snapshot herdr.Snapshot, baseline bool) {
 		select {
 		case m.events <- event:
 		default:
-			m.logger.Warn("Notification event missed because delivery is busy", "kind", event.Kind)
 		}
 	}
 }

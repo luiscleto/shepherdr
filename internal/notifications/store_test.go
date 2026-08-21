@@ -4,6 +4,7 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -95,6 +96,58 @@ func TestStorePersistsContactKeysAndIndependentBrowserSettings(t *testing.T) {
 	}
 	if _, _, configured, err := afterReset.Config(); err != nil || configured {
 		t.Fatalf("reset state configured=%t err=%v, want unavailable until contact is supplied", configured, err)
+	}
+}
+
+func TestResetRemovesOnlyStateAndRecognizedTemporaryResidue(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "notifications.json")
+	if _, err := OpenStore(path, "mailto:operator@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	residue, err := os.CreateTemp(directory, ".notifications-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	residueName := residue.Name()
+	if _, err := residue.WriteString("old notification secrets"); err != nil {
+		t.Fatal(err)
+	}
+	if err := residue.Close(); err != nil {
+		t.Fatal(err)
+	}
+	unrelated := filepath.Join(directory, ".notifications-backup")
+	if err := os.WriteFile(unrelated, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unrelatedNumeric := filepath.Join(directory, ".notifications-123456")
+	if err := os.WriteFile(unrelatedNumeric, []byte("also keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(unrelatedNumeric, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unrelatedDirectory := filepath.Join(directory, ".notifications-123")
+	if err := os.Mkdir(unrelatedDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Reset(path); err != nil {
+		t.Fatal(err)
+	}
+	for _, removed := range []string{path, residueName} {
+		if _, err := os.Lstat(removed); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("reset left %q: %v", removed, err)
+		}
+	}
+	if data, err := os.ReadFile(unrelated); err != nil || string(data) != "keep" {
+		t.Fatalf("reset changed unrelated file: data=%q err=%v", data, err)
+	}
+	if data, err := os.ReadFile(unrelatedNumeric); err != nil || string(data) != "also keep" {
+		t.Fatalf("reset changed non-secret numeric sibling: data=%q err=%v", data, err)
+	}
+	if info, err := os.Stat(unrelatedDirectory); err != nil || !info.IsDir() {
+		t.Fatalf("reset changed unrelated directory: info=%v err=%v", info, err)
 	}
 }
 

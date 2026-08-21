@@ -114,11 +114,20 @@ type snapshotObservation struct {
 }
 
 type recordingSnapshotObserver struct {
+	mu           sync.Mutex
 	observations []snapshotObservation
 }
 
 func (o *recordingSnapshotObserver) ObserveSnapshot(snapshot Snapshot, baseline bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	o.observations = append(o.observations, snapshotObservation{baseline: baseline, snapshot: snapshot})
+}
+
+func (o *recordingSnapshotObserver) all() []snapshotObservation {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return append([]snapshotObservation(nil), o.observations...)
 }
 
 func TestProjectorObservesOnlyValidatedPublicationsWithBaselineBoundary(t *testing.T) {
@@ -138,8 +147,49 @@ func TestProjectorObservesOnlyValidatedPublicationsWithBaselineBoundary(t *testi
 	if projector.publishLiveObserved(invalid, false) {
 		t.Fatal("invalid snapshot was observed as a publication")
 	}
-	if len(observer.observations) != 2 || !observer.observations[0].baseline || observer.observations[1].baseline {
-		t.Fatalf("observations = %+v", observer.observations)
+	observations := observer.all()
+	if len(observations) != 2 || !observations[0].baseline || observations[1].baseline {
+		t.Fatalf("observations = %+v", observations)
+	}
+}
+
+func TestProjectorTreatsNewPaneResubscriptionAsSilentBaseline(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancelServer := context.WithCancel(context.Background())
+	t.Cleanup(func() {
+		cancelServer()
+		listener.Close()
+	})
+	triggerNewPane := make(chan struct{})
+	var snapshots atomic.Int32
+	var subscriptions atomic.Int32
+	go serveResubscriptionBaselineFixture(ctx, listener, triggerNewPane, &snapshots, &subscriptions)
+
+	projector := NewProjector(NewClient(socketPath))
+	observer := &recordingSnapshotObserver{}
+	projector.SetSnapshotObserver(observer)
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+	go projector.Run(runCtx)
+
+	first := waitForSnapshotObservations(t, observer, 1)[0]
+	if !first.baseline || len(first.snapshot.Panes) != 1 {
+		t.Fatalf("initial observation = %+v", first)
+	}
+	close(triggerNewPane)
+	observations := waitForSnapshotObservations(t, observer, 2)
+	if !observations[1].baseline || len(observations[1].snapshot.Panes) != 2 {
+		t.Fatalf("post-resubscription observation = %+v", observations[1])
+	}
+	if got := subscriptions.Load(); got != 2 {
+		t.Fatalf("subscriptions = %d, want initial plus replacement", got)
+	}
+	if got := snapshots.Load(); got < 4 {
+		t.Fatalf("snapshots = %d, want setup and post-subscription reads across replacement", got)
 	}
 }
 
@@ -441,6 +491,74 @@ func waitForCount(t *testing.T, value *atomic.Int32, want int32) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("count = %d, want at least %d", value.Load(), want)
+}
+
+func waitForSnapshotObservations(t *testing.T, observer *recordingSnapshotObserver, want int) []snapshotObservation {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		observations := observer.all()
+		if len(observations) >= want {
+			return observations
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("observations = %d, want at least %d", len(observer.all()), want)
+	return nil
+}
+
+func serveResubscriptionBaselineFixture(
+	ctx context.Context,
+	listener net.Listener,
+	triggerNewPane <-chan struct{},
+	snapshots, subscriptions *atomic.Int32,
+) {
+	for {
+		connection, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		go func() {
+			defer connection.Close()
+			var request struct {
+				ID     string `json:"id"`
+				Method string `json:"method"`
+			}
+			if json.NewDecoder(connection).Decode(&request) != nil {
+				return
+			}
+			encoder := json.NewEncoder(connection)
+			switch request.Method {
+			case "session.snapshot":
+				number := snapshots.Add(1)
+				snapshot := stableProjectorSnapshot()
+				if number > 2 {
+					snapshot.Panes = append(snapshot.Panes, PaneInfo{
+						PaneID: "w1:p2", TabID: "w1:t1", TerminalID: "term-2", TerminalTitleStripped: "Two", WorkspaceID: "w1",
+					})
+				}
+				_ = encoder.Encode(map[string]any{
+					"id": request.ID, "result": map[string]any{"type": "session_snapshot", "snapshot": snapshot},
+				})
+			case "events.subscribe":
+				number := subscriptions.Add(1)
+				if encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"type": "subscription_started"}}) != nil {
+					return
+				}
+				if number == 1 {
+					select {
+					case <-ctx.Done():
+						return
+					case <-triggerNewPane:
+					}
+					if encoder.Encode(map[string]any{"event": "pane_created", "data": map[string]any{"type": "pane_created"}}) != nil {
+						return
+					}
+				}
+				<-ctx.Done()
+			}
+		}()
+	}
 }
 
 func serveNewPaneFixture(ctx context.Context, listener net.Listener, snapshots, subscriptions *atomic.Int32) {

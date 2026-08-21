@@ -16,6 +16,24 @@ export function parseTerminalRoute(hash: string): TerminalRoute | undefined {
   return { paneID, ...(terminalID ? { terminalID } : {}) };
 }
 
-export function exactTerminalMatches(currentTerminalID: string, expectedTerminalID?: string): boolean {
-  return expectedTerminalID === undefined || currentTerminalID === expectedTerminalID;
+export type TerminalRouteOutcome = "current" | "selected" | "unavailable" | "waiting";
+
+export function terminalRouteOutcome(state: {
+  currentStateAvailable: boolean;
+  currentTerminalID?: string;
+  expectedTerminalID?: string;
+  selectedTerminalID?: string;
+}): TerminalRouteOutcome {
+  if (state.expectedTerminalID !== undefined) {
+    if (!state.currentStateAvailable) return "waiting";
+    return state.currentTerminalID === state.expectedTerminalID ? "current" : "unavailable";
+  }
+  if (state.currentTerminalID !== undefined) {
+    if (state.selectedTerminalID !== undefined && state.currentTerminalID !== state.selectedTerminalID) {
+      return "unavailable";
+    }
+    return "current";
+  }
+  if (state.currentStateAvailable) return "unavailable";
+  return state.selectedTerminalID === undefined ? "waiting" : "selected";
 }

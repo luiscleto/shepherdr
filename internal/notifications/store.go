@@ -217,14 +217,44 @@ func (s *Store) Remove(endpoint string) (bool, error) {
 }
 
 func Reset(path string) error {
-	err := os.Remove(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+	var resetErrors []error
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		resetErrors = append(resetErrors, fmt.Errorf("remove notification state: %w", err))
 	}
+	entries, err := os.ReadDir(filepath.Dir(path))
 	if err != nil {
-		return fmt.Errorf("reset notification state: %w", err)
+		if !errors.Is(err, os.ErrNotExist) {
+			resetErrors = append(resetErrors, fmt.Errorf("inspect notification state directory: %w", err))
+		}
+		return errors.Join(resetErrors...)
 	}
-	return nil
+	for _, entry := range entries {
+		if !recognizedStateTemporary(entry) {
+			continue
+		}
+		if err := os.Remove(filepath.Join(filepath.Dir(path), entry.Name())); err != nil {
+			resetErrors = append(resetErrors, fmt.Errorf("remove notification temporary state: %w", err))
+		}
+	}
+	return errors.Join(resetErrors...)
+}
+
+func recognizedStateTemporary(entry os.DirEntry) bool {
+	const prefix = ".notifications-"
+	if !strings.HasPrefix(entry.Name(), prefix) {
+		return false
+	}
+	suffix := strings.TrimPrefix(entry.Name(), prefix)
+	if suffix == "" || len(suffix) > 10 {
+		return false
+	}
+	for _, character := range suffix {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	info, err := entry.Info()
+	return err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o077 == 0
 }
 
 func readState(path string) (*persistedState, error) {

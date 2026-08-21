@@ -15,7 +15,7 @@ import {
 } from "./home-model";
 import { parseCompleteHomeState } from "./home-parser";
 import { TerminalPage } from "./terminal-page";
-import { exactTerminalMatches, parseTerminalRoute, returningToHome } from "./terminal-route";
+import { parseTerminalRoute, returningToHome, terminalRouteOutcome } from "./terminal-route";
 import { WorkspaceActionsClient } from "./workspace-actions";
 import { NotificationsController } from "./notifications";
 
@@ -290,25 +290,23 @@ function openTerminal(entry: TerminalEntry): void {
 function renderTerminal(paneID: string, expectedTerminalID?: string): void {
   document.body.classList.add("terminal-active");
   window.scrollTo(0, 0);
-  if (expectedTerminalID && !liveActionsAvailable()) {
+  const current = findTerminal(state.home, paneID);
+  const selected = selectedTerminal?.terminal.pane_id === paneID ? selectedTerminal : undefined;
+  const outcome = terminalRouteOutcome({
+    currentStateAvailable: liveActionsAvailable(),
+    currentTerminalID: current?.terminal.terminal_id,
+    expectedTerminalID,
+    selectedTerminalID: selected?.terminal.terminal_id,
+  });
+  if (outcome === "unavailable") {
+    renderTerminalUnavailable();
+    return;
+  }
+  if (outcome === "waiting") {
     renderTerminalWaiting();
     return;
   }
-  const current = findTerminal(state.home, paneID);
-  const selected = selectedTerminal?.terminal.pane_id === paneID ? selectedTerminal : undefined;
-  if (current && !exactTerminalMatches(current.terminal.terminal_id, expectedTerminalID)) {
-    renderTerminalUnavailable();
-    return;
-  }
-  if (current && selected && current.terminal.terminal_id !== selected.terminal.terminal_id) {
-    renderTerminalUnavailable();
-    return;
-  }
-  if (!current && state.connection === "live" && !state.last_known) {
-    renderTerminalUnavailable();
-    return;
-  }
-  const entry = current ?? selected;
+  const entry = outcome === "current" ? current : selected;
   if (!entry) {
     renderTerminalWaiting();
     return;

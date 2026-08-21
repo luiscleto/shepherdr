@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
 
 import { Window } from "happy-dom";
 
@@ -15,7 +16,7 @@ import {
   type NotificationPlatform,
   type PushSubscriptionData,
 } from "./notifications.ts";
-import { exactTerminalMatches, parseTerminalRoute } from "./terminal-route.ts";
+import { parseTerminalRoute, terminalRouteOutcome } from "./terminal-route.ts";
 
 class FakeSubscription implements BrowserPushSubscription {
   unsubscribed = false;
@@ -99,6 +100,77 @@ function buttonWithText(root: ParentNode, text: string): HTMLButtonElement {
   return button;
 }
 
+function serviceWorkerHarness() {
+  type Listener = (event: Record<string, unknown>) => void;
+  const listeners = new Map<string, Listener>();
+  let closed = 0;
+  let focused = 0;
+  let navigated = "";
+  let opened = "";
+  let shownBody = "";
+  let shownDestination = "";
+  const client = {
+    url: "https://shepherdr.example/#terminal=old",
+    async focus() { focused++; return client; },
+    async navigate(destination: string) { navigated = destination; return client; },
+  };
+  const scope = {
+    addEventListener(name: string, listener: Listener) { listeners.set(name, listener); },
+    clients: {
+      async matchAll() { return [client]; },
+      async openWindow(destination: string) { opened = destination; return client; },
+    },
+    location: { origin: "https://shepherdr.example" },
+    registration: {
+      async showNotification(_title: string, options: { body: string; data: { destination: string } }) {
+        shownBody = options.body;
+        shownDestination = options.data.destination;
+      },
+    },
+  };
+  runInNewContext(readFileSync(new URL("./service-worker.js", import.meta.url), "utf8"), {
+    self: scope,
+    URL,
+    URLSearchParams,
+  });
+
+  async function push(payload: unknown): Promise<void> {
+    let work: Promise<unknown> | undefined;
+    const event: Record<string, unknown> = {
+      data: { json: () => payload },
+      waitUntil(value: Promise<unknown>) { work = value; },
+    };
+    listeners.get("push")?.(event);
+    if (!work) throw new Error("push handler did not register work");
+    await work;
+  }
+
+  async function click(destination: unknown): Promise<void> {
+    let work: Promise<unknown> | undefined;
+    listeners.get("notificationclick")?.({
+      notification: {
+        close() { closed++; },
+        data: { destination },
+      },
+      waitUntil(value: Promise<unknown>) { work = value; },
+    });
+    if (!work) throw new Error("notification click handler did not register work");
+    await work;
+  }
+
+  return {
+    click,
+    closed: () => closed,
+    focused: () => focused,
+    listenerNames: () => Array.from(listeners.keys()).sort().join(","),
+    navigated: () => navigated,
+    opened: () => opened,
+    push,
+    shownBody: () => shownBody,
+    shownDestination: () => shownDestination,
+  };
+}
+
 test("missing local setup hides the invitation and settings explain the CLI action without permission", async () => {
   const { controller, platform, root } = notificationView();
   await controller.init();
@@ -156,7 +228,7 @@ test("denied permission shows browser guidance without subscribing", async () =>
   assert.match(root.textContent ?? "", /Notifications are blocked in this browser\. Allow them in browser settings\./);
 });
 
-test("Home settings action and exact notification destination preserve existing unavailable behavior", () => {
+test("Home settings action and exact notification route prefer valid current state over stale selection", () => {
   const window = new Window({ url: "https://shepherdr.example/" });
   const app = window.document.createElement("main");
   window.document.body.append(app);
@@ -188,19 +260,56 @@ test("Home settings action and exact notification destination preserve existing 
   assert.equal(opened, 1);
 
   const route = parseTerminalRoute("#terminal=w1%3Ap1&terminal_id=term-1");
-  assert.deepEqual(route, { paneID: "w1:p1", terminalID: "term-1" });
-  assert.equal(exactTerminalMatches("term-1", route?.terminalID), true);
-  assert.equal(exactTerminalMatches("replacement", route?.terminalID), false);
+  assert.equal(route?.paneID, "w1:p1");
+  assert.equal(route?.terminalID, "term-1");
+  assert.equal(terminalRouteOutcome({
+    currentStateAvailable: true,
+    currentTerminalID: "term-1",
+    expectedTerminalID: route?.terminalID,
+    selectedTerminalID: "older-terminal-for-same-pane",
+  }), "current");
+  assert.equal(terminalRouteOutcome({
+    currentStateAvailable: true,
+    currentTerminalID: "replacement",
+    expectedTerminalID: route?.terminalID,
+    selectedTerminalID: "term-1",
+  }), "unavailable");
+  assert.equal(terminalRouteOutcome({
+    currentStateAvailable: false,
+    currentTerminalID: "term-1",
+    expectedTerminalID: route?.terminalID,
+  }), "waiting");
 });
 
-test("push worker remains push-only and derives generic exact-link notices", () => {
-  const worker = readFileSync(new URL("./service-worker.js", import.meta.url), "utf8");
-  assert.equal(worker.includes('addEventListener("fetch"'), false);
-  assert.equal(worker.includes('addEventListener("sync"'), false);
-  assert.equal(worker.includes("A workspace needs attention."), true);
-  assert.equal(worker.includes("A workspace finished."), true);
-  assert.equal(worker.includes('parameters.get("terminal_id") === terminalID'), true);
-  assert.equal(worker.includes("workspace_name"), false);
+test("push worker derives generic exact notices and safely handles click fallback", async () => {
+  const worker = serviceWorkerHarness();
+  assert.equal(worker.listenerNames(), "notificationclick,push");
+
+  await worker.push({
+    destination: "/#terminal=w1%3Ap1&terminal_id=term-1",
+    kind: "status",
+    pane_id: "w1:p1",
+    status: "blocked",
+    terminal_id: "term-1",
+  });
+  assert.equal(worker.shownBody(), "A workspace needs attention.");
+  assert.equal(worker.shownDestination(), "/#terminal=w1%3Ap1&terminal_id=term-1");
+
+  await worker.push({
+    destination: "/#terminal=wrong&terminal_id=term-1",
+    kind: "status",
+    pane_id: "w1:p1",
+    status: "done",
+    terminal_id: "term-1",
+  });
+  assert.equal(worker.shownBody(), "A workspace changed.");
+  assert.equal(worker.shownDestination(), "/");
+
+  await worker.click("https://outside.example/terminal");
+  assert.equal(worker.closed(), 1);
+  assert.equal(worker.navigated(), "https://shepherdr.example/");
+  assert.equal(worker.focused(), 1);
+  assert.equal(worker.opened(), "");
 
   const styles = readFileSync(new URL("./style.css", import.meta.url), "utf8");
   assert.match(styles, /\.notification-invitation-actions button,[\s\S]*min-height:\s*44px;/);

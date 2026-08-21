@@ -125,7 +125,7 @@ func (p *Projector) Run(ctx context.Context) {
 		if result.resubscribe {
 			subscriptionBasis = result.snapshot
 			haveSubscriptionBasis = true
-			baseline = result.baseline
+			baseline = true
 			continue
 		}
 		haveSubscriptionBasis = false
@@ -146,7 +146,6 @@ type subscriptionResult struct {
 	resubscribe    bool
 	snapshot       Snapshot
 	snapshotFailed bool
-	baseline       bool
 }
 
 func (p *Projector) followSubscription(ctx context.Context, subscription *Subscription, basis Snapshot, baseline bool) subscriptionResult {
@@ -193,7 +192,7 @@ func (p *Projector) followSubscription(ctx context.Context, subscription *Subscr
 		default:
 		}
 		if !subscriptionCoversSnapshot(basis, candidate) {
-			return subscriptionResult{resubscribe: true, snapshot: candidate, baseline: baseline}
+			return subscriptionResult{resubscribe: true, snapshot: candidate}
 		}
 		if p.publishLiveObserved(candidate, baseline) {
 			baseline = false

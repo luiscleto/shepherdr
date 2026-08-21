@@ -62,6 +62,22 @@ func TestWebPushSendIsSingleBoundedAttemptWithFiveMinuteTTL(t *testing.T) {
 	}
 }
 
+func TestOutboundTransportCannotMultiplexOrReusePushRequests(t *testing.T) {
+	sender := newWebPushSender(newEndpointValidator(fixedResolver{}))
+	transport, ok := sender.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("outbound transport type = %T", sender.client.Transport)
+	}
+	if transport.ForceAttemptHTTP2 || transport.TLSNextProto == nil || !transport.DisableKeepAlives {
+		t.Fatalf(
+			"transport replay controls: force_http2=%t tls_next_proto_nil=%t disable_keep_alives=%t",
+			transport.ForceAttemptHTTP2,
+			transport.TLSNextProto == nil,
+			transport.DisableKeepAlives,
+		)
+	}
+}
+
 func vapidSubject(t *testing.T, authorization string) string {
 	t.Helper()
 	token := strings.TrimPrefix(strings.SplitN(authorization, ",", 2)[0], "vapid t=")
