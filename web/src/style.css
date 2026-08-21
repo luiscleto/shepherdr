@@ -87,8 +87,7 @@ button:disabled {
 }
 
 .eyebrow,
-.quiet,
-.detail {
+.quiet {
   color: #6b675f;
   font-size: 0.82rem;
 }
@@ -153,37 +152,28 @@ h3 {
 
 .home-connection {
   display: flex;
+  height: 44px;
   min-width: 9.5rem;
   min-height: 44px;
   flex: 0 1 19rem;
-  align-items: flex-start;
+  align-items: stretch;
   justify-content: flex-end;
-  gap: 0.45rem 0.75rem;
-  flex-wrap: wrap;
+  gap: 0.75rem;
   border: 0;
   margin: 0;
   padding: 0;
   text-align: right;
 }
 
-.home-connection strong,
-.home-connection p {
-  margin: 0;
-}
-
 .home-connection strong {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
   min-width: 9.5rem;
   border: 1px solid #817d72;
   padding: 0.7rem 0.75rem;
   text-align: center;
-}
-
-.home-connection p {
-  flex-basis: 100%;
-}
-
-.home-connection details {
-  flex-basis: 100%;
 }
 
 .workspace {

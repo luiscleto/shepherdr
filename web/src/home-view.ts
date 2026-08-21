@@ -67,8 +67,6 @@ type UsedTabs = Map<string, Set<string>>;
 
 interface ConnectionCopy {
   action?: "Reconnect";
-  body: string;
-  detail?: string;
   heading: string;
 }
 
@@ -115,13 +113,9 @@ export class HomeView {
   readonly #attentionBlocked: HTMLButtonElement;
   readonly #attentionShowAll: HTMLButtonElement;
   readonly #attentionWorking: HTMLElement;
-  readonly #connectionBody: HTMLElement;
   readonly #connectionAction: HTMLButtonElement;
-  readonly #connectionDetails: HTMLDetailsElement;
-  readonly #connectionDetail: HTMLElement;
   readonly #connectionHeading: HTMLElement;
   readonly #connectionPanel: HTMLElement;
-  readonly #connectionSummary: HTMLElement;
   readonly #document: Document;
   readonly #empty: HTMLElement;
   readonly #expandAction: HTMLButtonElement;
@@ -155,18 +149,8 @@ export class HomeView {
     this.#connectionPanel = element(this.#document, "section", "state-panel home-connection");
     this.#connectionPanel.setAttribute("role", "status");
     this.#connectionHeading = element(this.#document, "strong");
-    this.#connectionBody = element(this.#document, "p");
-    this.#connectionDetails = element(this.#document, "details");
-    this.#connectionSummary = element(this.#document, "summary", undefined, "Technical details");
-    this.#connectionDetail = element(this.#document, "p", "detail");
     this.#connectionAction = this.#button("Reconnect", actions.onReconnect);
-    this.#connectionDetails.append(this.#connectionSummary, this.#connectionDetail);
-    this.#connectionPanel.append(
-      this.#connectionHeading,
-      this.#connectionBody,
-      this.#connectionAction,
-      this.#connectionDetails,
-    );
+    this.#connectionPanel.append(this.#connectionHeading, this.#connectionAction);
     this.#header.append(heading, this.#connectionPanel);
 
     this.#loading = element(this.#document, "section", "state-panel");
@@ -226,7 +210,7 @@ export class HomeView {
       desired.push(this.#loading);
     } else {
       const total = allTerminals(model.state.home).length;
-      if (live && total === 0) desired.push(this.#empty);
+      if (live && total === 0 && allWorkspaceValues.length === 0) desired.push(this.#empty);
 
       if (model.mode === "blocked") {
         for (const workspace of allWorkspaceValues) {
@@ -292,49 +276,23 @@ export class HomeView {
 
   #connectionCopy(model: HomeViewRender): ConnectionCopy {
     if (model.state.connection === "not_running") {
-      return {
-        heading: "Herdr is not running",
-        body: model.state.last_known
-          ? "Values below are last known. Start Herdr and Shepherdr will reconnect."
-          : "Start Herdr. Shepherdr will reconnect.",
-      };
+      return { heading: "Herdr is not running" };
     }
     if (model.state.connection === "incompatible") {
-      return {
-        heading: "Cannot use this Herdr",
-        body: model.state.last_known
-          ? "Values below are last known. This Herdr cannot be used. Start a supported Herdr on the machine."
-          : "This Herdr cannot be used. Start a supported Herdr on the machine.",
-        detail: model.state.detail,
-      };
+      return { heading: "Cannot use this Herdr" };
     }
     if (model.reachability === "offline") {
-      return {
-        heading: "Offline",
-        body: model.state.has_home ? "State below may be stale." : "Shepherdr isn't connected.",
-        action: "Reconnect",
-      };
+      return { heading: "Offline", action: "Reconnect" };
     }
     if (model.reachability === "reconnecting" || model.state.connection === "reconnecting") {
-      return {
-        heading: "Reconnecting",
-        body: model.state.has_home ? "State below may be stale." : "Getting a fresh view from Herdr.",
-      };
+      return { heading: "Reconnecting" };
     }
-    return { heading: "Live", body: "" };
+    return { heading: "Live" };
   }
 
   #updateConnection(copy: ConnectionCopy): void {
     setText(this.#connectionHeading, copy.heading);
-    setText(this.#connectionBody, copy.body);
-    setHidden(this.#connectionBody, copy.body === "");
     setHidden(this.#connectionAction, copy.action !== "Reconnect");
-    if (copy.detail) {
-      setText(this.#connectionDetail, copy.detail);
-      setHidden(this.#connectionDetails, false);
-    } else {
-      setHidden(this.#connectionDetails, true);
-    }
   }
 
   #renderWorkspace(
@@ -347,7 +305,7 @@ export class HomeView {
     const tabs = visibleTabs(workspace, blockedOnly);
     if (blockedOnly && tabs.length === 0) return undefined;
     const nodes = this.#workspace(workspace);
-    this.#updateWorkspace(nodes, workspace, tabs, actionsAvailable, usedTabs, hideTitle);
+    this.#updateWorkspace(nodes, workspace, tabs, actionsAvailable, usedTabs, hideTitle, blockedOnly);
     return nodes.section;
   }
 
@@ -422,6 +380,7 @@ export class HomeView {
     actionsAvailable: boolean,
     usedTabs: UsedTabs,
     hideTitle: boolean,
+    blockedOnly: boolean,
   ): void {
     if (tabs.length === 0) {
       setClass(nodes.heading, hideTitle ? "visually-hidden" : "workspace-title");
@@ -430,7 +389,7 @@ export class HomeView {
       return;
     }
 
-    const flattened = terminalCount(workspace) === 1;
+    const flattened = !blockedOnly && terminalCount(workspace) === 1;
     const tabsShown = showTabHeadings(workspace);
     if (flattened) {
       const terminal = tabs[0].terminals[0];

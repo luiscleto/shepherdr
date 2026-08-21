@@ -185,43 +185,63 @@ test("Home shows one real initial or unavailable state with the transport-owned 
   };
 
   render(view, loading, { actionsAvailable: false });
-  assert.equal(requiredElement(app, ".home-connection strong").textContent, "Reconnecting");
+  const connection = requiredElement(app, ".home-connection");
+  assert.equal(requiredElement(connection, "strong").textContent, "Reconnecting");
+  assert.equal(connection.childElementCount, 2);
+  assert.equal(connection.querySelectorAll("p, details").length, 0);
   assert.match(app.textContent ?? "", /Loading terminals/);
   assert.equal(app.querySelectorAll(".attention-bar").length, 0);
 
+  render(view, { ...loading, connection: "incompatible", detail: "unsupported detail" }, { actionsAvailable: false });
+  assert.equal(requiredElement(connection, "strong").textContent, "Cannot use this Herdr");
+  assert.doesNotMatch(connection.textContent ?? "", /unsupported detail|Values below|fresh view|may be stale/);
+
   render(view, { ...loading, connection: "not_running" }, { actionsAvailable: false, reachability: "offline" });
-  assert.equal(requiredElement(app, ".home-connection strong").textContent, "Herdr is not running");
+  assert.equal(requiredElement(connection, "strong").textContent, "Herdr is not running");
   assert.match(app.textContent ?? "", /Home unavailable/);
   assert.doesNotMatch(app.textContent ?? "", /Offline/);
 
   render(view, state());
-  assert.equal(requiredElement(app, ".home-connection strong").textContent, "Live");
+  assert.equal(requiredElement(connection, "strong").textContent, "Live");
+  assert.equal(connection.childElementCount, 2);
   assert.equal(requiredRow(view, "pane-one").localName, "button");
   assert.equal(requiredRow(view, "pane-one").getAttribute("aria-disabled"), null);
   assert.doesNotMatch(app.textContent ?? "", /Home is updating|Loading terminals/);
   window.close();
 });
 
-test("Home renders a workspace whose tabs have no terminals exactly once", () => {
+test("zero-terminal workspaces render once without the global empty state", () => {
   const window = new Window({ url: "http://localhost/" });
   const { app, view } = makeView(window);
-  const current = state();
-  current.home.workspaces.push({
-    id: "empty-workspace",
-    label: "Empty workspace",
-    number: 2,
-    tabs: [{ current: true, id: "empty-tab", label: "Main", number: 1, terminals: [] }],
-  });
+  const emptyWorkspaceHome: Home = {
+    blocked_count: 0,
+    working_count: 0,
+    workspaces: [{
+      id: "empty-workspace",
+      label: "Empty workspace",
+      number: 1,
+      tabs: [{ current: true, id: "empty-tab", label: "Main", number: 1, terminals: [] }],
+    }],
+  };
 
-  render(view, current);
+  render(view, state(emptyWorkspaceHome));
 
-  assert.equal(app.querySelectorAll("section.workspace").length, 2);
+  assert.equal(app.querySelectorAll("section.workspace").length, 1);
   assert.equal(
     Array.from(app.querySelectorAll("section.workspace > h2")).filter((heading) => heading.textContent === "Empty workspace")
       .length,
     1,
   );
-  assert.equal(app.querySelectorAll(".terminal-row").length, 1);
+  assert.equal(app.querySelectorAll(".terminal-row").length, 0);
+  assert.doesNotMatch(app.textContent ?? "", /No terminals/);
+
+  render(view, state({ blocked_count: 0, working_count: 0, workspaces: [] }));
+  assert.equal(app.querySelectorAll("section.workspace").length, 0);
+  assert.equal(
+    Array.from(app.querySelectorAll(".state-panel strong")).filter((heading) => heading.textContent === "No terminals").length,
+    1,
+  );
+  assert.match(app.textContent ?? "", /Herdr is running, but nothing is open/);
   window.close();
 });
 
@@ -273,7 +293,10 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   const current = state();
   render(view, current);
   const connection = requiredElement(app, ".home-connection");
+  const reconnectAction = requiredElement(connection, "button") as HTMLButtonElement;
   const row = requiredRow(view, "pane-one");
+  assert.equal(connection.childElementCount, 2);
+  assert.equal(reconnectAction.hidden, true);
   row.click();
   assert.equal(opens, 1);
 
@@ -287,14 +310,17 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   assert.equal(app.querySelectorAll("button.terminal-row").length, 0);
   assert.equal(app.querySelectorAll(".terminal-row").length, 1);
   assert.equal(requiredElement(connection, "strong").textContent, "Reconnecting");
+  assert.equal(connection.childElementCount, 2);
+  assert.equal(reconnectAction.hidden, true);
+  assert.doesNotMatch(connection.textContent ?? "", /State below|fresh view|Values below/);
   unavailableRow.click();
   assert.equal(opens, 1);
 
   render(view, stale, { actionsAvailable: false, reachability: "offline" });
   assert.equal(requiredElement(connection, "strong").textContent, "Offline");
-  const reconnect = Array.from(connection.querySelectorAll("button")).find((node) => node.textContent === "Reconnect");
-  if (!reconnect) throw new Error("missing Reconnect");
-  reconnect.click();
+  assert.equal(connection.childElementCount, 2);
+  assert.equal(reconnectAction.hidden, false);
+  reconnectAction.click();
   assert.equal(reconnects, 1);
   window.close();
 });
@@ -405,6 +431,8 @@ test("Blocked returns manually or automatically to the saved all-Home place", ()
   assert.equal(app.querySelectorAll(".workspace-set-disclosure").length, 0);
   assert.equal(app.querySelectorAll(".workspace-expand-action").length, 0);
   assert.equal(app.querySelectorAll(".terminal-row").length, 1);
+  assert.equal(app.querySelectorAll("section.workspace > .workspace-title").length, 1);
+  assert.equal(requiredElement(app, "section.workspace > .workspace-title").textContent, "Review branch");
   assert.equal(view.row("blocked-pane") === blockedRow, true);
   assert.equal(window.document.activeElement === blockedRow, true);
   assert.equal(requiredElement(app, ".attention-bar button:not([hidden])").textContent, "Show all terminals");
