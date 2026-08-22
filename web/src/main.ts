@@ -3,6 +3,7 @@ import { HomeView } from "./home-view";
 import {
   homeReachability as deriveHomeReachability,
   nextHomeCheckDelay,
+  resumeHomeConnection,
   type HomeReachability,
 } from "./home-connection";
 import {
@@ -71,7 +72,6 @@ const homeView = new HomeView(app, {
   },
   onOpen: openTerminal,
   onNotifications: () => notifications.openSettings(),
-  onReconnect: reconnectHome,
   onShowAll: showAllTerminals,
   onShowBlocked: showBlockedTerminals,
   prepareWorkspaceAction: (request) => workspaceActions.prepare(request),
@@ -103,7 +103,6 @@ function webSocketURL(endpoint: string): URL {
 }
 
 function connectHome(): void {
-  if (homeReachability() === "offline") return;
   if (homeSocketActive()) {
     scheduleHomeCheck();
     return;
@@ -165,12 +164,11 @@ function homeSocketActive(): boolean {
   return homeSocket?.readyState === WebSocket.OPEN || homeSocket?.readyState === WebSocket.CONNECTING;
 }
 
-function reconnectHome(): void {
-  if (homeReachability() !== "offline") return;
-  lastValidHomeFrameAt = performance.now();
-  state = { ...state, connection: "reconnecting", last_known: state.has_home };
-  publishedStateSignature = "";
+function restartHomeConnection(): void {
   render();
+  const stale = homeSocket;
+  homeSocket = undefined;
+  stale?.close();
   connectHome();
 }
 
@@ -186,13 +184,7 @@ function checkHomeConnection(): void {
   homeTimer = undefined;
   const now = performance.now();
   const reachability = deriveHomeReachability(lastValidHomeFrameAt, now);
-  if (reachability === "offline") {
-    const stale = homeSocket;
-    homeSocket = undefined;
-    stale?.close();
-    render();
-    return;
-  }
+  if (reachability === "offline") render();
   if (reachability === "reconnecting") render();
   if (reachability === "reconnecting" && homeSocketActive()) {
     const stale = homeSocket;
@@ -364,6 +356,9 @@ function leaveTerminal(): void {
 
 window.addEventListener("hashchange", render);
 window.addEventListener("online", connectHome);
+document.addEventListener("visibilitychange", () => {
+  resumeHomeConnection(document.visibilityState, restartHomeConnection);
+});
 
 connectHome();
 render();

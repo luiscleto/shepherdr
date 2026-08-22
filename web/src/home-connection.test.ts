@@ -7,6 +7,7 @@ import {
   HOME_STALE_AFTER_MS,
   homeReachability,
   nextHomeCheckDelay,
+  resumeHomeConnection,
 } from "./home-connection";
 
 test("a complete live frame is current immediately", () => {
@@ -46,19 +47,32 @@ test("one check schedules retries and the two frame-age deadlines", () => {
   );
   assert.equal(
     nextHomeCheckDelay(lastValidHomeFrameAt, 10_000 + HOME_RECOVERY_LIMIT_MS, false),
-    1,
+    HOME_RETRY_DELAY_MS,
   );
 });
 
-test("the due Offline check settles without scheduling another check", () => {
+test("Offline keeps the existing restrained retry cadence", () => {
   const lastValidHomeFrameAt = 10_000;
-  let scheduledChecks = 1;
-  const runScheduledCheck = (now: number) => {
-    if (homeReachability(lastValidHomeFrameAt, now) === "offline") return;
-    scheduledChecks++;
-  };
+  const offlineAt = 10_000 + HOME_RECOVERY_LIMIT_MS;
+  assert.equal(homeReachability(lastValidHomeFrameAt, offlineAt), "offline");
+  assert.equal(nextHomeCheckDelay(lastValidHomeFrameAt, offlineAt, false), HOME_RETRY_DELAY_MS);
+  assert.equal(nextHomeCheckDelay(lastValidHomeFrameAt, offlineAt, true), HOME_RETRY_DELAY_MS);
+});
 
-  assert.equal(nextHomeCheckDelay(lastValidHomeFrameAt, 10_000 + HOME_RECOVERY_LIMIT_MS, false), 1);
-  runScheduledCheck(10_000 + HOME_RECOVERY_LIMIT_MS + 1);
-  assert.equal(scheduledChecks, 1);
+test("returning to view restarts recovery without claiming Live before valid evidence", () => {
+  let lastValidHomeFrameAt = 10_000;
+  const now = lastValidHomeFrameAt + HOME_RECOVERY_LIMIT_MS;
+  let reconnects = 0;
+  const reconnect = () => reconnects++;
+
+  resumeHomeConnection("hidden", reconnect);
+  assert.equal(reconnects, 0);
+  assert.equal(homeReachability(lastValidHomeFrameAt, now), "offline");
+
+  resumeHomeConnection("visible", reconnect);
+  assert.equal(reconnects, 1);
+  assert.equal(homeReachability(lastValidHomeFrameAt, now), "offline");
+
+  lastValidHomeFrameAt = now; // valid current Home frame or heartbeat
+  assert.equal(homeReachability(lastValidHomeFrameAt, now), "current");
 });

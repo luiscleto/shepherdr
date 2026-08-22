@@ -17,10 +17,17 @@ export function nextHomeCheckDelay(
   socketActive: boolean,
 ): number {
   const reachability = homeReachability(lastValidHomeFrameAt, now);
-  if (reachability === "offline") return 1;
+  if (reachability === "offline") return HOME_RETRY_DELAY_MS;
   const deadline = lastValidHomeFrameAt + (
     reachability === "current" ? HOME_STALE_AFTER_MS : HOME_RECOVERY_LIMIT_MS
   );
   const untilDeadline = Math.max(1, deadline - now);
   return socketActive ? untilDeadline : Math.min(HOME_RETRY_DELAY_MS, untilDeadline);
+}
+
+export function resumeHomeConnection(
+  visibilityState: DocumentVisibilityState,
+  reconnect: () => void,
+): void {
+  if (visibilityState === "visible") reconnect();
 }
