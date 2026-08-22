@@ -36,6 +36,8 @@ Shepherdr prints its localhost address. Open that address directly on the machin
 
 Sign-in is off. Anyone who can reach Shepherdr can view the configured Herdr terminals and send terminal input.
 
+Passkey setup is not available in this build. A future release will require an explicit command-line flag to start without sign-in; the commands above remain correct until that behavior is implemented.
+
 ## Turn on notifications
 
 Each Shepherdr installation needs a real operator contact before browsers can enable notifications. Start Shepherdr with either a `mailto:` address or an HTTPS website:
@@ -107,5 +109,6 @@ npm run build --prefix web
 - [Product direction](docs/north-star.md)
 - [Interface direction](docs/ui-direction.md)
 - [Terminal direction](docs/terminal-direction.md)
+- [Notification architecture](docs/notification-architecture-proposal.md)
 
 Apache License 2.0.

@@ -4,7 +4,7 @@ Status: proposed
 
 This is a voice and interface guide, not a component library.
 
-The current product includes Home, Terminal, and workspace management. Sign-in, device trust, notifications, and Chat remain later work.
+The current product includes Home, Terminal, workspace management, and per-browser notifications. Sign-in, device trust, and Chat remain later work.
 
 ## Voice
 
@@ -30,7 +30,9 @@ The current product has two main screens:
 - **Home** — see every current workspace and terminal, with agent status and attention when an agent is present.
 - **Terminal** — read one exact current terminal and send text or shortcuts when needed.
 
-Workspace management uses small sheets from Home rather than another main screen. **Sign in**, **Trust this device**, **This device's notifications**, and **Devices** remain later work. Do not add screens, tabs, or controls for work that does not exist.
+Workspace management uses small sheets from Home rather than another main screen. Notification settings are reached from Home or Terminal.
+
+**Sign in**, **Trust this device**, and **Devices** remain later work. Do not add screens, tabs, or controls for work that does not exist.
 
 With current sign-in-off access, Home opens directly and quietly keeps **Sign-in is off** visible.
 
@@ -101,7 +103,15 @@ Terminal header, command bar, text composer, and feedback controls use the same 
 
 On a phone, use Reader for stable reading, browser selection, text entry, and terminal shortcuts. Do not add persistent control buttons to Reader. On a desktop, use the full terminal renderer and the desktop controls recorded in `terminal-direction.md`.
 
+During a temporary disconnect, an already-open Reader text composer stays open and locally editable, preserving its draft, selection, and focus. **Send** and remote shortcuts are unavailable until recovery. Reconnecting does not reopen or refocus a composer the person closed or unfocused.
+
 The exact phone sending and takeover rules, desktop behavior, and current acceptance record live in `terminal-direction.md`. Do not duplicate them in interface copy.
+
+## Notifications
+
+Home and Terminal each offer **Notifications** settings for that browser or installed app. These settings do not trust a device or create an inbox or unread state. Keep the invitation quiet and request browser permission only after **Turn on notifications**. Do not add notification history, banners, replay, or delivery claims.
+
+Notification text names the relevant Herdr workspace when possible. A status notification opens only its exact current terminal or **Terminal unavailable**; a workspace notification opens Home.
 
 ## Workspace management
 

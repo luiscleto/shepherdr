@@ -4,7 +4,7 @@ Status: proposed
 
 Scope: the current product
 
-The current product includes Home, Terminal, and workspace management. Sign-in, devices, notifications, and Chat remain later work.
+The current product includes Home, Terminal, workspace management, and per-browser notifications. All four have passed their acceptance gates. Sign-in, device trust, and Chat remain later work.
 
 ## The promise
 
@@ -21,10 +21,10 @@ The broader product direction remains:
 3. See Herdr's current workspaces and terminals, with agent identity and status when an agent is present.
 4. See how many agents are working and which agents are blocked.
 5. Open the intended current real terminal.
-6. Choose whether this device receives blocked-agent notifications.
+6. Choose whether this browser or installed app receives blocked-agent notifications.
 7. Tap a blocked-agent notification and open that agent's terminal.
 
-The daily return path is short: open Shepherdr, see who is blocked, and reach that work. This is the product bar, not an implementation order. The current product implements Home, Terminal, and workspace management. Sign-in, devices, notifications, and Chat remain later work.
+The daily return path is short: open Shepherdr, see who is blocked, and reach that work. This is the product bar, not an implementation order. The current product implements Home, Terminal, workspace management, and per-browser notifications. Sign-in, device trust, and Chat remain later work.
 
 ## Home and attention
 
@@ -74,13 +74,17 @@ Use only terminal capabilities Herdr already exposes. Do not build another agent
 
 ## Notifications
 
-Notifications are later work. Notification settings belong to each device. A person may eventually choose whether to receive blocked-agent notifications, and tapping one opens that agent's terminal only when the target still resolves truthfully.
+Notification settings belong to each browser or installed app. `blocked` and `done` start on; a person may also select the other Herdr statuses and workspace opened or closed notices. A status notification opens the exact current terminal only when it still resolves truthfully; otherwise Shepherdr shows **Terminal unavailable**. Workspace notices open Home. Notifications are best effort and have no history, unread state, replay, or delivery claim.
 
 ## Sign-in and devices
 
-Sign-in and device trust are later work. Starting without sign-in remains the common daily mode for one person on a private network. Anyone who can reach Shepherdr can act as the operator. The interface quietly keeps **Sign-in is off** visible.
+Sign-in and device trust remain later work. The current build starts without sign-in, so anyone who can reach Shepherdr can act as the operator and the interface quietly keeps **Sign-in is off** visible.
 
-Passkeys are the stronger future mode. Reaching Shepherdr is never enough to trust a new device. Trust must come from an already trusted authority or an explicit action on the machine running Herdr; the exact method comes later. Lost-device recovery, team accounts, roles, and organizations are not part of the current product.
+Passkey sign-in is the recommended stronger mode alongside a trusted private network. When sign-in is implemented, starting without it will require an explicit command-line flag and will continue to grant operator authority to anyone who can reach Shepherdr.
+
+Initial local setup will print a link and QR code for trusting the first device. The link can be used on the desktop, or the QR code can be scanned by a phone. Further one-time links or QR codes may be generated from the local command line or a trusted device. A new device never trusts itself.
+
+The flag spelling, URL format, link and code lifetime, bootstrap and approval protocol, cryptography, storage, data model, recovery flow, and implementation architecture remain deliberately undecided. Team accounts, roles, organizations, and lost-device recovery are not part of the current product.
 
 ## Private network
 
@@ -111,4 +115,4 @@ The current product uses only capabilities Herdr already exposes. Do not invent 
 
 ## How we will know it works
 
-Use production Shepherdr with a real Herdr server and a real phone. Compare flat and worktree-nested Home with Herdr, check every terminal and exact agent total, exercise expansion and Blocked place restoration, and verify that ordinary updates do not blink, move the page, or change the connection badge. A normal refresh must load the current interface. Terminal acceptance follows `terminal-direction.md`; record only the behavior actually exercised. Exercise workspace creation, worktree creation, close scope, clean deletion, dirty refusal, interrupted results, and hostile input through real Herdr. Tests and emulator checks support confidence, but the real phone workflow is the gate.
+Use production Shepherdr with a real Herdr server and a real phone. Compare flat and worktree-nested Home with Herdr, check every terminal and exact agent total, exercise expansion and Blocked place restoration, and verify that ordinary updates do not blink, move the page, or change the connection badge. A normal refresh must load the current interface. Terminal acceptance follows `terminal-direction.md`; record only the behavior actually exercised. Exercise workspace creation, worktree creation, close scope, clean deletion, dirty refusal, interrupted results, and hostile input through real Herdr. Notification acceptance follows `notification-architecture-proposal.md` and uses a real Android phone plus a second browser or profile. Tests and emulator checks support confidence, but the real phone workflow is the gate.

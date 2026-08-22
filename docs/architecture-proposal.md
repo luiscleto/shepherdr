@@ -6,12 +6,12 @@ Approved simplification: 2026-08-20
 
 ## Scope
 
-This document covers Home and its current workspace actions. Terminal is separate. Sign-in, devices, notifications, and Chat remain later work.
+This document covers Home and its current workspace actions. Terminal and per-browser notifications have separate approved direction. Sign-in, device trust, and Chat remain later work.
 
 The current shape is small:
 
 1. One configured Herdr 0.8.0 session owns the real workspaces, terminals, agents, statuses, and worktree actions.
-2. One Go process talks to Herdr, serves the embedded browser UI on `localhost`, and keeps only the latest complete Home in memory.
+2. One Go process talks to Herdr, serves the embedded browser UI on `localhost`, and keeps only the latest complete Home in memory. The same process performs the work in `notification-architecture-proposal.md` and stores only its approved notification state outside the repository.
 3. The phone renders Home and opens the existing Terminal destination.
 
 There is no Home database, stored grouping, second runtime, or public hosting support.
@@ -96,7 +96,7 @@ Displayed names, paths, branches, and browser-supplied values never choose the o
 
 ## Work order and acceptance
 
-Home, Terminal, and workspace management have passed their real-phone gates. Future work starts only from a human-approved brief. Tests should be few and useful; the production executable against real Herdr and the real-phone workflow remain the acceptance gate.
+Home, Terminal, workspace management, and per-browser notifications have passed their respective gates. Future work starts only from a human-approved brief. Tests should be few and useful; the production executable against real Herdr and the real-phone workflow remain the acceptance gate.
 
 Home must continue to prove:
 

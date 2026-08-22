@@ -1,6 +1,6 @@
 # Shepherdr terminal direction
 
-Status: approved current behavior; integrated at `997edbc8ed720d9d7eb88ac3089bd741193de7bd`
+Status: approved current behavior; integrated at `03d64421fe3c02d2d9203d3823d214a525619fcc`
 
 This document records the human's direct terminal R&D decisions. It supersedes older terminal architecture and interface claims, including `wave-01-human-gate-correction.md`. The Home and workspace-management direction remains unchanged.
 
@@ -9,6 +9,8 @@ This document records the human's direct terminal R&D decisions. It supersedes o
 Shepherdr opens only the exact current terminal chosen from Home. If that terminal is missing, stale, replaced, or does not match, it is unavailable; Shepherdr never falls back to another terminal.
 
 On a phone, Terminal uses Reader and observes without taking control between sends. Reader supports browser text selection and can load older output that Herdr still supplies. Shepherdr promises no terminal history beyond that output.
+
+During a temporary disconnect, an already-open text composer stays open and locally editable, preserving its draft, selection, and focus. **Send** and remote shortcuts are unavailable until recovery. Reconnecting does not reopen or refocus a composer the person closed or unfocused.
 
 Sending text or a shortcut obtains ordinary control only long enough to send one batch and receive its acknowledgement, then releases. If someone else has control, Shepherdr sends nothing and offers only **Take over and send**, after confirming that the current controller will lose input. Shepherdr never retries terminal input automatically. Persistent **Control**, **Take over**, and **Release** actions are desktop-only.
 
