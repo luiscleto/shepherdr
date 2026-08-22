@@ -6,9 +6,7 @@ Approved: 2026-08-22
 
 Architecture-approval base: `0cb8e04ae19411d068406f9ce0ba3bb7812d9227`
 
-Worker base: **PENDING — after human approval, the orchestrator must replace this line with the exact commit containing the approved brief before dispatch.**
-
-Do not dispatch implementation from this proposal. Human approval and the pinned worker base are required first.
+Worker base: recorded by the orchestrator in the Herdr dispatch. It must be the exact commit containing this approved brief.
 
 ## Outcome
 
