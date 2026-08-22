@@ -34,7 +34,7 @@ Or select the Unix socket for one other configured Herdr session:
 
 Shepherdr prints its localhost address. Open that address directly on the machine, or publish it through a trusted private-network route as described below.
 
-Sign-in is off. Anyone who can reach Shepherdr can view the configured Herdr terminals and send terminal input.
+Sign-in is off. Anyone who can reach Shepherdr can act as the operator.
 
 Passkey setup is not available in this build. A future release will require an explicit command-line flag to start without sign-in; the commands above remain correct until that behavior is implemented.
 
@@ -88,7 +88,7 @@ Do not use `tailscale funnel`. Funnel makes the service public.
 - Delete a clean linked-worktree checkout without force and without deleting its branch. Herdr refuses a checkout that has changes.
 - Open any current real Herdr terminal, whether or not it has an agent.
 - From a phone, send one text or shortcut batch and release control after it is acknowledged. See [Terminal direction](docs/terminal-direction.md).
-- Keep Home up to date after a connection drops. Shepherdr shows clearly labelled last-known values without presenting them as openable until it reconnects.
+- Keep the last complete Home after a connection drops. Terminals are not openable until Shepherdr reconnects.
 - Send per-browser notifications that name the relevant Herdr workspace for selected status transitions and workspace openings or closings.
 - Open the exact current terminal from a status notification, or show **Terminal unavailable** when that exact terminal is gone.
 
