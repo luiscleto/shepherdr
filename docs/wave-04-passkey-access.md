@@ -1,6 +1,8 @@
 # Wave 04: passkey-protected access
 
-Status: proposed
+Status: approved
+
+Approved: 2026-08-22
 
 Architecture-approval base: `0cb8e04ae19411d068406f9ce0ba3bb7812d9227`
 
