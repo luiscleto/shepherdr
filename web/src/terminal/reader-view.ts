@@ -52,6 +52,7 @@ export class ReaderView {
   #refreshTimer: number | undefined;
   #refreshQueued: { force: boolean; preserveTop: boolean } | undefined;
   #send: HTMLButtonElement;
+  #sendAvailable = false;
   #sendFeedback: HTMLDivElement;
   #sendFeedbackMessage: HTMLSpanElement;
   #retrySend: HTMLButtonElement;
@@ -149,7 +150,7 @@ export class ReaderView {
     this.#retrySend.addEventListener("click", () => this.#retryAction?.());
     this.#takeoverSend.addEventListener("click", () => this.#takeoverAction?.());
     this.#send.addEventListener("click", () => {
-      if (!this.#input.value || !this.#events.onSubmit(this.#input.value)) return;
+      if (!this.#sendAvailable || !this.#input.value || !this.#events.onSubmit(this.#input.value)) return;
       this.#events.onLog("reader.input", { characters: this.#input.value.length });
     });
     this.setActionAvailability({ observerReady: false, recover: false, send: false });
@@ -243,16 +244,17 @@ export class ReaderView {
   }
 
   setActionAvailability(availability: ReaderActionAvailability): void {
-    this.#input.disabled = !availability.send;
+    this.#sendAvailable = availability.send;
+    const keepOpenForEditing = this.#collapsibleComposer && !this.#composer.hidden && !availability.observerReady;
+    this.#input.disabled = !availability.send && !keepOpenForEditing;
     this.#send.disabled = !availability.send;
     this.#retrySend.disabled = !availability.recover;
     this.#takeoverSend.disabled = !availability.recover;
     this.#input.placeholder = availability.observerReady ? "Type text to send" : "Connect to send text";
-    if (!availability.observerReady && this.#collapsibleComposer) this.hideComposer();
   }
 
   showComposer(): void {
-    if (!this.#collapsibleComposer || this.#input.disabled) return;
+    if (!this.#collapsibleComposer || !this.#sendAvailable) return;
     this.#composer.hidden = false;
     this.#input.focus();
   }
@@ -261,6 +263,7 @@ export class ReaderView {
     if (!this.#collapsibleComposer) return;
     this.#composer.hidden = true;
     this.#input.blur();
+    if (!this.#sendAvailable) this.#input.disabled = true;
   }
 
   inputSending(chunks: number): void {

@@ -145,6 +145,68 @@ test("collapsed Reader keeps recovery visible but gates remote actions across di
   reader.destroy();
 });
 
+test("an open Reader composer remains the same local editor across observer reconnects", (t) => {
+  const { browser, host } = withReaderBrowser(t);
+  let submissions = 0;
+  const reader = new ReaderView(host, {
+    onLog: () => undefined,
+    onStatus: () => undefined,
+    onSubmit: () => {
+      submissions += 1;
+      return true;
+    },
+  }, { collapsibleComposer: true, endpoint: "/api/terminal/read" });
+  const composer = host.querySelector(".reader-composer") as HTMLDivElement;
+  const input = composer.querySelector("textarea") as HTMLTextAreaElement;
+  const buttons = Array.from(composer.querySelectorAll("button")) as HTMLButtonElement[];
+  const send = buttons.find((button) => button.textContent === "Send text")!;
+  const close = buttons.find((button) => button.textContent === "Close")!;
+
+  reader.setActionAvailability(readerActionAvailability(true, "ready"));
+  reader.showComposer();
+  input.value = "keep this reconnect draft";
+  input.setSelectionRange(5, 19, "backward");
+  input.focus();
+
+  reader.setActionAvailability(readerActionAvailability(false, "ready"));
+  assert.equal(composer.hidden, false);
+  assert.equal(input.disabled, false, "observer loss must leave the open textarea locally editable");
+  assert.equal(send.disabled, true);
+  assert.equal(input.value, "keep this reconnect draft");
+  assert.equal(input.selectionStart, 5);
+  assert.equal(input.selectionEnd, 19);
+  assert.equal(input.selectionDirection, "backward");
+  assert.equal(browser.document.activeElement === input, true);
+  assert.equal(host.querySelector(".reader-composer") === composer, true);
+  assert.equal(host.querySelector("textarea") === input, true);
+  send.dispatchEvent(new browser.Event("click", { bubbles: true }));
+  assert.equal(submissions, 0, "a dispatched click must not bypass unavailable sending");
+
+  input.setRangeText("local", 5, 9, "end");
+  const editedDraft = input.value;
+  const editedSelectionStart = input.selectionStart;
+  const editedSelectionEnd = input.selectionEnd;
+  reader.setActionAvailability(readerActionAvailability(true, "ready"));
+  assert.equal(send.disabled, false);
+  assert.equal(input.value, editedDraft);
+  assert.equal(input.selectionStart, editedSelectionStart);
+  assert.equal(input.selectionEnd, editedSelectionEnd);
+  assert.equal(browser.document.activeElement === input, true);
+  assert.equal(host.querySelector("textarea") === input, true);
+
+  reader.setActionAvailability(readerActionAvailability(false, "ready"));
+  browser.document.body.focus();
+  reader.setActionAvailability(readerActionAvailability(true, "ready"));
+  assert.equal(browser.document.activeElement === input, false, "reconnect must not refocus an unfocused composer");
+  reader.setActionAvailability(readerActionAvailability(false, "ready"));
+  close.click();
+  assert.equal(composer.hidden, true, "Close remains a local action while sending is unavailable");
+  reader.setActionAvailability(readerActionAvailability(true, "ready"));
+  assert.equal(composer.hidden, true, "reconnect must not reopen a closed composer");
+  assert.equal(browser.document.activeElement === input, false);
+  reader.destroy();
+});
+
 test("Reader preserves a native selection made while history pagination is in flight", async (t) => {
   const { browser, host } = withReaderBrowser(t);
   const previousFetch = globalThis.fetch;
