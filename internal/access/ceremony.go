@@ -3,6 +3,7 @@ package access
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"slices"
 	"time"
@@ -32,6 +33,18 @@ type ceremony struct {
 type ceremonyAttempts struct {
 	count     int
 	expiresAt time.Time
+}
+
+type retryableCeremonyError struct {
+	cause error
+}
+
+func (e *retryableCeremonyError) Error() string { return e.cause.Error() }
+func (e *retryableCeremonyError) Unwrap() error { return e.cause }
+
+func CeremonyCanRetry(err error) bool {
+	var retryable *retryableCeremonyError
+	return errors.As(err, &retryable)
 }
 
 type CeremonyBegin struct {
@@ -85,6 +98,9 @@ func (m *Manager) beginAssertion(kind, clientToken string, current SessionIdenti
 		return CeremonyBegin{}, err
 	}
 	expiresAt := now.Add(ReservationLifetime)
+	if attempts, ok := m.attempts[key]; ok && now.Before(attempts.expiresAt) {
+		expiresAt = attempts.expiresAt
+	}
 	m.ceremonies[key] = &ceremony{
 		kind: kind, clientDigest: clientDigest, expiresAt: expiresAt, session: *session,
 		sessionDigest: current.Digest,
@@ -182,7 +198,9 @@ func (m *Manager) FinishSignIn(clientToken string, request *http.Request, old *S
 	}
 	credential, trustID, err := m.verifyAssertion(ceremony, request)
 	if err != nil {
-		m.recordFailure(ceremony)
+		if m.recordFailure(ceremony) {
+			return SessionIssue{}, &retryableCeremonyError{cause: ErrUnauthorized}
+		}
 		return SessionIssue{}, ErrUnauthorized
 	}
 	oldDigest := ""
@@ -204,7 +222,9 @@ func (m *Manager) FinishReauthentication(clientToken string, request *http.Reque
 	}
 	credential, trustID, err := m.verifyAssertion(ceremony, request)
 	if err != nil {
-		m.recordFailure(ceremony)
+		if m.recordFailure(ceremony) {
+			return SessionIssue{}, &retryableCeremonyError{cause: ErrUnauthorized}
+		}
 		return SessionIssue{}, ErrUnauthorized
 	}
 	issue, err := m.commitAssertion(credential, trustID, current.Digest, true)
@@ -228,7 +248,9 @@ func (m *Manager) FinishTrust(clientToken string, request *http.Request, old *Se
 	}
 	credential, err := m.webauthn.FinishRegistration(user, ceremony.session, request)
 	if err != nil {
-		m.recordFailure(ceremony)
+		if m.recordFailure(ceremony) {
+			return SessionIssue{}, &retryableCeremonyError{cause: ErrInvitationGeneric}
+		}
 		return SessionIssue{}, ErrInvitationGeneric
 	}
 	oldDigest := ""
@@ -386,11 +408,13 @@ func (m *Manager) addSession(state *State, trustID, freshTrustID string, now tim
 			return false
 		})
 	}
-	for len(state.Sessions) >= MaxSessions || trustSessionCount(state, trustID) >= MaxTrustSessions {
+	for trustSessionCount(state, trustID) >= MaxTrustSessions {
 		index := oldestSessionIndex(state, trustID)
-		if len(state.Sessions) >= MaxSessions {
-			index = oldestSessionIndex(state, "")
-		}
+		invalidated = append(invalidated, state.Sessions[index].Digest)
+		state.Sessions = append(state.Sessions[:index], state.Sessions[index+1:]...)
+	}
+	for len(state.Sessions) >= MaxSessions {
+		index := oldestSessionIndex(state, "")
 		invalidated = append(invalidated, state.Sessions[index].Digest)
 		state.Sessions = append(state.Sessions[:index], state.Sessions[index+1:]...)
 	}
@@ -490,7 +514,7 @@ func (m *Manager) pruneCeremoniesLocked(now time.Time) {
 	}
 }
 
-func (m *Manager) recordFailure(current *ceremony) {
+func (m *Manager) recordFailure(current *ceremony) bool {
 	m.ceremonyMu.Lock()
 	defer m.ceremonyMu.Unlock()
 	key := ceremonyKey(current.kind, current.clientDigest)
@@ -500,6 +524,7 @@ func (m *Manager) recordFailure(current *ceremony) {
 		attempts.expiresAt = current.expiresAt
 	}
 	m.attempts[key] = attempts
+	return attempts.count < maxAttempts && m.clock.Now().Before(attempts.expiresAt)
 }
 
 func (m *Manager) clearAttempts(current *ceremony) {

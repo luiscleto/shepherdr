@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -186,6 +187,80 @@ func TestProtectedTerminalReadInvalidationCancelsAndCollectsChildBeforeSuccess(t
 	}
 }
 
+func TestProtectedTerminalLabReadInvalidationCancelsAndCollectsChildBeforeCommit(t *testing.T) {
+	bridge := testTerminalBridge(nil)
+	defer bridge.Close()
+	testServer := newProtectedTestServerWithOptions(t, bridge, protectedTestServerOptions{terminalLab: true, credentialCount: 1})
+	defer testServer.manager.Close()
+	defer testServer.store.Close()
+	request := httptest.NewRequest(http.MethodGet, "https://shepherdr.private/api/terminal-lab/read?pane=pane-block&lines=20&source=recent-unwrapped", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: testServer.tokens[0]})
+	response := httptest.NewRecorder()
+	finished := make(chan struct{})
+	go func() {
+		testServer.application.Handler().ServeHTTP(response, request)
+		close(finished)
+	}()
+	waitForTerminalChildren(t, bridge, 1)
+	signOutTestSession(t, testServer.manager, testServer.tokens[0])
+	select {
+	case <-finished:
+	case <-time.After(2 * time.Second):
+		t.Fatal("protected Terminal Lab read did not finish after invalidation")
+	}
+	waitForTerminalChildren(t, bridge, 0)
+	if response.Code != http.StatusUnauthorized || strings.Contains(response.Body.String(), "replacement output must not escape") {
+		t.Fatalf("invalidated Lab read status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
+func TestProtectedTerminalLabSocketsCloseAndCollectChildrenForEveryInvalidation(t *testing.T) {
+	for _, name := range []string{"sign-out", "revoke", "reset", "expiry"} {
+		t.Run(name, func(t *testing.T) {
+			clock := &controlledAccessClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
+			bridge := testTerminalBridge(nil)
+			defer bridge.Close()
+			testServer := newProtectedTestServerWithOptions(t, bridge, protectedTestServerOptions{
+				terminalLab: true, credentialCount: 2, lifetime: "1d", clock: clock,
+			})
+			defer testServer.manager.Close()
+			defer testServer.store.Close()
+			httpServer := httptest.NewServer(testServer.application.Handler())
+			defer httpServer.Close()
+			connection := dialProtectedWebSocket(t, httpServer.URL, "/api/terminal-lab?pane=pane-1&mode=observe&cols=80&rows=24", testServer.tokens[0])
+			defer connection.Close()
+			_ = connection.SetReadDeadline(time.Now().Add(time.Second))
+			if _, _, err := connection.ReadMessage(); err != nil {
+				t.Fatalf("read initial Terminal Lab frame: %v", err)
+			}
+			waitForTerminalChildren(t, bridge, 1)
+			switch name {
+			case "sign-out":
+				signOutTestSession(t, testServer.manager, testServer.tokens[0])
+			case "revoke":
+				runtimes, err := testServer.manager.RevokeLocal(testServer.trustIDs[0])
+				if err != nil {
+					t.Fatal(err)
+				}
+				access.WaitRuntimes(runtimes)
+			case "reset":
+				runtimes, err := testServer.manager.Reset()
+				if err != nil {
+					t.Fatal(err)
+				}
+				access.WaitRuntimes(runtimes)
+			case "expiry":
+				clock.Advance(24 * time.Hour)
+			}
+			waitForTerminalChildren(t, bridge, 0)
+			_ = connection.SetReadDeadline(time.Now().Add(time.Second))
+			if _, _, err := connection.ReadMessage(); err == nil {
+				t.Fatalf("Terminal Lab socket remained open after %s", name)
+			}
+		})
+	}
+}
+
 func TestProtectedInvalidationClosesHomeAndTerminalSocketsAndCollectsChildren(t *testing.T) {
 	t.Run("Home", func(t *testing.T) {
 		application, manager, store, token := newProtectedTestServer(t, nil)
@@ -253,6 +328,62 @@ func TestAccessCookiesAreHostOnlyStrictAndUseIssuanceLifetime(t *testing.T) {
 	}
 }
 
+func TestCeremonyFinishCookieSurvivesRetryAndClearsOnTerminalOrSuccess(t *testing.T) {
+	application, manager, store, _ := newProtectedTestServer(t, nil)
+	defer manager.Close()
+	defer store.Close()
+	handler := application.Handler()
+	var ceremonyCookie *http.Cookie
+	var deadline time.Time
+	for attempt := 1; attempt <= 5; attempt++ {
+		begin := httptest.NewRequest(http.MethodPost, "https://shepherdr.private/api/auth/sign-in/begin", strings.NewReader("{}"))
+		begin.Header.Set("Origin", "https://shepherdr.private")
+		begin.Header.Set("Content-Type", "application/json")
+		if ceremonyCookie != nil {
+			begin.AddCookie(ceremonyCookie)
+		}
+		beginResponse := httptest.NewRecorder()
+		handler.ServeHTTP(beginResponse, begin)
+		if beginResponse.Code != http.StatusOK {
+			t.Fatalf("begin attempt %d returned %d: %s", attempt, beginResponse.Code, beginResponse.Body.String())
+		}
+		cookies := beginResponse.Result().Cookies()
+		if len(cookies) != 1 || cookies[0].Name != signInCeremonyCookie {
+			t.Fatalf("begin attempt %d cookies=%+v", attempt, cookies)
+		}
+		ceremonyCookie = cookies[0]
+		if attempt == 1 {
+			deadline = ceremonyCookie.Expires
+		} else if !ceremonyCookie.Expires.Equal(deadline) {
+			t.Fatalf("begin attempt %d extended cookie deadline to %v, want %v", attempt, ceremonyCookie.Expires, deadline)
+		}
+
+		finish := httptest.NewRequest(http.MethodPost, "https://shepherdr.private/api/auth/sign-in/finish", strings.NewReader("{}"))
+		finish.Header.Set("Origin", "https://shepherdr.private")
+		finish.Header.Set("Content-Type", "application/json")
+		finish.AddCookie(ceremonyCookie)
+		finishResponse := httptest.NewRecorder()
+		handler.ServeHTTP(finishResponse, finish)
+		if finishResponse.Code != http.StatusUnauthorized {
+			t.Fatalf("finish attempt %d returned %d", attempt, finishResponse.Code)
+		}
+		finishCookies := finishResponse.Result().Cookies()
+		if attempt < 5 && len(finishCookies) != 0 {
+			t.Fatalf("ordinary failure %d changed ceremony cookie: %+v", attempt, finishCookies)
+		}
+		if attempt == 5 && (len(finishCookies) != 1 || finishCookies[0].Name != signInCeremonyCookie || finishCookies[0].MaxAge != -1) {
+			t.Fatalf("terminal failure did not clear ceremony cookie: %+v", finishCookies)
+		}
+	}
+
+	success := httptest.NewRecorder()
+	finishCeremonyCookie(success, trustCeremonyCookie, nil)
+	cookies := success.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != trustCeremonyCookie || cookies[0].MaxAge != -1 {
+		t.Fatalf("successful ceremony did not clear its cookie: %+v", cookies)
+	}
+}
+
 func serveProtected(handler http.Handler, method, path, origin, token string, jsonBody bool) *httptest.ResponseRecorder {
 	var body *strings.Reader
 	if jsonBody {
@@ -275,29 +406,91 @@ func serveProtected(handler http.Handler, method, path, origin, token string, js
 	return response
 }
 
+type protectedTestServerOptions struct {
+	clock           access.Clock
+	credentialCount int
+	lifetime        string
+	terminalLab     bool
+}
+
+type protectedTestServer struct {
+	application *Server
+	manager     *access.Manager
+	store       *access.Store
+	tokens      []string
+	trustIDs    []string
+}
+
+type controlledAccessClock struct {
+	mutex sync.Mutex
+	now   time.Time
+}
+
+func (c *controlledAccessClock) Now() time.Time {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	return c.now
+}
+
+func (c *controlledAccessClock) Advance(duration time.Duration) {
+	c.mutex.Lock()
+	c.now = c.now.Add(duration)
+	c.mutex.Unlock()
+}
+
 func newProtectedTestServer(t *testing.T, bridge *TerminalBridge) (*Server, *access.Manager, *access.Store, string) {
+	t.Helper()
+	server := newProtectedTestServerWithOptions(t, bridge, protectedTestServerOptions{credentialCount: 1})
+	return server.application, server.manager, server.store, server.tokens[0]
+}
+
+func newProtectedTestServerWithOptions(t *testing.T, bridge *TerminalBridge, options protectedTestServerOptions) protectedTestServer {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "state", "access.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if options.credentialCount == 0 {
+		options.credentialCount = 1
+	}
+	if options.lifetime == "" {
+		options.lifetime = "30d"
+	}
 	now := time.Now().UTC()
-	trustID := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{3}, 16))
-	token := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{4}, 32))
-	digest := sha256.Sum256([]byte(token))
-	expires := now.Add(30 * 24 * time.Hour)
+	if options.clock != nil {
+		now = options.clock.Now()
+	}
+	lifetime, err := access.ParseSessionLifetime(options.lifetime)
+	if err != nil {
+		t.Fatal(err)
+	}
 	state := access.State{
-		Version: 1, PublicOrigin: "https://shepherdr.private", RPID: "shepherdr.private", SessionLifetime: "30d",
-		UserHandle: base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{5}, 64)),
-		Credentials: []access.CredentialRecord{{
-			TrustID: trustID, Label: "Device <script>", CreatedAt: now, LastUsedAt: now, BackupObservedAt: now,
-			Credential: webauthn.Credential{ID: []byte{1}, PublicKey: []byte{2}},
-		}},
-		Sessions: []access.SessionRecord{{
-			Digest: base64.RawURLEncoding.EncodeToString(digest[:]), TrustID: trustID, CreatedAt: now, Lifetime: "30d",
-			ExpiresAt: &expires, FreshTrustID: trustID, FreshAt: now,
-		}},
+		Version: 1, PublicOrigin: "https://shepherdr.private", RPID: "shepherdr.private", SessionLifetime: options.lifetime,
+		UserHandle:  base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{5}, 64)),
+		Credentials: []access.CredentialRecord{}, Sessions: []access.SessionRecord{},
 		Invitations: []access.InvitationRecord{},
+	}
+	tokens := make([]string, 0, options.credentialCount)
+	trustIDs := make([]string, 0, options.credentialCount)
+	for index := 0; index < options.credentialCount; index++ {
+		trustID := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{byte(3 + index)}, 16))
+		token := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{byte(20 + index)}, 32))
+		digest := sha256.Sum256([]byte(token))
+		state.Credentials = append(state.Credentials, access.CredentialRecord{
+			TrustID: trustID, Label: "Device <script>", CreatedAt: now, LastUsedAt: now, BackupObservedAt: now,
+			Credential: webauthn.Credential{ID: []byte{byte(1 + index*2)}, PublicKey: []byte{byte(2 + index*2)}},
+		})
+		session := access.SessionRecord{
+			Digest: base64.RawURLEncoding.EncodeToString(digest[:]), TrustID: trustID, CreatedAt: now, Lifetime: options.lifetime,
+			FreshTrustID: trustID, FreshAt: now,
+		}
+		if !lifetime.None {
+			expires := now.Add(lifetime.Duration())
+			session.ExpiresAt = &expires
+		}
+		state.Sessions = append(state.Sessions, session)
+		tokens = append(tokens, token)
+		trustIDs = append(trustIDs, trustID)
 	}
 	data, err := json.Marshal(state)
 	if err != nil {
@@ -310,14 +503,14 @@ func newProtectedTestServer(t *testing.T, bridge *TerminalBridge) (*Server, *acc
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager, err := access.NewManager(opened.Store, nil)
+	manager, err := access.NewManager(opened.Store, options.clock)
 	if err != nil {
 		opened.Store.Close()
 		t.Fatal(err)
 	}
-	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, bridge, false)
+	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, bridge, options.terminalLab)
 	application.ConfigureProtectedAccess(manager)
-	return application, manager, opened.Store, token
+	return protectedTestServer{application: application, manager: manager, store: opened.Store, tokens: tokens, trustIDs: trustIDs}
 }
 
 func dialProtectedWebSocket(t *testing.T, serverURL, path, token string) *websocket.Conn {

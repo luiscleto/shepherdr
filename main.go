@@ -77,7 +77,7 @@ func run() error {
 		if notificationPathErr != nil {
 			return notificationPathErr
 		}
-		serviceLock, err := access.HoldExistingServiceLock(accessPath)
+		serviceLock, err := access.HoldServiceLock(accessPath)
 		if err != nil {
 			return errors.New("Stop Shepherdr first")
 		}
@@ -115,7 +115,7 @@ func run() error {
 	var protectedOrigin access.Origin
 	var signInOffLock *os.File
 	if *noSignIn {
-		signInOffLock, err = access.HoldExistingServiceLock(accessPath)
+		signInOffLock, err = access.HoldServiceLock(accessPath)
 		if err != nil {
 			return fmt.Errorf("hold access service lock: %w", err)
 		}

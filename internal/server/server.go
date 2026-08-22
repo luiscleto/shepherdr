@@ -91,8 +91,8 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("DELETE /api/notifications/settings", s.notificationSettingsRemove)
 	}
 	if s.terminalLabEnabled && s.terminal != nil {
-		mux.HandleFunc("GET /api/terminal-lab", s.terminal.socket)
-		mux.HandleFunc("GET /api/terminal-lab/read", s.terminal.read)
+		mux.HandleFunc("GET /api/terminal-lab", s.terminalLabSocket)
+		mux.HandleFunc("GET /api/terminal-lab/read", s.terminalLabRead)
 	}
 	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -104,6 +104,14 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) terminalSocket(writer http.ResponseWriter, request *http.Request) {
+	s.boundTerminalSocket(writer, request, s.terminal.productionSocket)
+}
+
+func (s *Server) terminalLabSocket(writer http.ResponseWriter, request *http.Request) {
+	s.boundTerminalSocket(writer, request, s.terminal.socket)
+}
+
+func (s *Server) boundTerminalSocket(writer http.ResponseWriter, request *http.Request, serve http.HandlerFunc) {
 	request, lease, ok := s.bindAccessRequest(request)
 	if !ok {
 		writeAccessError(writer, http.StatusUnauthorized, "Sign in again.")
@@ -113,23 +121,31 @@ func (s *Server) terminalSocket(writer http.ResponseWriter, request *http.Reques
 		defer lease.Close()
 		defer cleanupBoundRequest(request)
 	}
-	s.terminal.productionSocket(writer, request)
+	serve(writer, request)
 }
 
 func (s *Server) terminalRead(writer http.ResponseWriter, request *http.Request) {
+	s.boundTerminalRead(writer, request, s.terminal.productionRead)
+}
+
+func (s *Server) terminalLabRead(writer http.ResponseWriter, request *http.Request) {
+	s.boundTerminalRead(writer, request, s.terminal.read)
+}
+
+func (s *Server) boundTerminalRead(writer http.ResponseWriter, request *http.Request, serve http.HandlerFunc) {
 	request, lease, ok := s.bindAccessRequest(request)
 	if !ok {
 		writeAccessError(writer, http.StatusUnauthorized, "Sign in again.")
 		return
 	}
 	if lease == nil {
-		s.terminal.productionRead(writer, request)
+		serve(writer, request)
 		return
 	}
 	defer lease.Close()
 	defer cleanupBoundRequest(request)
 	capture := newBufferedResponse()
-	s.terminal.productionRead(capture, request)
+	serve(capture, request)
 	if err := withCommitAuthority(request, func() error {
 		capture.Commit(writer)
 		return nil

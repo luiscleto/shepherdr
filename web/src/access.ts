@@ -265,7 +265,7 @@ export class AccessController {
       const actions = element(this.#document, "div", "access-device-actions");
       actions.append(
         action(this.#document, "Trust another device", () => void this.#createInvitation(devices), "access-primary"),
-        action(this.#document, "Sign out", () => void this.#signOut()),
+        action(this.#document, "Sign out", () => void this.#signOut(devices)),
       );
       panel.append(list, actions);
     }
@@ -346,13 +346,15 @@ export class AccessController {
     }
   }
 
-  async #signOut(): Promise<void> {
+  async #signOut(devices: DevicesResponse): Promise<void> {
     if (this.#busy) return;
     this.#busy = true;
     try {
       await accessRequest("/api/auth/sign-out", "POST", {});
     } catch {
-      // The local session is unusable either way.
+      this.#busy = false;
+      this.#renderDevices(devices, "Could not sign out. Try again.");
+      return;
     }
     this.#busy = false;
     this.#closeDevices();

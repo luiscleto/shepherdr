@@ -48,7 +48,6 @@ func (s *Server) signInBegin(writer http.ResponseWriter, request *http.Request) 
 
 func (s *Server) signInFinish(writer http.ResponseWriter, request *http.Request) {
 	clientToken := cookieValue(request, signInCeremonyCookie)
-	deleteCeremonyCookie(writer, signInCeremonyCookie)
 	boundAccessBody(writer, request)
 	var old *access.SessionIdentity
 	if cookie, err := request.Cookie(sessionCookieName); err == nil {
@@ -57,6 +56,7 @@ func (s *Server) signInFinish(writer http.ResponseWriter, request *http.Request)
 		}
 	}
 	issue, err := s.access.FinishSignIn(clientToken, request, old)
+	finishCeremonyCookie(writer, signInCeremonyCookie, err)
 	if err != nil {
 		writeAccessError(writer, http.StatusUnauthorized, "Sign in again.")
 		return
@@ -85,7 +85,6 @@ func (s *Server) trustBegin(writer http.ResponseWriter, request *http.Request) {
 
 func (s *Server) trustFinish(writer http.ResponseWriter, request *http.Request) {
 	clientToken := cookieValue(request, trustCeremonyCookie)
-	deleteCeremonyCookie(writer, trustCeremonyCookie)
 	boundAccessBody(writer, request)
 	var old *access.SessionIdentity
 	if cookie, err := request.Cookie(sessionCookieName); err == nil {
@@ -94,6 +93,7 @@ func (s *Server) trustFinish(writer http.ResponseWriter, request *http.Request) 
 		}
 	}
 	issue, err := s.access.FinishTrust(clientToken, request, old)
+	finishCeremonyCookie(writer, trustCeremonyCookie, err)
 	if err != nil {
 		writeInvitationError(writer)
 		return
@@ -128,9 +128,9 @@ func (s *Server) reauthenticateFinish(writer http.ResponseWriter, request *http.
 		return
 	}
 	clientToken := cookieValue(request, reauthCeremonyCookie)
-	deleteCeremonyCookie(writer, reauthCeremonyCookie)
 	boundAccessBody(writer, request)
 	issue, err := s.access.FinishReauthentication(clientToken, request, session)
+	finishCeremonyCookie(writer, reauthCeremonyCookie, err)
 	if err != nil {
 		writeAccessError(writer, http.StatusUnauthorized, "Sign in again.")
 		return
@@ -291,6 +291,12 @@ func deleteCeremonyCookie(writer http.ResponseWriter, name string) {
 		Name: name, Value: "", Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode,
 		Expires: time.Unix(1, 0).UTC(), MaxAge: -1,
 	})
+}
+
+func finishCeremonyCookie(writer http.ResponseWriter, name string, err error) {
+	if err == nil || !access.CeremonyCanRetry(err) {
+		deleteCeremonyCookie(writer, name)
+	}
 }
 
 func setSessionCookie(writer http.ResponseWriter, issue access.SessionIssue) {

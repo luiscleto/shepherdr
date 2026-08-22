@@ -5,8 +5,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -131,6 +136,106 @@ func TestProtectedStoreIsVersionedPrivateLockedAndOriginStable(t *testing.T) {
 	}
 }
 
+func TestServiceLockExcludesStartupAndStoppedCommandsWithoutChangingAccessState(t *testing.T) {
+	t.Run("uninitialized sign-in-off", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "state", "access.json")
+		lock, err := HoldServiceLock(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer lock.Close()
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("sign-in-off changed absent access state: %v", err)
+		}
+		lockInfo, err := lock.Stat()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lockInfo.Mode().Perm() != 0o600 {
+			t.Fatalf("service lock mode=%v", lockInfo.Mode().Perm())
+		}
+		if _, err := OpenProtected(OpenOptions{Path: path, PublicOrigin: "https://shepherdr.private"}); err == nil {
+			t.Fatal("first protected start raced an active sign-in-off service")
+		}
+		if _, _, err := OpenExistingStopped(path); err == nil || err.Error() != "Stop Shepherdr first" {
+			t.Fatalf("stopped access command while sign-in-off is live = %v", err)
+		}
+		if _, err := HoldServiceLock(path); err == nil {
+			t.Fatal("stopped reset lock raced an active sign-in-off service")
+		}
+	})
+
+	t.Run("existing bytes", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "state", "access.json")
+		opened, err := OpenProtected(OpenOptions{Path: path, PublicOrigin: "https://shepherdr.private"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		opened.Store.Close()
+		before, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lock, err := HoldServiceLock(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		after, err := os.ReadFile(path)
+		lock.Close()
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatalf("sign-in-off changed initialized access state: equal=%t err=%v", bytes.Equal(before, after), err)
+		}
+	})
+}
+
+func TestFirstProtectedStartAndServiceLockRaceHasOneWinner(t *testing.T) {
+	for attempt := 0; attempt < 8; attempt++ {
+		path := filepath.Join(t.TempDir(), "state", "access.json")
+		start := make(chan struct{})
+		release := make(chan struct{})
+		type result struct {
+			kind string
+			err  error
+		}
+		results := make(chan result, 2)
+		go func() {
+			<-start
+			opened, err := OpenProtected(OpenOptions{Path: path, PublicOrigin: "https://shepherdr.private"})
+			if err != nil {
+				results <- result{kind: "protected", err: err}
+				return
+			}
+			results <- result{kind: "protected"}
+			<-release
+			opened.Store.Close()
+		}()
+		go func() {
+			<-start
+			lock, err := HoldServiceLock(path)
+			if err != nil {
+				results <- result{kind: "sign-in-off", err: err}
+				return
+			}
+			results <- result{kind: "sign-in-off"}
+			<-release
+			_ = lock.Close()
+		}()
+		close(start)
+		first := <-results
+		second := <-results
+		winners := 0
+		for _, candidate := range []result{first, second} {
+			if candidate.err == nil {
+				winners++
+			}
+		}
+		close(release)
+		if winners != 1 {
+			t.Fatalf("race %d winners=%d: %s=%v %s=%v", attempt, winners, first.kind, first.err, second.kind, second.err)
+		}
+	}
+}
+
 func TestProtectedStoreRejectsMissingCorruptUnsupportedUnknownAndSymlinkedState(t *testing.T) {
 	now := time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)
 	if _, err := OpenProtected(OpenOptions{Path: filepath.Join(t.TempDir(), "missing", "access.json"), Now: now}); err == nil {
@@ -237,6 +342,147 @@ func TestInvitationReservationIsBoundedAndPasskeyPolicyIsExact(t *testing.T) {
 	}
 }
 
+func TestCeremonyRetriesKeepOneClientDeadlineAndAttemptBound(t *testing.T) {
+	clock := &testClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
+	manager, store, tokens, _ := seededManager(t, clock, 1, "30d")
+	defer manager.Close()
+	defer store.Close()
+	identity, ok := manager.AuthenticateToken(tokens[0])
+	if !ok {
+		t.Fatal("seed session did not authenticate")
+	}
+
+	for _, test := range []struct {
+		name   string
+		client string
+		begin  func(string) (CeremonyBegin, error)
+		finish func(string, *http.Request) error
+	}{
+		{
+			name: "sign-in", client: base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{51}, 32)),
+			begin: manager.BeginSignIn,
+			finish: func(client string, request *http.Request) error {
+				_, err := manager.FinishSignIn(client, request, nil)
+				return err
+			},
+		},
+		{
+			name: "reauthentication", client: base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{52}, 32)),
+			begin: func(client string) (CeremonyBegin, error) { return manager.BeginReauthentication(client, identity) },
+			finish: func(client string, request *http.Request) error {
+				_, err := manager.FinishReauthentication(client, request, identity)
+				return err
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var deadline time.Time
+			for attempt := 1; attempt <= maxAttempts; attempt++ {
+				begin, err := test.begin(test.client)
+				if err != nil {
+					t.Fatalf("begin attempt %d: %v", attempt, err)
+				}
+				if attempt == 1 {
+					deadline = begin.ExpiresAt
+				} else if !begin.ExpiresAt.Equal(deadline) {
+					t.Fatalf("attempt %d extended client deadline to %v, want %v", attempt, begin.ExpiresAt, deadline)
+				}
+				err = test.finish(test.client, failedCeremonyRequest())
+				if CeremonyCanRetry(err) != (attempt < maxAttempts) {
+					t.Fatalf("finish attempt %d retryable=%t err=%v", attempt, CeremonyCanRetry(err), err)
+				}
+			}
+			if _, err := test.begin(test.client); err == nil {
+				t.Fatal("attempt limit accepted another challenge")
+			}
+		})
+	}
+}
+
+func TestAssertionRetryChallengeEndsAtOriginalDeadline(t *testing.T) {
+	for _, kind := range []string{CeremonySignIn, CeremonyReauth} {
+		t.Run(kind, func(t *testing.T) {
+			clock := &testClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
+			manager, store, tokens, _ := seededManager(t, clock, 1, "30d")
+			defer manager.Close()
+			defer store.Close()
+			identity, ok := manager.AuthenticateToken(tokens[0])
+			if !ok {
+				t.Fatal("seed session did not authenticate")
+			}
+			client := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{byte(70 + len(kind))}, 32))
+			begin := func() (CeremonyBegin, error) {
+				if kind == CeremonyReauth {
+					return manager.BeginReauthentication(client, identity)
+				}
+				return manager.BeginSignIn(client)
+			}
+			finish := func() error {
+				if kind == CeremonyReauth {
+					_, err := manager.FinishReauthentication(client, failedCeremonyRequest(), identity)
+					return err
+				}
+				_, err := manager.FinishSignIn(client, failedCeremonyRequest(), nil)
+				return err
+			}
+			first, err := begin()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := finish(); !CeremonyCanRetry(err) {
+				t.Fatalf("first failure was not retryable: %v", err)
+			}
+			clock.Advance(ReservationLifetime - time.Second)
+			retry, err := begin()
+			if err != nil || !retry.ExpiresAt.Equal(first.ExpiresAt) || retry.TTL != time.Second {
+				t.Fatalf("deadline retry expiry=%v ttl=%v err=%v", retry.ExpiresAt, retry.TTL, err)
+			}
+			clock.Advance(time.Second)
+			if err := finish(); CeremonyCanRetry(err) {
+				t.Fatalf("deadline-expired challenge remained retryable: %v", err)
+			}
+		})
+	}
+}
+
+func TestTrustRetryKeepsReservationAndDeadline(t *testing.T) {
+	clock := &testClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
+	manager, store, _, _ := seededManager(t, clock, 1, "30d")
+	defer manager.Close()
+	defer store.Close()
+	link, _, err := manager.CreateLocalInvitation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	invitationToken := strings.TrimPrefix(link, manager.origin.Value+"/#trust=")
+	client := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{61}, 32))
+	other := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{62}, 32))
+	begin, err := manager.BeginTrust(client, invitationToken, "Phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.FinishTrust(client, failedCeremonyRequest(), nil); !CeremonyCanRetry(err) {
+		t.Fatalf("ordinary trust failure was not retryable: %v", err)
+	}
+	retry, err := manager.BeginTrust(client, invitationToken, "Phone")
+	if err != nil || retry.ClientToken != client || !retry.ExpiresAt.Equal(begin.ExpiresAt) {
+		t.Fatalf("trust retry token=%q expiry=%v err=%v", retry.ClientToken, retry.ExpiresAt, err)
+	}
+	if _, err := manager.BeginTrust(other, invitationToken, "Other"); !errors.Is(err, ErrInvitationGeneric) {
+		t.Fatalf("retry released invitation reservation: %v", err)
+	}
+	clock.Advance(ReservationLifetime)
+	if _, err := manager.FinishTrust(client, failedCeremonyRequest(), nil); CeremonyCanRetry(err) {
+		t.Fatalf("expired trust challenge remained retryable: %v", err)
+	}
+}
+
+func failedCeremonyRequest() *http.Request {
+	request := httptest.NewRequest(http.MethodPost, "https://shepherdr.private/finish", strings.NewReader("{}"))
+	request.Header.Set("Content-Type", "application/json")
+	return request
+}
+
 func TestExpiredBootstrapIsPrunedAndReplacedOnlyOnALaterProtectedStart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state", "access.json")
 	now := time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)
@@ -309,6 +555,59 @@ func TestSessionExpiryRotationCapacityAndCleanup(t *testing.T) {
 	}
 	if got := trustSessionCount(state, trustIDs[0]); got != MaxTrustSessions {
 		t.Fatalf("per-passkey sessions=%d, want %d", got, MaxTrustSessions)
+	}
+}
+
+func TestSessionCapacityEvictsOnlyTargetWhenBothLimitsAreReached(t *testing.T) {
+	clock := &testClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
+	manager, store, _, trustIDs := seededManager(t, clock, 8, "none")
+	defer manager.Close()
+	defer store.Close()
+	state, err := cloneState(manager.state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Sessions = nil
+	globalOldest := digestToken("unrelated-global-oldest")
+	for index := 0; index < MaxSessions-MaxTrustSessions; index++ {
+		digest := digestToken("unrelated-" + fmt.Sprint(index))
+		if index == 0 {
+			digest = globalOldest
+		}
+		createdAt := clock.Now().Add(time.Duration(index) * time.Second)
+		trustID := trustIDs[1+index/MaxTrustSessions]
+		state.Sessions = append(state.Sessions, SessionRecord{
+			Digest: digest, TrustID: trustID, CreatedAt: createdAt, Lifetime: "none",
+			FreshTrustID: trustID, FreshAt: createdAt,
+		})
+	}
+	targetOldest := digestToken("target-oldest")
+	for index := 0; index < MaxTrustSessions; index++ {
+		digest := digestToken("target-" + fmt.Sprint(index))
+		if index == 0 {
+			digest = targetOldest
+		}
+		createdAt := clock.Now().Add(time.Hour + time.Duration(index)*time.Second)
+		state.Sessions = append(state.Sessions, SessionRecord{
+			Digest: digest, TrustID: trustIDs[0], CreatedAt: createdAt, Lifetime: "none",
+			FreshTrustID: trustIDs[0], FreshAt: createdAt,
+		})
+	}
+	_, invalidated, err := manager.addSession(state, trustIDs[0], trustIDs[0], clock.Now().Add(2*time.Hour), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(invalidated) != 1 || invalidated[0] != targetOldest {
+		t.Fatalf("simultaneous caps invalidated %v, want only %q", invalidated, targetOldest)
+	}
+	if len(state.Sessions) != MaxSessions || trustSessionCount(state, trustIDs[0]) != MaxTrustSessions || oldestSessionIndex(state, "") < 0 {
+		t.Fatalf("post-cap sessions=%d target=%d", len(state.Sessions), trustSessionCount(state, trustIDs[0]))
+	}
+	if !slices.ContainsFunc(state.Sessions, func(record SessionRecord) bool { return record.Digest == globalOldest }) {
+		t.Fatal("unrelated global-oldest session was evicted")
+	}
+	if err := validateState(state); err != nil {
+		t.Fatalf("minimal eviction left invalid state: %v", err)
 	}
 }
 

@@ -154,23 +154,15 @@ func OpenExistingStopped(path string) (*Store, Origin, error) {
 	return store, origin, nil
 }
 
-func HoldExistingServiceLock(path string) (*os.File, error) {
-	if _, err := os.Lstat(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
+func HoldServiceLock(path string) (*os.File, error) {
+	if path == "" {
+		return nil, errors.New("access state path is required")
+	}
+	if err := ensurePrivateDirectory(filepath.Dir(path), true); err != nil {
 		return nil, err
 	}
-	if err := ensurePrivateDirectory(filepath.Dir(path), false); err != nil {
-		return nil, err
-	}
-	lock, err := acquireLock(filepath.Join(filepath.Dir(path), "access.lock"), false)
+	lock, err := acquireLock(filepath.Join(filepath.Dir(path), "access.lock"), true)
 	if err != nil {
-		return nil, err
-	}
-	if _, err := readState(path); err != nil {
-		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-		_ = lock.Close()
 		return nil, err
 	}
 	return lock, nil

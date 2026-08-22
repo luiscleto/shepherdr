@@ -118,6 +118,93 @@ test("Devices offers Revoke only when another trusted sign-in remains", async ()
   assert.equal(Array.from(root.querySelectorAll("button")).some((button) => button.textContent === "Trust another device"), true);
 });
 
+test("Sign out stays truthful on failure and closes only after confirmation", async (t) => {
+  for (const failure of ["transport", "server"] as const) {
+    await t.test(failure, async () => {
+      const window = new Window();
+      const root = window.document.createElement("div");
+      window.document.body.append(root);
+      let signedOut = 0;
+      let postAttempted = false;
+      const controller = new AccessController(root, {
+        ...accessActions(),
+        onSignedOut: () => signedOut++,
+      });
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async (_input, init) => {
+        if (init?.method === "POST") {
+          postAttempted = true;
+          if (failure === "transport") throw new Error("offline");
+          return jsonResponse({ error: "unavailable" }, 503);
+        }
+        return jsonResponse({
+          can_revoke: false,
+          current_trust_id: "one",
+          devices: [{
+            backup_eligible: false,
+            backup_observed_at: "2026-08-22T10:00:00Z",
+            backup_state: false,
+            created_at: "2026-08-22T09:00:00Z",
+            label: "Phone",
+            last_used_at: "2026-08-22T10:00:00Z",
+            trust_id: "one",
+          }],
+        });
+      };
+      try {
+        await controller.openDevices();
+        const signOut = Array.from(root.querySelectorAll("button")).find((button) => button.textContent === "Sign out");
+        signOut?.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+      assert.equal(postAttempted, true);
+      assert.equal(signedOut, 0);
+      assert.equal(root.querySelector("h2")?.textContent, "Devices");
+      assert.equal(root.querySelector(".access-feedback")?.textContent, "Could not sign out. Try again.");
+      assert.equal(Array.from(root.querySelectorAll("button")).some((button) => button.textContent === "Sign out"), true);
+    });
+  }
+
+  await t.test("confirmed", async () => {
+    const window = new Window();
+    const root = window.document.createElement("div");
+    window.document.body.append(root);
+    let signedOut = 0;
+    const controller = new AccessController(root, {
+      ...accessActions(),
+      onSignedOut: () => signedOut++,
+    });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_input, init) => init?.method === "POST"
+      ? jsonResponse({ signed_out: true })
+      : jsonResponse({
+        can_revoke: false,
+        current_trust_id: "one",
+        devices: [{
+          backup_eligible: false,
+          backup_observed_at: "2026-08-22T10:00:00Z",
+          backup_state: false,
+          created_at: "2026-08-22T09:00:00Z",
+          label: "Phone",
+          last_used_at: "2026-08-22T10:00:00Z",
+          trust_id: "one",
+        }],
+      });
+    try {
+      await controller.openDevices();
+      const signOut = Array.from(root.querySelectorAll("button")).find((button) => button.textContent === "Sign out");
+      signOut?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    assert.equal(signedOut, 1);
+    assert.equal(root.childElementCount, 0);
+  });
+});
+
 test("access probe distinguishes protected, signed-out, and sign-in-off modes", async () => {
   const window = new Window();
   const root = window.document.createElement("div");
