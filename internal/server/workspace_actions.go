@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/luisc/shepherdr/internal/access"
 	"github.com/luisc/shepherdr/internal/herdr"
 )
 
@@ -76,8 +77,17 @@ func (c *workspaceActionCoordinator) prepare(writer http.ResponseWriter, request
 		return
 	}
 
-	snapshot, err := c.client.Snapshot(request.Context())
+	var snapshot herdr.Snapshot
+	err := withCommitAuthority(request, func() error {
+		var snapshotErr error
+		snapshot, snapshotErr = c.client.Snapshot(request.Context())
+		return snapshotErr
+	})
 	if err != nil {
+		if errors.Is(err, access.ErrUnauthorized) {
+			writeAccessError(writer, http.StatusUnauthorized, "Sign in again.")
+			return
+		}
 		writeRefusal(writer, http.StatusServiceUnavailable, "herdr_unavailable", err.Error())
 		return
 	}
@@ -107,20 +117,20 @@ func (c *workspaceActionCoordinator) run(writer http.ResponseWriter, request *ht
 
 	switch actionName {
 	case "create_space":
-		c.runCreateSpace(writer, fields)
+		c.runCreateSpace(writer, request, fields)
 	case string(herdr.WorkspaceActionCreateWorktree):
-		c.runCreateWorktree(writer, fields)
+		c.runCreateWorktree(writer, request, fields)
 	default:
 		action, destructive := destructiveAction(actionName)
 		if !destructive {
 			writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
 			return
 		}
-		c.runDestructive(writer, fields, action)
+		c.runDestructive(writer, request, fields, action)
 	}
 }
 
-func (c *workspaceActionCoordinator) runCreateSpace(writer http.ResponseWriter, fields map[string]json.RawMessage) {
+func (c *workspaceActionCoordinator) runCreateSpace(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage) {
 	if !requireObjectKeys(writer, fields, []string{"action", "working_directory", "label"}, []string{"action", "working_directory"}) {
 		return
 	}
@@ -150,10 +160,12 @@ func (c *workspaceActionCoordinator) runCreateSpace(writer http.ResponseWriter, 
 		return
 	}
 	defer c.release()
-	c.finishMutation(writer, c.client.CreateWorkspace(context.Background(), expanded, label))
+	c.finishMutation(writer, withCommitAuthority(request, func() error {
+		return c.client.CreateWorkspace(context.Background(), expanded, label)
+	}))
 }
 
-func (c *workspaceActionCoordinator) runCreateWorktree(writer http.ResponseWriter, fields map[string]json.RawMessage) {
+func (c *workspaceActionCoordinator) runCreateWorktree(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage) {
 	if !requireObjectKeys(writer, fields, []string{"action", "workspace_id", "branch"}, []string{"action", "workspace_id"}) {
 		return
 	}
@@ -193,10 +205,12 @@ func (c *workspaceActionCoordinator) runCreateWorktree(writer http.ResponseWrite
 		writeRefusal(writer, http.StatusConflict, "not_applicable", "")
 		return
 	}
-	c.finishMutation(writer, c.client.CreateWorktree(context.Background(), target.WorktreeSource, branch))
+	c.finishMutation(writer, withCommitAuthority(request, func() error {
+		return c.client.CreateWorktree(context.Background(), target.WorktreeSource, branch)
+	}))
 }
 
-func (c *workspaceActionCoordinator) runDestructive(writer http.ResponseWriter, fields map[string]json.RawMessage, action herdr.WorkspaceAction) {
+func (c *workspaceActionCoordinator) runDestructive(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage, action herdr.WorkspaceAction) {
 	if !requireObjectKeys(writer, fields, []string{"action", "workspace_id", "expected"}, []string{"action", "workspace_id", "expected"}) {
 		return
 	}
@@ -229,9 +243,9 @@ func (c *workspaceActionCoordinator) runDestructive(writer http.ResponseWriter, 
 
 	switch action {
 	case herdr.WorkspaceActionCloseWorkspace, herdr.WorkspaceActionCloseGroup:
-		err = c.client.CloseWorkspace(context.Background(), workspaceID)
+		err = withCommitAuthority(request, func() error { return c.client.CloseWorkspace(context.Background(), workspaceID) })
 	case herdr.WorkspaceActionDeleteCheckout:
-		err = c.client.RemoveWorktree(context.Background(), workspaceID)
+		err = withCommitAuthority(request, func() error { return c.client.RemoveWorktree(context.Background(), workspaceID) })
 	}
 	c.finishMutation(writer, err)
 }
@@ -244,6 +258,10 @@ func (c *workspaceActionCoordinator) finishMutation(writer http.ResponseWriter, 
 		writeActionJSON(writer, http.StatusOK, struct {
 			Outcome string `json:"outcome"`
 		}{Outcome: "succeeded"})
+		return
+	}
+	if errors.Is(err, access.ErrUnauthorized) {
+		writeAccessError(writer, http.StatusUnauthorized, "Sign in again.")
 		return
 	}
 	var apiError *herdr.APIError

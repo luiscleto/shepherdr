@@ -161,6 +161,23 @@ func (s *Store) Lookup(endpoint string) (EventSettings, bool, error) {
 	return DefaultEventSettings(), false, nil
 }
 
+func (s *Store) LookupOwned(endpoint, trustID string) (EventSettings, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.err != nil {
+		return EventSettings{}, false, s.err
+	}
+	if s.state == nil {
+		return DefaultEventSettings(), false, nil
+	}
+	for _, subscription := range s.state.Subscriptions {
+		if subscription.Endpoint == endpoint && subscription.TrustID == trustID {
+			return subscription.Events, true, nil
+		}
+	}
+	return DefaultEventSettings(), false, nil
+}
+
 func (s *Store) Upsert(subscription Subscription) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -185,6 +202,140 @@ func (s *Store) Upsert(subscription Subscription) error {
 		return fmt.Errorf("notification subscription limit reached")
 	}
 	updated.Subscriptions = append(updated.Subscriptions, subscription)
+	if err := writeState(s.path, updated); err != nil {
+		return err
+	}
+	s.state = updated
+	return nil
+}
+
+func (s *Store) EnableProtected(activeTrustIDs map[string]struct{}) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return s.err
+	}
+	if s.state == nil {
+		return nil
+	}
+	updated := cloneState(s.state)
+	updated.Version = stateVersion
+	kept := updated.Subscriptions[:0]
+	for _, subscription := range updated.Subscriptions {
+		if _, active := activeTrustIDs[subscription.TrustID]; active && subscription.TrustID != "" {
+			kept = append(kept, subscription)
+		}
+	}
+	updated.Subscriptions = kept
+	if err := writeState(s.path, updated); err != nil {
+		return err
+	}
+	s.state = updated
+	return nil
+}
+
+func (s *Store) UpsertOwned(subscription Subscription, trustID string) error {
+	if trustID == "" {
+		return errors.New("notification subscription owner is required")
+	}
+	subscription.TrustID = trustID
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return s.err
+	}
+	if s.state == nil {
+		return errors.New("notifications are not configured")
+	}
+	updated := cloneState(s.state)
+	for index := range updated.Subscriptions {
+		if updated.Subscriptions[index].Endpoint != subscription.Endpoint {
+			continue
+		}
+		if updated.Subscriptions[index].TrustID != trustID {
+			return errors.New("notification subscription belongs to another trusted sign-in")
+		}
+		updated.Subscriptions[index] = subscription
+		if err := writeState(s.path, updated); err != nil {
+			return err
+		}
+		s.state = updated
+		return nil
+	}
+	if len(updated.Subscriptions) >= MaxSubscriptions {
+		return errors.New("notification subscription limit reached")
+	}
+	updated.Subscriptions = append(updated.Subscriptions, subscription)
+	if err := writeState(s.path, updated); err != nil {
+		return err
+	}
+	s.state = updated
+	return nil
+}
+
+func (s *Store) RemoveOwned(endpoint, trustID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return false, s.err
+	}
+	if s.state == nil {
+		return false, nil
+	}
+	updated := cloneState(s.state)
+	for index, subscription := range updated.Subscriptions {
+		if subscription.Endpoint != endpoint || subscription.TrustID != trustID {
+			continue
+		}
+		updated.Subscriptions = append(updated.Subscriptions[:index], updated.Subscriptions[index+1:]...)
+		if err := writeState(s.path, updated); err != nil {
+			return false, err
+		}
+		s.state = updated
+		return true, nil
+	}
+	return false, nil
+}
+
+func (s *Store) RemoveTrustSubscriptions(trustID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return s.err
+	}
+	if s.state == nil {
+		return nil
+	}
+	updated := cloneState(s.state)
+	kept := updated.Subscriptions[:0]
+	for _, subscription := range updated.Subscriptions {
+		if subscription.TrustID != trustID {
+			kept = append(kept, subscription)
+		}
+	}
+	updated.Subscriptions = kept
+	if len(updated.Subscriptions) == len(s.state.Subscriptions) {
+		return nil
+	}
+	if err := writeState(s.path, updated); err != nil {
+		return err
+	}
+	s.state = updated
+	return nil
+}
+
+func (s *Store) ResetProtectedSubscriptions() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return s.err
+	}
+	if s.state == nil || len(s.state.Subscriptions) == 0 {
+		return nil
+	}
+	updated := cloneState(s.state)
+	updated.Version = stateVersion
+	updated.Subscriptions = []Subscription{}
 	if err := writeState(s.path, updated); err != nil {
 		return err
 	}
@@ -299,7 +450,7 @@ func readState(path string) (*persistedState, error) {
 }
 
 func validateState(state *persistedState) error {
-	if state.Version != stateVersion {
+	if state.Version != stateVersion && state.Version != legacyStateVersion {
 		return fmt.Errorf("unsupported notification state version %d", state.Version)
 	}
 	contact, err := ValidateContact(state.VAPIDContact)
@@ -333,6 +484,11 @@ func validateState(state *persistedState) error {
 		seen[subscription.Endpoint] = struct{}{}
 		if err := validateSubscriptionShape(subscription); err != nil {
 			return fmt.Errorf("notification state has an invalid subscription: %w", err)
+		}
+		if state.Version == stateVersion && subscription.TrustID != "" {
+			if decoded, err := base64.RawURLEncoding.DecodeString(subscription.TrustID); err != nil || len(decoded) != 16 {
+				return errors.New("notification state has an invalid subscription owner")
+			}
 		}
 	}
 	return nil

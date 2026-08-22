@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/luisc/shepherdr/internal/access"
 	"github.com/luisc/shepherdr/internal/herdr"
 	"github.com/luisc/shepherdr/internal/notifications"
 )
@@ -21,12 +24,15 @@ import (
 const homeHeartbeatInterval = 2 * time.Second
 
 type Server struct {
+	access             *access.Manager
 	assets             fs.FS
 	epoch              string
 	projector          *herdr.Projector
 	workspaceActions   *workspaceActionCoordinator
 	terminal           *TerminalBridge
 	notifications      *notifications.Manager
+	origin             access.Origin
+	signInOff          bool
 	terminalLabEnabled bool
 	upgrader           websocket.Upgrader
 }
@@ -66,6 +72,9 @@ func newServerEpoch() string {
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	if s.access != nil {
+		s.registerAccessRoutes(mux)
+	}
 	mux.HandleFunc("GET /api/home", s.homeSocket)
 	if s.workspaceActions != nil {
 		mux.HandleFunc("POST /api/workspace-actions/prepare", s.workspaceActions.prepare)
@@ -91,15 +100,102 @@ func (s *Server) Handler() http.Handler {
 		_, _ = writer.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /", s.asset)
-	return securityHeaders(mux, s.terminalLabEnabled)
+	return securityHeaders(s.accessBoundary(mux), s.terminalLabEnabled)
 }
 
 func (s *Server) terminalSocket(writer http.ResponseWriter, request *http.Request) {
+	request, lease, ok := s.bindAccessRequest(request)
+	if !ok {
+		writeAccessError(writer, http.StatusUnauthorized, "Sign in again.")
+		return
+	}
+	if lease != nil {
+		defer lease.Close()
+		defer cleanupBoundRequest(request)
+	}
 	s.terminal.productionSocket(writer, request)
 }
 
 func (s *Server) terminalRead(writer http.ResponseWriter, request *http.Request) {
-	s.terminal.productionRead(writer, request)
+	request, lease, ok := s.bindAccessRequest(request)
+	if !ok {
+		writeAccessError(writer, http.StatusUnauthorized, "Sign in again.")
+		return
+	}
+	if lease == nil {
+		s.terminal.productionRead(writer, request)
+		return
+	}
+	defer lease.Close()
+	defer cleanupBoundRequest(request)
+	capture := newBufferedResponse()
+	s.terminal.productionRead(capture, request)
+	if err := withCommitAuthority(request, func() error {
+		capture.Commit(writer)
+		return nil
+	}); err != nil {
+		writeAccessError(writer, http.StatusUnauthorized, "Sign in again.")
+	}
+}
+
+func (s *Server) bindAccessRequest(request *http.Request) (*http.Request, *access.SessionLease, bool) {
+	if s.access == nil {
+		return request, nil, true
+	}
+	session, ok := sessionFromRequest(request)
+	if !ok {
+		return request, nil, false
+	}
+	lease, ok := s.access.Bind(session)
+	if !ok {
+		return request, nil, false
+	}
+	ctx, cancel := context.WithCancel(request.Context())
+	stop := context.AfterFunc(lease.Context(), cancel)
+	ctx = context.WithValue(ctx, accessRequestCleanupKey{}, func() {
+		stop()
+		cancel()
+	})
+	return request.WithContext(ctx), lease, true
+}
+
+type accessRequestCleanupKey struct{}
+
+func cleanupBoundRequest(request *http.Request) {
+	if cleanup, ok := request.Context().Value(accessRequestCleanupKey{}).(func()); ok {
+		cleanup()
+	}
+}
+
+type bufferedResponse struct {
+	body   bytes.Buffer
+	header http.Header
+	status int
+}
+
+func newBufferedResponse() *bufferedResponse    { return &bufferedResponse{header: make(http.Header)} }
+func (r *bufferedResponse) Header() http.Header { return r.header }
+func (r *bufferedResponse) WriteHeader(status int) {
+	if r.status == 0 {
+		r.status = status
+	}
+}
+func (r *bufferedResponse) Write(value []byte) (int, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	return r.body.Write(value)
+}
+func (r *bufferedResponse) Commit(writer http.ResponseWriter) {
+	for name, values := range r.header {
+		writer.Header()[name] = append([]string(nil), values...)
+	}
+	status := r.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	writer.WriteHeader(status)
+	_, _ = writer.Write(r.body.Bytes())
 }
 
 func ValidateListenAddress(address string) error {
@@ -118,6 +214,21 @@ func ValidateListenAddress(address string) error {
 }
 
 func (s *Server) homeSocket(writer http.ResponseWriter, request *http.Request) {
+	var sessionLease *access.SessionLease
+	if s.access != nil {
+		session, ok := sessionFromRequest(request)
+		if !ok {
+			writeAccessError(writer, http.StatusUnauthorized, "Sign in again.")
+			return
+		}
+		var bound bool
+		sessionLease, bound = s.access.Bind(session)
+		if !bound {
+			writeAccessError(writer, http.StatusUnauthorized, "Sign in again.")
+			return
+		}
+		defer sessionLease.Close()
+	}
 	connection, err := s.upgrader.Upgrade(writer, request, nil)
 	if err != nil {
 		return
@@ -145,22 +256,35 @@ func (s *Server) homeSocket(writer http.ResponseWriter, request *http.Request) {
 			if !ok {
 				return
 			}
-			if err := writeJSON(connection, struct {
-				herdr.State
-				Epoch string `json:"epoch"`
-			}{State: state, Epoch: s.epoch}); err != nil {
+			if err := withCommitAuthority(request, func() error {
+				return writeJSON(connection, struct {
+					herdr.State
+					Epoch string `json:"epoch"`
+				}{State: state, Epoch: s.epoch})
+			}); err != nil {
 				return
 			}
 		case <-heartbeat.C:
-			if err := writeJSON(connection, map[string]string{"type": "home.heartbeat", "epoch": s.epoch}); err != nil {
+			if err := withCommitAuthority(request, func() error {
+				return writeJSON(connection, map[string]string{"type": "home.heartbeat", "epoch": s.epoch})
+			}); err != nil {
 				return
 			}
 		case <-closed:
 			return
 		case <-request.Context().Done():
 			return
+		case <-sessionDone(sessionLease):
+			return
 		}
 	}
+}
+
+func sessionDone(lease *access.SessionLease) <-chan struct{} {
+	if lease == nil {
+		return nil
+	}
+	return lease.Context().Done()
 }
 
 func (s *Server) asset(writer http.ResponseWriter, request *http.Request) {

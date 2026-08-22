@@ -25,7 +25,7 @@ type notificationSaveRequest struct {
 
 func (s *Server) notificationConfig(writer http.ResponseWriter, request *http.Request) {
 	var body struct{}
-	if !readNotificationJSON(writer, request, &body) {
+	if !s.readNotificationJSON(writer, request, &body) {
 		return
 	}
 	contact, publicKey, configured, err := s.notifications.Config()
@@ -45,10 +45,25 @@ func (s *Server) notificationConfig(writer http.ResponseWriter, request *http.Re
 
 func (s *Server) notificationSettingsRead(writer http.ResponseWriter, request *http.Request) {
 	var body notificationEndpointRequest
-	if !readNotificationJSON(writer, request, &body) {
+	if !s.readNotificationJSON(writer, request, &body) {
 		return
 	}
-	events, enabled, err := s.notifications.Lookup(body.Endpoint)
+	var events notifications.EventSettings
+	var enabled bool
+	var err error
+	if s.access != nil {
+		session, ok := sessionFromRequest(request)
+		if !ok {
+			writeNotificationError(writer, http.StatusUnauthorized)
+			return
+		}
+		err = s.access.WithSessionRead(session, func(trustID string) error {
+			events, enabled, err = s.notifications.LookupOwned(body.Endpoint, trustID)
+			return err
+		})
+	} else {
+		events, enabled, err = s.notifications.Lookup(body.Endpoint)
+	}
 	if err != nil {
 		writeNotificationError(writer, http.StatusBadRequest)
 		return
@@ -61,12 +76,30 @@ func (s *Server) notificationSettingsRead(writer http.ResponseWriter, request *h
 
 func (s *Server) notificationSettingsSave(writer http.ResponseWriter, request *http.Request) {
 	var body notificationSaveRequest
-	if !readNotificationJSON(writer, request, &body) {
+	if !s.readNotificationJSON(writer, request, &body) {
 		return
 	}
-	if err := s.notifications.Save(request.Context(), body.Subscription, body.Events); err != nil {
-		writeNotificationError(writer, http.StatusBadRequest)
-		return
+	if s.access == nil {
+		if err := s.notifications.Save(request.Context(), body.Subscription, body.Events); err != nil {
+			writeNotificationError(writer, http.StatusBadRequest)
+			return
+		}
+	} else {
+		session, ok := sessionFromRequest(request)
+		if !ok {
+			writeNotificationError(writer, http.StatusUnauthorized)
+			return
+		}
+		subscription, err := s.notifications.Prepare(request.Context(), body.Subscription, body.Events)
+		if err == nil {
+			err = s.access.WithSessionCommit(session, func(trustID string) error {
+				return s.notifications.CommitOwned(subscription, trustID)
+			})
+		}
+		if err != nil {
+			writeNotificationError(writer, http.StatusBadRequest)
+			return
+		}
 	}
 	writeNotificationJSON(writer, http.StatusOK, struct {
 		Enabled bool                        `json:"enabled"`
@@ -76,10 +109,24 @@ func (s *Server) notificationSettingsSave(writer http.ResponseWriter, request *h
 
 func (s *Server) notificationSettingsRemove(writer http.ResponseWriter, request *http.Request) {
 	var body notificationEndpointRequest
-	if !readNotificationJSON(writer, request, &body) {
+	if !s.readNotificationJSON(writer, request, &body) {
 		return
 	}
-	if _, err := s.notifications.Remove(body.Endpoint); err != nil {
+	var err error
+	if s.access == nil {
+		_, err = s.notifications.Remove(body.Endpoint)
+	} else {
+		session, ok := sessionFromRequest(request)
+		if !ok {
+			writeNotificationError(writer, http.StatusUnauthorized)
+			return
+		}
+		err = s.access.WithSessionCommit(session, func(trustID string) error {
+			_, removeErr := s.notifications.RemoveOwned(body.Endpoint, trustID)
+			return removeErr
+		})
+	}
+	if err != nil {
 		writeNotificationError(writer, http.StatusBadRequest)
 		return
 	}
@@ -88,8 +135,8 @@ func (s *Server) notificationSettingsRemove(writer http.ResponseWriter, request 
 	}{Enabled: false})
 }
 
-func readNotificationJSON(writer http.ResponseWriter, request *http.Request, target any) bool {
-	if !strictSameOrigin(request) {
+func (s *Server) readNotificationJSON(writer http.ResponseWriter, request *http.Request, target any) bool {
+	if s.access == nil && !strictSameOrigin(request) {
 		writeNotificationError(writer, http.StatusForbidden)
 		return false
 	}

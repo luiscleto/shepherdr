@@ -33,6 +33,7 @@ interface HomeViewActions {
   onFocusPane: (paneID: string) => void;
   onOpen: (entry: TerminalEntry) => void;
   onNotifications?: () => void;
+  onDevices?: () => void;
   onReconnect: () => void;
   onShowAll: () => void;
   onShowBlocked: () => void;
@@ -44,6 +45,7 @@ export interface HomeViewRender {
   actionsAvailable: boolean;
   mode: HomeMode;
   reachability: HomeReachability;
+  signInOff?: boolean;
   restore?: { anchorTop?: number; focusPane?: string; pane?: string; scroll: number };
   state: HomeState;
 }
@@ -148,6 +150,8 @@ export class HomeView {
   readonly #connectionDot: HTMLElement;
   readonly #connectionHeading: HTMLElement;
   readonly #connectionPanel: HTMLElement;
+  readonly #accessNotice: HTMLElement;
+  readonly #devicesAction: HTMLButtonElement;
   readonly #document: Document;
   readonly #empty: HTMLElement;
   readonly #expandAction: HTMLButtonElement;
@@ -189,10 +193,11 @@ export class HomeView {
     this.#header = element(this.#document, "header", "masthead");
     const heading = element(this.#document, "div");
     this.#headerHeading = element(this.#document, "h1", undefined, "Home");
+    this.#accessNotice = element(this.#document, "p", "quiet", "Sign-in is off.");
     heading.append(
       element(this.#document, "p", "eyebrow", "Shepherdr"),
       this.#headerHeading,
-      element(this.#document, "p", "quiet", "Sign-in is off."),
+      this.#accessNotice,
     );
     this.#connectionPanel = element(this.#document, "section", "state-panel home-connection");
     this.#connectionPanel.setAttribute("role", "status");
@@ -203,6 +208,8 @@ export class HomeView {
     connectionIndicator.append(this.#connectionDot, this.#connectionHeading);
     this.#connectionAction = this.#button("Reconnect", actions.onReconnect);
     this.#notificationsAction = settingsAction(this.#document, () => actions.onNotifications?.(), "home-notifications");
+    this.#devicesAction = this.#button("Devices", () => actions.onDevices?.());
+    this.#devicesAction.className = "home-devices";
     this.#connectionPanel.append(connectionIndicator, this.#connectionAction, this.#notificationsAction);
     const mastheadActions = element(this.#document, "div", "masthead-actions");
     mastheadActions.append(this.#connectionPanel);
@@ -280,6 +287,12 @@ export class HomeView {
     setClass(this.#app, "home");
     setText(this.#headerHeading, model.mode === "blocked" ? "Blocked" : "Home");
     setHidden(this.#headerHeading, model.mode === "all");
+    setHidden(this.#accessNotice, !model.signInOff);
+    if (model.signInOff === false) {
+      if (this.#devicesAction.parentElement !== this.#connectionPanel) this.#connectionPanel.append(this.#devicesAction);
+    } else {
+      this.#devicesAction.remove();
+    }
 
     const live = model.reachability === "current" && model.state.connection === "live" && !model.state.last_known;
 

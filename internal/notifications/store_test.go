@@ -10,6 +10,68 @@ import (
 	"testing"
 )
 
+func TestProtectedMigrationOwnershipAndResetPreserveVAPIDIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "notifications.json")
+	store, err := OpenStore(path, "mailto:operator@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := validSubscription(t, "https://push.example/legacy", EventSettings{Blocked: true})
+	if err := store.Upsert(legacy); err != nil {
+		t.Fatal(err)
+	}
+	beforeContact, beforeKey, _, _ := store.Config()
+	legacyState := cloneState(store.state)
+	legacyState.Version = legacyStateVersion
+	if err := writeState(path, legacyState); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := OpenStore(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustOne := base64.RawURLEncoding.EncodeToString(make([]byte, 16))
+	trustTwoBytes := make([]byte, 16)
+	trustTwoBytes[0] = 2
+	trustTwo := base64.RawURLEncoding.EncodeToString(trustTwoBytes)
+	if err := restarted.EnableProtected(map[string]struct{}{trustOne: {}, trustTwo: {}}); err != nil {
+		t.Fatal(err)
+	}
+	if restarted.state.Version != stateVersion || len(restarted.state.Subscriptions) != 0 {
+		t.Fatalf("protected migration state=%+v", restarted.state)
+	}
+	one := validSubscription(t, "https://push.example/one-owned", EventSettings{Done: true})
+	two := validSubscription(t, "https://push.example/two-owned", EventSettings{Blocked: true})
+	if err := restarted.UpsertOwned(one, trustOne); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.UpsertOwned(two, trustTwo); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := restarted.LookupOwned(one.Endpoint, trustTwo); err != nil || found {
+		t.Fatalf("other owner lookup found=%t err=%v", found, err)
+	}
+	if err := restarted.UpsertOwned(one, trustTwo); err == nil {
+		t.Fatal("another trusted sign-in claimed an existing endpoint")
+	}
+	if err := restarted.RemoveTrustSubscriptions(trustOne); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, _ := restarted.LookupOwned(one.Endpoint, trustOne); found {
+		t.Fatal("revoked owner subscription remained")
+	}
+	if _, found, _ := restarted.LookupOwned(two.Endpoint, trustTwo); !found {
+		t.Fatal("unrelated owner subscription was removed")
+	}
+	if err := restarted.ResetProtectedSubscriptions(); err != nil {
+		t.Fatal(err)
+	}
+	afterContact, afterKey, configured, err := restarted.Config()
+	if err != nil || !configured || afterContact != beforeContact || afterKey != beforeKey || len(restarted.state.Subscriptions) != 0 {
+		t.Fatalf("protected reset contact=%q key_same=%t configured=%t subscriptions=%d err=%v", afterContact, afterKey == beforeKey, configured, len(restarted.state.Subscriptions), err)
+	}
+}
+
 func TestStorePersistsContactKeysAndIndependentBrowserSettings(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state", "notifications.json")
 	unconfigured, err := OpenStore(path, "")

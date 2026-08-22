@@ -419,8 +419,10 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 					_ = writeTerminalStatus(connection, closedReason)
 					return
 				}
-				_ = connection.SetWriteDeadline(time.Now().Add(10 * time.Second))
-				if err := connection.WriteMessage(websocket.TextMessage, event.line); err != nil {
+				if err := withCommitAuthority(request, func() error {
+					_ = connection.SetWriteDeadline(time.Now().Add(10 * time.Second))
+					return connection.WriteMessage(websocket.TextMessage, event.line)
+				}); err != nil {
 					return
 				}
 				continue
@@ -431,7 +433,7 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 				if detail == "" {
 					detail = "Herdr terminal stream exited"
 				}
-				_ = writeTerminalStatus(connection, detail)
+				_ = withCommitAuthority(request, func() error { return writeTerminalStatus(connection, detail) })
 			}
 			return
 		case message := <-clientMessages:
@@ -448,18 +450,28 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 				_ = writeTerminalStatus(connection, "Rejected browser command: "+err.Error())
 				continue
 			}
+			if !requestAuthorityValid(request) {
+				_ = writeTerminalStatus(connection, "Sign in again")
+				return
+			}
 			for _, childCommand := range browserCommand.childCommands {
 				if lease != nil && !lease.Valid() {
 					_ = writeTerminalStatus(connection, "This terminal was replaced")
 					return
 				}
-				if err := json.NewEncoder(stdin).Encode(childCommand); err != nil {
-					_ = writeTerminalStatus(connection, "Herdr input stream closed")
+				if err := withCommitAuthority(request, func() error {
+					return json.NewEncoder(stdin).Encode(childCommand)
+				}); err != nil {
+					if requestAuthorityValid(request) {
+						_ = writeTerminalStatus(connection, "Herdr input stream closed")
+					}
 					return
 				}
 			}
 			if browserCommand.requestID > 0 {
-				if err := writeJSON(connection, map[string]any{"type": "terminal.input-forwarded", "request_id": browserCommand.requestID}); err != nil {
+				if err := withCommitAuthority(request, func() error {
+					return writeJSON(connection, map[string]any{"type": "terminal.input-forwarded", "request_id": browserCommand.requestID})
+				}); err != nil {
 					return
 				}
 			}
@@ -472,10 +484,12 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 				return
 			}
 			deadline := time.Now().Add(10 * time.Second)
-			if err := connection.WriteControl(websocket.PingMessage, nil, deadline); err != nil {
-				return
-			}
-			if err := writeJSON(connection, map[string]string{"type": "terminal.heartbeat"}); err != nil {
+			if err := withCommitAuthority(request, func() error {
+				if err := connection.WriteControl(websocket.PingMessage, nil, deadline); err != nil {
+					return err
+				}
+				return writeJSON(connection, map[string]string{"type": "terminal.heartbeat"})
+			}); err != nil {
 				return
 			}
 		case <-clientClosed:

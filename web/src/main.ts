@@ -1,4 +1,5 @@
 import "./style.css";
+import { AccessController, hasInvitationFragment, invitationToken, type AccessProbe } from "./access";
 import { HomeView } from "./home-view";
 import {
   homeReachability as deriveHomeReachability,
@@ -39,6 +40,8 @@ const app: HTMLElement = appNode;
 const notificationsNode = document.querySelector<HTMLElement>("#notifications");
 if (!notificationsNode) throw new Error("Notifications root is missing");
 const notifications = new NotificationsController(notificationsNode);
+const accessNode = document.querySelector<HTMLElement>("#access");
+if (!accessNode) throw new Error("Access root is missing");
 const workspaceActions = new WorkspaceActionsClient();
 
 let state: HomeState = {
@@ -64,6 +67,18 @@ let restoreHomePlace = false;
 let publishedStateSignature = "";
 let renderedTerminalPane: string | undefined;
 let terminalPage: TerminalPage | undefined;
+type AppAccessMode = "active" | "checking" | "sign-in-off" | "signed-out" | "trust";
+let trustRoute = hasInvitationFragment(window.location.hash);
+let trustToken = invitationToken(window.location.hash);
+let accessMode: AppAccessMode = trustRoute ? "trust" : "checking";
+let sessionRotating = false;
+if (trustRoute) history.replaceState(null, "", window.location.pathname + window.location.search);
+const accessController = new AccessController(accessNode, {
+  onSessionRotated: accessSessionRotated,
+  onSessionRotating: (active) => { sessionRotating = active; },
+  onSignedIn: accessSignedIn,
+  onSignedOut: accessSignedOut,
+});
 const homeView = new HomeView(app, {
   isHomeActive: () => !terminalPaneFromHash(),
   onFocusPane: (paneID) => {
@@ -71,6 +86,7 @@ const homeView = new HomeView(app, {
   },
   onOpen: openTerminal,
   onNotifications: () => notifications.openSettings(),
+  onDevices: () => void accessController.openDevices(),
   onReconnect: reconnectHome,
   onShowAll: showAllTerminals,
   onShowBlocked: showBlockedTerminals,
@@ -103,6 +119,7 @@ function webSocketURL(endpoint: string): URL {
 }
 
 function connectHome(): void {
+  if (accessMode === "signed-out" || accessMode === "trust") return;
   if (homeReachability() === "offline") return;
   if (homeSocketActive()) {
     scheduleHomeCheck();
@@ -112,6 +129,7 @@ function connectHome(): void {
   homeSocket = socket;
   socket.addEventListener("open", () => {
     if (homeSocket !== socket) return;
+    void accessController.probe().then((mode) => applyAccessProbe(mode, socket));
     scheduleHomeCheck();
   });
   socket.addEventListener("message", (event) => {
@@ -144,13 +162,16 @@ function connectHome(): void {
   socket.addEventListener("close", () => {
     if (homeSocket !== socket) return;
     homeSocket = undefined;
+    if (!sessionRotating && (accessMode === "checking" || accessMode === "active")) {
+      void accessController.probe().then((mode) => applyAccessProbe(mode));
+    }
     scheduleHomeCheck();
   });
   scheduleHomeCheck();
 }
 
 function liveActionsAvailable(): boolean {
-  return state.has_home && homeEvidenceCurrent() && state.connection === "live" && !state.last_known;
+  return (accessMode === "active" || accessMode === "sign-in-off") && state.has_home && homeEvidenceCurrent() && state.connection === "live" && !state.last_known;
 }
 
 function homeReachability(): HomeReachability {
@@ -211,6 +232,30 @@ function terminalPaneFromHash(): string | undefined {
 }
 
 function render(): void {
+  if (accessMode === "trust") {
+    terminalPage?.destroy();
+    terminalPage = undefined;
+    accessController.renderTrust(
+      app,
+      trustToken ?? "",
+      trustToken
+        ? undefined
+        : "This invitation can't be used. Create a new invitation on the machine running Shepherdr or from a trusted device.",
+    );
+    return;
+  }
+  if (accessMode === "signed-out") {
+    terminalPage?.destroy();
+    terminalPage = undefined;
+    accessController.renderSignIn(app);
+    return;
+  }
+  if (accessMode === "checking") {
+    terminalPage?.destroy();
+    terminalPage = undefined;
+    accessController.renderChecking(app);
+    return;
+  }
   const route = parseTerminalRoute(window.location.hash);
   const paneID = route?.paneID;
   if (returningToHome(renderedTerminalPane, paneID)) restoreHomePlace = true;
@@ -235,6 +280,7 @@ function renderHome(): void {
     actionsAvailable: liveActionsAvailable(),
     mode: homeMode,
     reachability: homeReachability(),
+    signInOff: accessMode === "sign-in-off",
     restore: restoreHomePlace
       ? {
           anchorTop: homeAnchorTop,
@@ -249,6 +295,89 @@ function renderHome(): void {
   homeAnchorTop = undefined;
   homeHadListFocus = false;
   restoreHomePlace = false;
+}
+
+function applyAccessProbe(mode: AccessProbe, socket?: WebSocket): void {
+  if (socket && homeSocket !== socket) return;
+  if (mode === "protected") {
+    const changed = accessMode !== "active";
+    accessMode = "active";
+    trustRoute = false;
+    trustToken = undefined;
+    if (changed) void notifications.init();
+    render();
+    return;
+  }
+  if (mode === "sign-in-off") {
+    const changed = accessMode !== "sign-in-off";
+    accessMode = "sign-in-off";
+    if (changed) void notifications.init();
+    render();
+    return;
+  }
+  if (mode === "signed-out") {
+    accessSignedOut();
+  }
+}
+
+function accessSignedIn(): void {
+  accessController.close();
+  accessMode = "checking";
+  trustRoute = false;
+  trustToken = undefined;
+  const stale = homeSocket;
+  homeSocket = undefined;
+  stale?.close();
+  lastValidHomeFrameAt = performance.now();
+  render();
+  connectHome();
+}
+
+function accessSessionRotated(): void {
+  const stale = homeSocket;
+  homeSocket = undefined;
+  stale?.close();
+  lastValidHomeFrameAt = performance.now();
+  connectHome();
+}
+
+function accessSignedOut(): void {
+  accessController.close();
+  terminalPage?.destroy();
+  terminalPage = undefined;
+  const stale = homeSocket;
+  homeSocket = undefined;
+  stale?.close();
+  window.clearTimeout(homeTimer);
+  homeTimer = undefined;
+  state = {
+    connection: "reconnecting",
+    gap: 0,
+    has_home: false,
+    home: { blocked_count: 0, working_count: 0, workspaces: [] },
+    last_known: false,
+  };
+  publishedStateSignature = "";
+  selectedTerminal = undefined;
+  notificationsNode!.replaceChildren();
+  accessMode = "signed-out";
+  window.location.hash = "";
+  render();
+}
+
+function enterInvitationFromHash(): boolean {
+  if (!hasInvitationFragment(window.location.hash)) return false;
+  trustRoute = true;
+  trustToken = invitationToken(window.location.hash);
+  accessMode = "trust";
+  history.replaceState(null, "", window.location.pathname + window.location.search);
+  const stale = homeSocket;
+  homeSocket = undefined;
+  stale?.close();
+  window.clearTimeout(homeTimer);
+  homeTimer = undefined;
+  render();
+  return true;
 }
 
 function currentFocusedPane(): string | undefined {
@@ -362,9 +491,10 @@ function leaveTerminal(): void {
   window.location.hash = "";
 }
 
-window.addEventListener("hashchange", render);
+window.addEventListener("hashchange", () => {
+  if (!enterInvitationFromHash()) render();
+});
 window.addEventListener("online", connectHome);
 
 connectHome();
 render();
-void notifications.init();

@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	stateVersion     = 1
-	MaxSubscriptions = 256
+	stateVersion       = 2
+	legacyStateVersion = 1
+	MaxSubscriptions   = 256
 )
 
 type EventSettings struct {
@@ -38,6 +39,7 @@ type Subscription struct {
 	ExpirationTime *float64         `json:"expiration_time,omitempty"`
 	Keys           SubscriptionKeys `json:"keys"`
 	Events         EventSettings    `json:"events"`
+	TrustID        string           `json:"trust_id,omitempty"`
 }
 
 type BrowserSubscription struct {
