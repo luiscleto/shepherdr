@@ -1,6 +1,8 @@
 # Passkey sign-in and trusted-device architecture proposal
 
-Status: proposed for human review; not approved
+Status: approved
+
+Approved: 2026-08-22
 
 Base: `fc8facb72f7a854b078f0b7ff6ffa273211d9fe2`
 
