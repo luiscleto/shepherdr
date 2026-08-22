@@ -17,7 +17,7 @@ Shepherdr manages Herdr. It does not replace Herdr.
 The broader product direction remains:
 
 1. Open Shepherdr in the chosen sign-in mode.
-2. Trust this device when passkeys are on and the device is new.
+2. Sign in with a passkey, or use a setup link or QR code to trust this browser and create a passkey.
 3. See Herdr's current workspaces and terminals, with agent identity and status when an agent is present.
 4. See how many agents are working and which agents are blocked.
 5. Open the intended current real terminal.
