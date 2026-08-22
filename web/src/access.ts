@@ -33,6 +33,9 @@ interface PublicKeyOptions {
   publicKey: Record<string, unknown>;
 }
 
+const unusableInvitationMessage =
+  "This invitation can't be used. Create a new invitation on the machine running Shepherdr or from a trusted device.";
+
 class AccessRequestError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -120,10 +123,19 @@ export class AccessController {
 
   renderTrust(host: HTMLElement, token: string, message?: string): void {
     host.className = "access-screen";
+    if (!token) {
+      const panel = element(this.#document, "section", "access-panel");
+      panel.append(element(this.#document, "p", "access-feedback", unusableInvitationMessage));
+      host.replaceChildren(panel);
+      return;
+    }
     const panel = this.#panel("Shepherdr", "Trust this device");
     panel.append(element(this.#document, "p", undefined, "Create a passkey to trust this browser."));
     const label = element(this.#document, "label", "access-field");
-    label.append(element(this.#document, "span", undefined, "Name"));
+    label.append(
+      element(this.#document, "span", undefined, "Label"),
+      element(this.#document, "span", "access-field-help", "Shown on Devices. Not an account."),
+    );
     const input = element(this.#document, "input");
     input.name = "device-label";
     input.maxLength = 160;
@@ -186,13 +198,13 @@ export class AccessController {
       await accessRequest("/api/auth/trust/finish", "POST", credential);
       this.#busy = false;
       this.#actions.onSignedIn();
-    } catch {
+    } catch (error) {
       this.#busy = false;
-      this.renderTrust(
-        host,
-        token,
-        "This invitation can't be used. Create a new invitation on the machine running Shepherdr or from a trusted device.",
-      );
+      if (error instanceof AccessRequestError && error.status === 400 && error.message === unusableInvitationMessage) {
+        this.renderTrust(host, "");
+        return;
+      }
+      this.renderTrust(host, token, "Passkey not created. Try again.");
     }
   }
 
@@ -252,8 +264,8 @@ export class AccessController {
             this.#document,
             "span",
             undefined,
-            (device.backup_state ? "Backup reported" : "No backup reported") +
-              " — last reported by this passkey " + formatTime(device.backup_observed_at),
+            "Last reported by this passkey at " + formatTime(device.backup_observed_at) +
+              (device.backup_state ? ": backup" : ": no backup"),
           ),
         );
         item.append(copy);
@@ -267,7 +279,16 @@ export class AccessController {
         action(this.#document, "Trust another device", () => void this.#createInvitation(devices), "access-primary"),
         action(this.#document, "Sign out", () => void this.#signOut(devices)),
       );
-      panel.append(list, actions);
+      panel.append(list);
+      if (!devices.can_revoke) {
+        panel.append(element(
+          this.#document,
+          "p",
+          "access-scope",
+          "This is the last trusted sign-in. To clear all access, stop Shepherdr and reset it on the machine.",
+        ));
+      }
+      panel.append(actions);
     }
     layer.append(panel);
     this.#root.replaceChildren(layer);

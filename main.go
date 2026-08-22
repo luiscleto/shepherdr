@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -140,7 +141,7 @@ func run() error {
 		defer accessManager.Close()
 		protectedOrigin = opened.Origin
 		if opened.BootstrapToken != "" {
-			printInvitation(protectedOrigin.InvitationURL(opened.BootstrapToken))
+			printInvitation(os.Stdout, protectedOrigin.InvitationURL(opened.BootstrapToken))
 		}
 	}
 	var notificationStore *notifications.Store
@@ -273,7 +274,7 @@ func runAccessCommand(arguments []string, accessPath, notificationPath string) e
 		if err != nil {
 			return err
 		}
-		printInvitation(link)
+		printInvitation(os.Stdout, link)
 		fmt.Printf("Expires: %s\n", expiresAt.Format(time.RFC3339))
 		return nil
 	case "devices":
@@ -330,8 +331,9 @@ func runAccessCommand(arguments []string, accessPath, notificationPath string) e
 	}
 }
 
-func printInvitation(link string) {
-	fmt.Println("Trust this device:")
-	fmt.Println(link)
-	qrterminal.GenerateHalfBlock(link, qrterminal.L, os.Stdout)
+func printInvitation(writer io.Writer, link string) {
+	fmt.Fprintln(writer, "Trust this device")
+	fmt.Fprintln(writer, "Open this link on that computer, or scan the QR code on a phone.")
+	fmt.Fprintln(writer, link)
+	qrterminal.GenerateHalfBlock(link, qrterminal.L, writer)
 }

@@ -235,13 +235,7 @@ function render(): void {
   if (accessMode === "trust") {
     terminalPage?.destroy();
     terminalPage = undefined;
-    accessController.renderTrust(
-      app,
-      trustToken ?? "",
-      trustToken
-        ? undefined
-        : "This invitation can't be used. Create a new invitation on the machine running Shepherdr or from a trusted device.",
-    );
+    accessController.renderTrust(app, trustToken ?? "");
     return;
   }
   if (accessMode === "signed-out") {

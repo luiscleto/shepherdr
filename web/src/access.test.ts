@@ -33,7 +33,7 @@ test("invitation fragments accept only one exact bearer shape", () => {
   assert.equal(hasInvitationFragment("#terminal=pane-one"), false);
 });
 
-test("sign-in and invitation recovery use the approved small passkey screens", () => {
+test("sign-in, trust labeling, and unusable invitations use the approved small screens", () => {
   const window = new Window();
   const root = window.document.createElement("div");
   const host = window.document.createElement("main");
@@ -46,13 +46,86 @@ test("sign-in and invitation recovery use the approved small passkey screens", (
   assert.equal(host.textContent?.includes("email"), false);
   assert.equal(host.textContent?.includes("account"), false);
 
-  controller.renderTrust(host, validInvitation, "This invitation can't be used. Create a new invitation on the machine running Shepherdr or from a trusted device.");
+  controller.renderTrust(host, validInvitation);
   assert.equal(host.querySelector("h1")?.textContent, "Trust this device");
   assert.equal(host.querySelector("input")?.getAttribute("maxlength"), "160");
+  assert.equal(host.querySelector(".access-field > span")?.textContent, "Label");
+  assert.equal(host.querySelector(".access-field-help")?.textContent, "Shown on Devices. Not an account.");
+
+  controller.renderTrust(host, "");
+  assert.equal(
+    host.textContent,
+    "This invitation can't be used. Create a new invitation on the machine running Shepherdr or from a trusted device.",
+  );
   assert.equal(
     host.querySelector(".access-feedback")?.textContent,
     "This invitation can't be used. Create a new invitation on the machine running Shepherdr or from a trusted device.",
   );
+  assert.equal(host.querySelectorAll("input").length, 0);
+  assert.equal(host.querySelectorAll("button").length, 0);
+  assert.equal(host.textContent?.includes("Create a passkey to trust this browser."), false);
+});
+
+test("Trust keeps local passkey cancellation retryable but removes a server-rejected invitation", async (t) => {
+  await t.test("local cancellation", async () => {
+    const window = new Window();
+    const host = window.document.createElement("main");
+    window.document.body.append(host);
+    const controller = new AccessController(host, accessActions());
+    const originalFetch = globalThis.fetch;
+    const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    let requests = 0;
+    globalThis.fetch = async () => {
+      requests++;
+      return jsonResponse({ publicKey: { challenge: "", user: { id: "" } } });
+    };
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { credentials: { create: async () => { throw new Error("canceled"); } } },
+    });
+    try {
+      controller.renderTrust(host, validInvitation);
+      const trust = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Trust this device");
+      trust?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalNavigator) {
+        Object.defineProperty(globalThis, "navigator", originalNavigator);
+      } else {
+        Reflect.deleteProperty(globalThis, "navigator");
+      }
+    }
+    assert.equal(requests, 1);
+    assert.equal(host.querySelector(".access-feedback")?.textContent, "Passkey not created. Try again.");
+    assert.equal(host.querySelectorAll("input").length, 1);
+    assert.equal(Array.from(host.querySelectorAll("button")).some((button) => button.textContent === "Trust this device"), true);
+  });
+
+  await t.test("server invitation rejection", async () => {
+    const window = new Window();
+    const host = window.document.createElement("main");
+    window.document.body.append(host);
+    const controller = new AccessController(host, accessActions());
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => jsonResponse({
+      error: "This invitation can't be used. Create a new invitation on the machine running Shepherdr or from a trusted device.",
+    }, 400);
+    try {
+      controller.renderTrust(host, validInvitation);
+      const trust = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Trust this device");
+      trust?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+    assert.equal(
+      host.querySelector(".access-feedback")?.textContent,
+      "This invitation can't be used. Create a new invitation on the machine running Shepherdr or from a trusted device.",
+    );
+    assert.equal(host.querySelectorAll("input").length, 0);
+    assert.equal(host.querySelectorAll("button").length, 0);
+  });
 });
 
 test("Devices confines hostile labels and omits Revoke for the final trusted sign-in", async () => {
@@ -85,7 +158,15 @@ test("Devices confines hostile labels and omits Revoke for the final trusted sig
   assert.equal(root.querySelectorAll("img").length, 0);
   assert.equal(Array.from(root.querySelectorAll("button")).some((button) => button.textContent === "Revoke"), false);
   assert.equal(root.textContent?.includes("A passkey may sync."), true);
-  assert.equal(root.textContent?.includes("last reported by this passkey"), true);
+  assert.equal(
+    root.textContent?.includes("This is the last trusted sign-in. To clear all access, stop Shepherdr and reset it on the machine."),
+    true,
+  );
+  const backupObservation = Array.from(root.querySelectorAll(".device-row span"))
+    .map((node) => node.textContent ?? "")
+    .find((text) => text.startsWith("Last reported by this passkey at "));
+  assert.equal(backupObservation?.endsWith(": backup"), true);
+  assert.equal(backupObservation?.includes("Backup reported"), false);
 });
 
 test("Devices offers Revoke only when another trusted sign-in remains", async () => {
@@ -116,6 +197,12 @@ test("Devices offers Revoke only when another trusted sign-in remains", async ()
   assert.equal(revokeCount, 2);
   assert.equal(Array.from(root.querySelectorAll("button")).some((button) => button.textContent === "Sign out"), true);
   assert.equal(Array.from(root.querySelectorAll("button")).some((button) => button.textContent === "Trust another device"), true);
+  const backupObservations = Array.from(root.querySelectorAll(".device-row span"))
+    .map((node) => node.textContent ?? "")
+    .filter((text) => text.startsWith("Last reported by this passkey at "));
+  assert.equal(backupObservations.length, 2);
+  assert.equal(backupObservations.every((text) => text.endsWith(": no backup")), true);
+  assert.equal(root.textContent?.includes("This is the last trusted sign-in."), false);
 });
 
 test("Sign out stays truthful on failure and closes only after confirmation", async (t) => {
