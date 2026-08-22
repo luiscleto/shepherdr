@@ -4,6 +4,45 @@ export const HOME_RETRY_DELAY_MS = 1_200;
 
 export type HomeReachability = "current" | "offline" | "reconnecting";
 
+export interface HomeConnectionHandle {
+  close(): void;
+}
+
+export class HomeConnectionOwner<T extends HomeConnectionHandle> {
+  #current: T | undefined;
+
+  get current(): T | undefined {
+    return this.#current;
+  }
+
+  active(isActive: (connection: T) => boolean): boolean {
+    return this.#current !== undefined && isActive(this.#current);
+  }
+
+  owns(connection: T): boolean {
+    return this.#current === connection;
+  }
+
+  release(connection: T): boolean {
+    if (!this.owns(connection)) return false;
+    this.#current = undefined;
+    return true;
+  }
+
+  replace(create: () => T, activate: (connection: T) => void): T {
+    const stale = this.#current;
+    this.#current = undefined;
+    stale?.close();
+
+    const connection = create();
+    this.#current = connection;
+    activate(connection);
+    return connection;
+  }
+}
+
+export type HomeConnectionMaintenance = "connected" | "replaced" | "waiting";
+
 export function homeReachability(lastValidHomeFrameAt: number, now: number): HomeReachability {
   const absence = Math.max(0, now - lastValidHomeFrameAt);
   if (absence >= HOME_RECOVERY_LIMIT_MS) return "offline";
@@ -25,9 +64,32 @@ export function nextHomeCheckDelay(
   return socketActive ? untilDeadline : Math.min(HOME_RETRY_DELAY_MS, untilDeadline);
 }
 
+export function maintainHomeConnection<T extends HomeConnectionHandle>(
+  reachability: HomeReachability,
+  owner: HomeConnectionOwner<T>,
+  isActive: (connection: T) => boolean,
+  create: () => T,
+  activate: (connection: T) => void,
+  replaceActive = false,
+): HomeConnectionMaintenance {
+  const active = owner.active(isActive);
+  if (active && reachability === "current" && !replaceActive) return "waiting";
+  owner.replace(create, activate);
+  return active ? "replaced" : "connected";
+}
+
+export function refreshHomeConnectionView(homeActive: boolean, renderHome: () => void): void {
+  if (homeActive) renderHome();
+}
+
 export function resumeHomeConnection(
   visibilityState: DocumentVisibilityState,
+  homeActive: boolean,
+  renderHome: () => void,
   reconnect: () => void,
-): void {
-  if (visibilityState === "visible") reconnect();
+): boolean {
+  if (visibilityState !== "visible") return false;
+  refreshHomeConnectionView(homeActive, renderHome);
+  reconnect();
+  return true;
 }

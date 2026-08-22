@@ -1,8 +1,11 @@
 import "./style.css";
 import { HomeView } from "./home-view";
 import {
+  HomeConnectionOwner,
   homeReachability as deriveHomeReachability,
+  maintainHomeConnection,
   nextHomeCheckDelay,
+  refreshHomeConnectionView,
   resumeHomeConnection,
   type HomeReachability,
 } from "./home-connection";
@@ -49,7 +52,7 @@ let state: HomeState = {
   home: { blocked_count: 0, working_count: 0, workspaces: [] },
   last_known: false,
 };
-let homeSocket: WebSocket | undefined;
+const homeConnections = new HomeConnectionOwner<WebSocket>();
 let homeTimer: number | undefined;
 let lastValidHomeFrameAt = performance.now();
 let selectedTerminal: TerminalEntry | undefined;
@@ -102,19 +105,17 @@ function webSocketURL(endpoint: string): URL {
   return url;
 }
 
-function connectHome(): void {
-  if (homeSocketActive()) {
-    scheduleHomeCheck();
-    return;
-  }
-  const socket = new WebSocket(webSocketURL("/api/home"));
-  homeSocket = socket;
+function createHomeSocket(): WebSocket {
+  return new WebSocket(webSocketURL("/api/home"));
+}
+
+function activateHomeSocket(socket: WebSocket): void {
   socket.addEventListener("open", () => {
-    if (homeSocket !== socket) return;
+    if (!homeConnections.owns(socket)) return;
     scheduleHomeCheck();
   });
   socket.addEventListener("message", (event) => {
-    if (homeSocket !== socket) return;
+    if (!homeConnections.owns(socket)) return;
     try {
       const raw = String(event.data);
       const parsed: unknown = JSON.parse(raw);
@@ -141,11 +142,22 @@ function connectHome(): void {
     }
   });
   socket.addEventListener("close", () => {
-    if (homeSocket !== socket) return;
-    homeSocket = undefined;
+    if (!homeConnections.release(socket)) return;
     scheduleHomeCheck();
   });
   scheduleHomeCheck();
+}
+
+function connectHome(replaceActive = false): void {
+  const maintenance = maintainHomeConnection(
+    homeReachability(),
+    homeConnections,
+    homeSocketIsActive,
+    createHomeSocket,
+    activateHomeSocket,
+    replaceActive,
+  );
+  if (maintenance === "waiting") scheduleHomeCheck();
 }
 
 function liveActionsAvailable(): boolean {
@@ -161,15 +173,11 @@ function homeEvidenceCurrent(): boolean {
 }
 
 function homeSocketActive(): boolean {
-  return homeSocket?.readyState === WebSocket.OPEN || homeSocket?.readyState === WebSocket.CONNECTING;
+  return homeConnections.active(homeSocketIsActive);
 }
 
-function restartHomeConnection(): void {
-  render();
-  const stale = homeSocket;
-  homeSocket = undefined;
-  stale?.close();
-  connectHome();
+function homeSocketIsActive(socket: WebSocket): boolean {
+  return socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING;
 }
 
 function scheduleHomeCheck(): void {
@@ -184,18 +192,10 @@ function checkHomeConnection(): void {
   homeTimer = undefined;
   const now = performance.now();
   const reachability = deriveHomeReachability(lastValidHomeFrameAt, now);
-  if (reachability === "offline") render();
-  if (reachability === "reconnecting") render();
-  if (reachability === "reconnecting" && homeSocketActive()) {
-    const stale = homeSocket;
-    homeSocket = undefined;
-    stale?.close();
+  if (reachability !== "current") {
+    refreshHomeConnectionView(!terminalPaneFromHash(), renderHome);
   }
-  if (!homeSocketActive()) {
-    connectHome();
-    return;
-  }
-  scheduleHomeCheck();
+  connectHome();
 }
 
 function terminalPaneFromHash(): string | undefined {
@@ -355,9 +355,14 @@ function leaveTerminal(): void {
 }
 
 window.addEventListener("hashchange", render);
-window.addEventListener("online", connectHome);
+window.addEventListener("online", () => connectHome());
 document.addEventListener("visibilitychange", () => {
-  resumeHomeConnection(document.visibilityState, restartHomeConnection);
+  resumeHomeConnection(
+    document.visibilityState,
+    !terminalPaneFromHash(),
+    renderHome,
+    () => connectHome(true),
+  );
 });
 
 connectHome();
