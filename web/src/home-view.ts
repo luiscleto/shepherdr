@@ -13,6 +13,7 @@ import {
   type TerminalEntry,
   type Workspace,
 } from "./home-model";
+import { settingsAction } from "./settings-action";
 import type { HomeReachability } from "./home-connection";
 import {
   type ConfirmationFacts,
@@ -201,11 +202,10 @@ export class HomeView {
     this.#connectionHeading = element(this.#document, "span", "connection-label");
     connectionIndicator.append(this.#connectionDot, this.#connectionHeading);
     this.#connectionAction = this.#button("Reconnect", actions.onReconnect);
-    this.#connectionPanel.append(connectionIndicator, this.#connectionAction);
-    this.#notificationsAction = this.#button("Notifications", () => actions.onNotifications?.());
-    this.#notificationsAction.className = "home-notifications";
+    this.#notificationsAction = settingsAction(this.#document, () => actions.onNotifications?.(), "home-notifications");
+    this.#connectionPanel.append(connectionIndicator, this.#connectionAction, this.#notificationsAction);
     const mastheadActions = element(this.#document, "div", "masthead-actions");
-    mastheadActions.append(this.#notificationsAction, this.#connectionPanel);
+    mastheadActions.append(this.#connectionPanel);
     this.#header.append(heading, mastheadActions);
 
     this.#loading = element(this.#document, "section", "state-panel");

@@ -92,20 +92,45 @@ button:disabled {
   min-height: 4rem;
 }
 
+.masthead > :first-child {
+  min-width: 0;
+}
+
 .masthead-actions {
   display: flex;
+  min-width: 0;
   flex: 0 1 auto;
   align-items: flex-start;
-  gap: 0.35rem;
+}
+
+.settings-action {
+  display: grid;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  flex: 0 0 44px;
+  place-items: center;
+  border-color: var(--line-strong);
+  background: var(--paper-raised);
+  padding: 0;
+}
+
+.settings-action svg {
+  width: 20px;
+  height: 20px;
+  fill: var(--paper-raised);
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .home-notifications {
-  min-width: 44px;
-  min-height: 44px;
-  border-color: var(--line-strong);
-  background: var(--paper-raised);
-  padding: 0.4rem 0.55rem;
-  font-size: 0.75rem;
+  align-self: flex-end;
+  border: 0;
+  color: var(--accent);
+  background: transparent;
 }
 
 .masthead,
@@ -918,7 +943,7 @@ button.terminal-row:hover {
   position: fixed;
   z-index: 20;
   right: 0;
-  bottom: 0;
+  bottom: max(0px, calc(100vh - 100dvh));
   left: 0;
   justify-content: center;
   gap: 0.75rem;
@@ -1006,10 +1031,13 @@ button.terminal-row:hover {
 }
 
 .terminal-home,
-.terminal-notifications,
 .terminal-control-action {
   flex: 0 0 auto;
   padding: 0.35rem 0.6rem;
+}
+
+.terminal-notifications {
+  padding: 0;
 }
 
 .notification-invitation {
@@ -1069,21 +1097,34 @@ button.terminal-row:hover {
   z-index: 100;
   inset: 0;
   display: grid;
+  width: 100%;
+  max-width: 100vw;
+  height: 100dvh;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   align-items: end;
-  overflow: auto;
+  overflow: hidden;
   background: rgba(33, 31, 29, 0.32);
   padding: max(1rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) max(0.75rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
 }
 
 .notification-panel {
   width: min(100%, 36rem);
-  max-height: calc(100dvh - 2rem);
-  overflow: auto;
+  max-width: 100%;
+  max-height: 100%;
+  min-width: 0;
+  min-height: 0;
+  justify-self: center;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--line-strong);
-  margin: 0 auto;
   background: var(--paper-raised);
   box-shadow: 0 8px 26px rgba(33, 31, 29, 0.2);
   padding: 1rem;
+  -webkit-overflow-scrolling: touch;
 }
 
 .notification-panel-header {

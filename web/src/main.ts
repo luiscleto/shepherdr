@@ -18,6 +18,7 @@ import { TerminalPage } from "./terminal-page";
 import { parseTerminalRoute, returningToHome, terminalRouteOutcome } from "./terminal-route";
 import { WorkspaceActionsClient } from "./workspace-actions";
 import { NotificationsController } from "./notifications";
+import { settingsAction } from "./settings-action";
 
 interface HomeHeartbeat {
   epoch: string;
@@ -333,7 +334,7 @@ function renderTerminalWaiting(): void {
   panel.append(
     element("strong", undefined, "Connecting"),
     element("p", undefined, "Waiting for this terminal."),
-    button("Notifications", () => notifications.openSettings()),
+    settingsAction(document, () => notifications.openSettings(), "terminal-notifications"),
     button("Home", leaveTerminal),
   );
   app.replaceChildren(panel);
@@ -347,7 +348,7 @@ function renderTerminalUnavailable(): void {
   panel.append(
     element("strong", undefined, "Terminal unavailable"),
     element("p", undefined, "This terminal is no longer here."),
-    button("Notifications", () => notifications.openSettings()),
+    settingsAction(document, () => notifications.openSettings(), "terminal-notifications"),
     button("Home", leaveTerminal),
   );
   app.replaceChildren(panel);

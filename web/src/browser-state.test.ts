@@ -199,7 +199,8 @@ test("Home shows one real initial or unavailable state with the transport-owned 
   assert.equal(requiredElement(connection, ".connection-label").textContent, "Reconnecting");
   assert.equal(requiredElement(connection, ".connection-label").localName, "span");
   assert.equal(requiredElement(connection, ".connection-dot").className, "connection-dot connection-dot-reconnecting");
-  assert.equal(connection.childElementCount, 2);
+  assert.equal(connection.childElementCount, 3);
+  assert.equal(connection.children.item(2)?.getAttribute("aria-label"), "Settings");
   assert.equal(connection.querySelectorAll("p, details").length, 0);
   assert.equal(connection.querySelectorAll("strong").length, 0);
   assert.match(app.textContent ?? "", /Loading terminals/);
@@ -218,7 +219,7 @@ test("Home shows one real initial or unavailable state with the transport-owned 
   render(view, state());
   assert.equal(requiredElement(connection, ".connection-label").textContent, "Live");
   assert.equal(requiredElement(connection, ".connection-dot").className, "connection-dot connection-dot-live");
-  assert.equal(connection.childElementCount, 2);
+  assert.equal(connection.childElementCount, 3);
   assert.equal(requiredRow(view, "pane-one").localName, "button");
   assert.equal(requiredRow(view, "pane-one").getAttribute("aria-disabled"), null);
   assert.doesNotMatch(app.textContent ?? "", /Home is updating|Loading terminals/);
@@ -311,7 +312,7 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   const connection = requiredElement(app, ".home-connection");
   const reconnectAction = requiredElement(connection, "button") as HTMLButtonElement;
   const row = requiredRow(view, "pane-one");
-  assert.equal(connection.childElementCount, 2);
+  assert.equal(connection.childElementCount, 3);
   assert.equal(reconnectAction.hidden, true);
   row.click();
   assert.equal(opens, 1);
@@ -327,7 +328,7 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   assert.equal(app.querySelectorAll(".terminal-row").length, 1);
   assert.equal(requiredElement(connection, ".connection-label").textContent, "Reconnecting");
   assert.equal(requiredElement(connection, ".connection-dot").className, "connection-dot connection-dot-reconnecting");
-  assert.equal(connection.childElementCount, 2);
+  assert.equal(connection.childElementCount, 3);
   assert.equal(reconnectAction.hidden, true);
   assert.doesNotMatch(connection.textContent ?? "", /State below|fresh view|Values below/);
   unavailableRow.click();
@@ -336,7 +337,7 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   render(view, stale, { actionsAvailable: false, reachability: "offline" });
   assert.equal(requiredElement(connection, ".connection-label").textContent, "Offline");
   assert.equal(requiredElement(connection, ".connection-dot").className, "connection-dot connection-dot-offline");
-  assert.equal(connection.childElementCount, 2);
+  assert.equal(connection.childElementCount, 3);
   assert.equal(reconnectAction.hidden, false);
   reconnectAction.click();
   assert.equal(reconnects, 1);

@@ -228,7 +228,7 @@ test("denied permission shows browser guidance without subscribing", async () =>
   assert.match(root.textContent ?? "", /Notifications are blocked in this browser\. Allow them in browser settings\./);
 });
 
-test("Home settings action and exact notification route prefer valid current state over stale selection", () => {
+test("Home keeps its icon-only Settings action below the connection indicator", () => {
   const window = new Window({ url: "https://shepherdr.example/" });
   const app = window.document.createElement("main");
   window.document.body.append(app);
@@ -256,9 +256,21 @@ test("Home settings action and exact notification route prefer valid current sta
       last_known: false,
     },
   });
-  buttonWithText(app, "Notifications").click();
+  const settings = app.querySelector<HTMLButtonElement>("button.home-notifications");
+  assert.equal(settings?.getAttribute("aria-label"), "Settings");
+  assert.equal(settings?.classList.contains("settings-action"), true);
+  assert.equal(settings?.textContent, "");
+  assert.equal(settings?.querySelectorAll("svg").length, 1);
+  assert.equal(settings?.parentElement?.className, "state-panel home-connection");
+  assert.equal(settings?.parentElement?.children.item(0)?.className, "connection-indicator");
+  assert.equal(settings?.parentElement?.children.item(1)?.textContent, "Reconnect");
+  assert.equal(settings?.parentElement?.children.item(2)?.getAttribute("aria-label"), "Settings");
+  settings?.click();
   assert.equal(opened, 1);
+  window.close();
+});
 
+test("exact notification route prefers valid current state over stale selection", () => {
   const route = parseTerminalRoute("#terminal=w1%3Ap1&terminal_id=term-1");
   assert.equal(route?.paneID, "w1:p1");
   assert.equal(route?.terminalID, "term-1");
@@ -313,5 +325,4 @@ test("push worker derives generic exact notices and safely handles click fallbac
 
   const styles = readFileSync(new URL("./style.css", import.meta.url), "utf8");
   assert.match(styles, /\.notification-invitation-actions button,[\s\S]*min-height:\s*44px;/);
-  assert.match(styles, /\.terminal-notifications,/);
 });

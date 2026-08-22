@@ -1,4 +1,5 @@
 import { terminalKeySequences, terminalSubmission } from "./terminal-input";
+import { settingsAction } from "./settings-action";
 import type { TerminalDimensions } from "./terminal/adapter";
 import { terminalReaderForDevice } from "./terminal/device";
 import { nextTerminalOwnership, terminalOwnershipAction, type TerminalOwnership } from "./terminal/ownership";
@@ -84,7 +85,7 @@ export class TerminalPage {
     this.#controlAction = element("button", "terminal-control-action", "Control");
     this.#controlAction.type = "button";
     this.#controlAction.hidden = true;
-    const notifications = action("Notifications", () => options.onNotifications?.(), "terminal-notifications");
+    const notifications = settingsAction(document, () => options.onNotifications?.(), "terminal-notifications");
     header.append(home, title, notifications, this.#controlAction);
 
     this.#surface = element("div", "terminal-production-surface");
