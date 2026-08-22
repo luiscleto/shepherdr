@@ -66,7 +66,8 @@ Connection state comes only from the real connection, not from Home reads.
 
 - Valid current data, or a small liveness heartbeat when nothing changed, means **Live**.
 - A broken connection means **Reconnecting**.
-- The existing 45-second threshold leads to **Offline**, with the existing manual reconnect action.
+- The existing 45-second threshold leads to **Offline** while the same restrained connection loop keeps retrying automatically at its existing cadence.
+- Returning a suspended or backgrounded browser to view restarts that same connection path without resetting liveness evidence.
 - A stopped or incompatible Herdr reports its exact state.
 
 Reading or replacing Home never changes the connection badge. Ordinary activity must not blink, animate, add a banner, or move the page. The badge has a stable place at the top right.

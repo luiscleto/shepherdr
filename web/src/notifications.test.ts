@@ -260,7 +260,6 @@ test("Home keeps its icon-only Settings action below the connection indicator", 
     onFocusPane: () => undefined,
     onNotifications: () => { opened++; },
     onOpen: () => undefined,
-    onReconnect: () => undefined,
     onShowAll: () => undefined,
     onShowBlocked: () => undefined,
     prepareWorkspaceAction: async () => ({ outcome: "refused", reason: "not_applicable" }),
@@ -285,8 +284,8 @@ test("Home keeps its icon-only Settings action below the connection indicator", 
   assert.equal(settings?.querySelectorAll("svg").length, 1);
   assert.equal(settings?.parentElement?.className, "state-panel home-connection");
   assert.equal(settings?.parentElement?.children.item(0)?.className, "connection-indicator");
-  assert.equal(settings?.parentElement?.children.item(1)?.textContent, "Reconnect");
-  assert.equal(settings?.parentElement?.children.item(2)?.getAttribute("aria-label"), "Settings");
+  assert.equal(settings?.parentElement?.children.item(1)?.getAttribute("aria-label"), "Settings");
+  assert.equal(settings?.parentElement?.childElementCount, 2);
   settings?.click();
   assert.equal(opened, 1);
   window.close();

@@ -317,7 +317,6 @@ test("Home quietly distinguishes sign-in-off from protected Devices", () => {
     isHomeActive: () => true,
     onFocusPane: () => undefined,
     onOpen: () => undefined,
-    onReconnect: () => undefined,
     onShowAll: () => undefined,
     onShowBlocked: () => undefined,
     prepareWorkspaceAction: async () => ({ outcome: "refused", reason: "not_applicable" }),

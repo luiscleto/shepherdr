@@ -2,8 +2,14 @@ import "./style.css";
 import { AccessController, hasInvitationFragment, invitationToken, type AccessProbe } from "./access";
 import { HomeView } from "./home-view";
 import {
+  HomeConnectionOwner,
+  homeConnectionAllowed,
   homeReachability as deriveHomeReachability,
+  maintainHomeConnection,
   nextHomeCheckDelay,
+  refreshHomeConnectionView,
+  resumeHomeConnection,
+  type HomeAccessMode,
   type HomeReachability,
 } from "./home-connection";
 import {
@@ -51,7 +57,7 @@ let state: HomeState = {
   home: { blocked_count: 0, working_count: 0, workspaces: [] },
   last_known: false,
 };
-let homeSocket: WebSocket | undefined;
+const homeConnections = new HomeConnectionOwner<WebSocket>();
 let homeTimer: number | undefined;
 let lastValidHomeFrameAt = performance.now();
 let selectedTerminal: TerminalEntry | undefined;
@@ -67,11 +73,14 @@ let restoreHomePlace = false;
 let publishedStateSignature = "";
 let renderedTerminalPane: string | undefined;
 let terminalPage: TerminalPage | undefined;
-type AppAccessMode = "active" | "checking" | "sign-in-off" | "signed-out" | "trust";
+type AppAccessMode = HomeAccessMode;
 let trustRoute = hasInvitationFragment(window.location.hash);
 let trustToken = invitationToken(window.location.hash);
 let accessMode: AppAccessMode = trustRoute ? "trust" : "checking";
 let sessionRotating = false;
+let accessProbePending = false;
+let accessProbeVersion = 0;
+let homeAuthorityReady = false;
 if (trustRoute) history.replaceState(null, "", window.location.pathname + window.location.search);
 const accessController = new AccessController(accessNode, {
   onSessionRotated: accessSessionRotated,
@@ -80,14 +89,13 @@ const accessController = new AccessController(accessNode, {
   onSignedOut: accessSignedOut,
 });
 const homeView = new HomeView(app, {
-  isHomeActive: () => !terminalPaneFromHash(),
+  isHomeActive: homeInterfaceActive,
   onFocusPane: (paneID) => {
     lastFocusedHomePane = paneID;
   },
   onOpen: openTerminal,
   onNotifications: () => notifications.openSettings(),
   onDevices: () => void accessController.openDevices(),
-  onReconnect: reconnectHome,
   onShowAll: showAllTerminals,
   onShowBlocked: showBlockedTerminals,
   prepareWorkspaceAction: (request) => workspaceActions.prepare(request),
@@ -118,22 +126,17 @@ function webSocketURL(endpoint: string): URL {
   return url;
 }
 
-function connectHome(): void {
-  if (accessMode === "signed-out" || accessMode === "trust") return;
-  if (homeReachability() === "offline") return;
-  if (homeSocketActive()) {
-    scheduleHomeCheck();
-    return;
-  }
-  const socket = new WebSocket(webSocketURL("/api/home"));
-  homeSocket = socket;
+function createHomeSocket(): WebSocket {
+  return new WebSocket(webSocketURL("/api/home"));
+}
+
+function activateHomeSocket(socket: WebSocket): void {
   socket.addEventListener("open", () => {
-    if (homeSocket !== socket) return;
-    void accessController.probe().then((mode) => applyAccessProbe(mode, socket));
+    if (!homeConnections.owns(socket)) return;
     scheduleHomeCheck();
   });
   socket.addEventListener("message", (event) => {
-    if (homeSocket !== socket) return;
+    if (!homeConnections.owns(socket)) return;
     try {
       const raw = String(event.data);
       const parsed: unknown = JSON.parse(raw);
@@ -160,14 +163,45 @@ function connectHome(): void {
     }
   });
   socket.addEventListener("close", () => {
-    if (homeSocket !== socket) return;
-    homeSocket = undefined;
-    if (!sessionRotating && (accessMode === "checking" || accessMode === "active")) {
-      void accessController.probe().then((mode) => applyAccessProbe(mode));
+    if (!homeConnections.release(socket)) return;
+    if (!sessionRotating && accessMode === "active") {
+      homeAuthorityReady = false;
+      probeAccess();
+      return;
     }
-    scheduleHomeCheck();
+    if (accessMode === "sign-in-off") scheduleHomeCheck();
   });
   scheduleHomeCheck();
+}
+
+function connectHome(replaceActive = false): void {
+  if (accessMode === "checking" || (accessMode === "active" && !homeAuthorityReady)) probeAccess();
+  const maintenance = maintainHomeConnection(
+    homeReachability(),
+    homeConnections,
+    homeSocketIsActive,
+    createHomeSocket,
+    activateHomeSocket,
+    replaceActive,
+    homeConnectionAllowed(accessMode, homeAuthorityReady),
+  );
+  if (maintenance === "waiting") scheduleHomeCheck();
+}
+
+function probeAccess(): void {
+  if (accessProbePending || (accessMode !== "checking" && accessMode !== "active")) return;
+  const version = accessProbeVersion;
+  accessProbePending = true;
+  void accessController.probe().then((mode) => {
+    if (version !== accessProbeVersion) return;
+    accessProbePending = false;
+    applyAccessProbe(mode);
+  });
+}
+
+function cancelAccessProbe(): void {
+  accessProbeVersion++;
+  accessProbePending = false;
 }
 
 function liveActionsAvailable(): boolean {
@@ -183,16 +217,11 @@ function homeEvidenceCurrent(): boolean {
 }
 
 function homeSocketActive(): boolean {
-  return homeSocket?.readyState === WebSocket.OPEN || homeSocket?.readyState === WebSocket.CONNECTING;
+  return homeConnections.active(homeSocketIsActive);
 }
 
-function reconnectHome(): void {
-  if (homeReachability() !== "offline") return;
-  lastValidHomeFrameAt = performance.now();
-  state = { ...state, connection: "reconnecting", last_known: state.has_home };
-  publishedStateSignature = "";
-  render();
-  connectHome();
+function homeSocketIsActive(socket: WebSocket): boolean {
+  return socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING;
 }
 
 function scheduleHomeCheck(): void {
@@ -207,28 +236,18 @@ function checkHomeConnection(): void {
   homeTimer = undefined;
   const now = performance.now();
   const reachability = deriveHomeReachability(lastValidHomeFrameAt, now);
-  if (reachability === "offline") {
-    const stale = homeSocket;
-    homeSocket = undefined;
-    stale?.close();
-    render();
-    return;
+  if (reachability !== "current") {
+    refreshHomeConnectionView(homeInterfaceActive(), renderHome);
   }
-  if (reachability === "reconnecting") render();
-  if (reachability === "reconnecting" && homeSocketActive()) {
-    const stale = homeSocket;
-    homeSocket = undefined;
-    stale?.close();
-  }
-  if (!homeSocketActive()) {
-    connectHome();
-    return;
-  }
-  scheduleHomeCheck();
+  connectHome();
 }
 
 function terminalPaneFromHash(): string | undefined {
   return parseTerminalRoute(window.location.hash)?.paneID;
+}
+
+function homeInterfaceActive(): boolean {
+  return (accessMode === "active" || accessMode === "sign-in-off") && !terminalPaneFromHash();
 }
 
 function render(): void {
@@ -291,59 +310,68 @@ function renderHome(): void {
   restoreHomePlace = false;
 }
 
-function applyAccessProbe(mode: AccessProbe, socket?: WebSocket): void {
-  if (socket && homeSocket !== socket) return;
+function applyAccessProbe(mode: AccessProbe): void {
   if (mode === "protected") {
     const changed = accessMode !== "active";
     accessMode = "active";
+    homeAuthorityReady = true;
     trustRoute = false;
     trustToken = undefined;
     if (changed) void notifications.init();
     render();
+    connectHome();
     return;
   }
   if (mode === "sign-in-off") {
     const changed = accessMode !== "sign-in-off";
     accessMode = "sign-in-off";
+    homeAuthorityReady = false;
     if (changed) void notifications.init();
     render();
+    connectHome();
     return;
   }
   if (mode === "signed-out") {
     accessSignedOut();
+    return;
   }
+  scheduleHomeCheck();
 }
 
 function accessSignedIn(): void {
   accessController.close();
+  cancelAccessProbe();
   accessMode = "checking";
+  homeAuthorityReady = false;
   trustRoute = false;
   trustToken = undefined;
-  const stale = homeSocket;
-  homeSocket = undefined;
-  stale?.close();
+  homeConnections.clear();
+  window.clearTimeout(homeTimer);
+  homeTimer = undefined;
   lastValidHomeFrameAt = performance.now();
   render();
-  connectHome();
+  probeAccess();
 }
 
 function accessSessionRotated(): void {
-  const stale = homeSocket;
-  homeSocket = undefined;
-  stale?.close();
+  cancelAccessProbe();
+  homeConnections.clear();
+  window.clearTimeout(homeTimer);
+  homeTimer = undefined;
+  homeAuthorityReady = false;
   lastValidHomeFrameAt = performance.now();
-  connectHome();
+  probeAccess();
 }
 
 function accessSignedOut(): void {
   accessController.close();
+  cancelAccessProbe();
   terminalPage?.destroy();
   terminalPage = undefined;
-  const stale = homeSocket;
-  homeSocket = undefined;
-  stale?.close();
+  homeConnections.clear();
   window.clearTimeout(homeTimer);
   homeTimer = undefined;
+  homeAuthorityReady = false;
   state = {
     connection: "reconnecting",
     gap: 0,
@@ -361,15 +389,15 @@ function accessSignedOut(): void {
 
 function enterInvitationFromHash(): boolean {
   if (!hasInvitationFragment(window.location.hash)) return false;
+  cancelAccessProbe();
   trustRoute = true;
   trustToken = invitationToken(window.location.hash);
   accessMode = "trust";
   history.replaceState(null, "", window.location.pathname + window.location.search);
-  const stale = homeSocket;
-  homeSocket = undefined;
-  stale?.close();
+  homeConnections.clear();
   window.clearTimeout(homeTimer);
   homeTimer = undefined;
+  homeAuthorityReady = false;
   render();
   return true;
 }
@@ -488,7 +516,15 @@ function leaveTerminal(): void {
 window.addEventListener("hashchange", () => {
   if (!enterInvitationFromHash()) render();
 });
-window.addEventListener("online", connectHome);
+window.addEventListener("online", () => connectHome());
+document.addEventListener("visibilitychange", () => {
+  resumeHomeConnection(
+    document.visibilityState,
+    homeInterfaceActive(),
+    renderHome,
+    () => connectHome(true),
+  );
+});
 
-connectHome();
 render();
+if (!trustRoute) probeAccess();

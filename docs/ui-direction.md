@@ -99,7 +99,7 @@ Reserve a stable top-right badge slot. Its labels are exactly:
 - **Herdr is not running**
 - **Cannot use this Herdr**
 
-Valid current data or a liveness heartbeat means **Live**. Reading Home again never changes or animates a healthy badge. Keep the existing transport behavior and 45-second threshold before **Offline**. **Herdr is not running** and **Cannot use this Herdr** suppress **Live** and do not open the reconnect sheet. The stable slot prevents layout shift.
+Valid current data or a liveness heartbeat means **Live**. Reading Home again never changes or animates a healthy badge. Keep the existing transport behavior and 45-second threshold before **Offline**. While **Offline**, retry automatically through the same restrained connection path and cadence. Returning a suspended or backgrounded browser to view restarts that same path; it does not claim **Live** until valid current data or a heartbeat arrives. **Herdr is not running** and **Cannot use this Herdr** suppress **Live**. The stable slot prevents layout shift.
 
 Keep the last complete Home in place until its complete replacement is ready. Do not show a Home refresh banner, insert a temporary row, or move the page. If no complete Home has loaded, replace the list with one short loading or unavailable state. Never show a partial Home.
 

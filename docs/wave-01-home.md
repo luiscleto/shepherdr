@@ -35,7 +35,7 @@ When a snapshot contains new panes, replace the one subscription and read once m
 
 Home has no updating field, banner, animation, timer, debounce state, or visible refresh phase. There is no **Home is updating** copy. If no complete Home has ever loaded, show one in-place loading or unavailable state.
 
-The real connection alone owns **Live**, **Reconnecting**, **Offline**, **Herdr is not running**, and **Cannot use this Herdr**. Valid current data or a small liveness heartbeat means **Live**. The heartbeat carries no Home state. Preserve the existing 45-second Offline threshold and manual reconnect action. Home reads never change or animate the badge.
+The real connection alone owns **Live**, **Reconnecting**, **Offline**, **Herdr is not running**, and **Cannot use this Herdr**. Valid current data or a small liveness heartbeat means **Live**. The heartbeat carries no Home state. Preserve the existing 45-second Offline threshold, keep retrying automatically through the same restrained connection path and cadence, and provide no manual reconnect action. Home reads never change or animate the badge.
 
 Serve production browser files with revalidation so a normal refresh cannot retain an old interface after the executable changes.
 

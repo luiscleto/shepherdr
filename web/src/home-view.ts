@@ -34,7 +34,6 @@ interface HomeViewActions {
   onOpen: (entry: TerminalEntry) => void;
   onNotifications?: () => void;
   onDevices?: () => void;
-  onReconnect: () => void;
   onShowAll: () => void;
   onShowBlocked: () => void;
   prepareWorkspaceAction: (request: PrepareWorkspaceActionRequest) => Promise<PreparedWorkspaceActionResponse>;
@@ -98,7 +97,6 @@ interface RowNodes {
 type UsedTabs = Map<string, Set<string>>;
 
 interface ConnectionCopy {
-  action?: "Reconnect";
   heading: string;
   tone: "live" | "offline" | "reconnecting";
 }
@@ -146,7 +144,6 @@ export class HomeView {
   readonly #attentionBlocked: HTMLButtonElement;
   readonly #attentionShowAll: HTMLButtonElement;
   readonly #attentionWorking: HTMLElement;
-  readonly #connectionAction: HTMLButtonElement;
   readonly #connectionDot: HTMLElement;
   readonly #connectionHeading: HTMLElement;
   readonly #connectionPanel: HTMLElement;
@@ -206,11 +203,10 @@ export class HomeView {
     this.#connectionDot.setAttribute("aria-hidden", "true");
     this.#connectionHeading = element(this.#document, "span", "connection-label");
     connectionIndicator.append(this.#connectionDot, this.#connectionHeading);
-    this.#connectionAction = this.#button("Reconnect", actions.onReconnect);
     this.#notificationsAction = settingsAction(this.#document, () => actions.onNotifications?.(), "home-notifications");
     this.#devicesAction = this.#button("Devices", () => actions.onDevices?.());
     this.#devicesAction.className = "home-devices";
-    this.#connectionPanel.append(connectionIndicator, this.#connectionAction, this.#notificationsAction);
+    this.#connectionPanel.append(connectionIndicator, this.#notificationsAction);
     const mastheadActions = element(this.#document, "div", "masthead-actions");
     mastheadActions.append(this.#connectionPanel);
     this.#header.append(heading, mastheadActions);
@@ -408,7 +404,7 @@ export class HomeView {
       return { heading: "Cannot use this Herdr", tone: "offline" };
     }
     if (model.reachability === "offline") {
-      return { heading: "Offline", action: "Reconnect", tone: "offline" };
+      return { heading: "Offline", tone: "offline" };
     }
     if (model.reachability === "reconnecting" || model.state.connection === "reconnecting") {
       return { heading: "Reconnecting", tone: "reconnecting" };
@@ -419,7 +415,6 @@ export class HomeView {
   #updateConnection(copy: ConnectionCopy): void {
     setText(this.#connectionHeading, copy.heading);
     setClass(this.#connectionDot, `connection-dot connection-dot-${copy.tone}`);
-    setHidden(this.#connectionAction, copy.action !== "Reconnect");
   }
 
   #renderWorkspace(
