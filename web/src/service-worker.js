@@ -34,8 +34,13 @@ self.addEventListener("notificationclick", (event) => {
 function notificationFor(value) {
   if (!value || typeof value !== "object") return fallbackNotice();
   const destination = safeDestination(value.destination);
-  if (value.kind === "workspace_opened") return { body: "A workspace opened.", destination: "/" };
-  if (value.kind === "workspace_closed") return { body: "A workspace closed.", destination: "/" };
+  const workspaceName = usableWorkspaceName(value.workspace_name);
+  if (value.kind === "workspace_opened") {
+    return { body: workspaceName ? `${workspaceName} opened.` : "A workspace opened.", destination: "/" };
+  }
+  if (value.kind === "workspace_closed") {
+    return { body: workspaceName ? `${workspaceName} closed.` : "A workspace closed.", destination: "/" };
+  }
   if (value.kind !== "status" || !validOpaqueID(value.pane_id) || !validOpaqueID(value.terminal_id)) {
     return fallbackNotice();
   }
@@ -48,8 +53,21 @@ function notificationFor(value) {
     working: "A workspace is working.",
   };
   if (!Object.prototype.hasOwnProperty.call(bodies, value.status)) return fallbackNotice();
-  const body = bodies[value.status];
+  const namedBodies = {
+    blocked: "needs attention.",
+    done: "finished.",
+    idle: "is idle.",
+    unknown: "status changed.",
+    working: "is working.",
+  };
+  const body = workspaceName ? `${workspaceName} ${namedBodies[value.status]}` : bodies[value.status];
   return { body, destination };
+}
+
+function usableWorkspaceName(value) {
+  if (typeof value !== "string") return "";
+  const name = value.trim();
+  return name && Array.from(name).length <= 160 ? name : "";
 }
 
 function fallbackNotice() {

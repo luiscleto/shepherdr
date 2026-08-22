@@ -115,15 +115,18 @@ func (c boundedHTTPClient) Do(request *http.Request) (*http.Response, error) {
 }
 
 type pushPayload struct {
-	Destination string `json:"destination"`
-	Kind        string `json:"kind"`
-	PaneID      string `json:"pane_id,omitempty"`
-	Status      string `json:"status,omitempty"`
-	TerminalID  string `json:"terminal_id,omitempty"`
+	Destination   string `json:"destination"`
+	Kind          string `json:"kind"`
+	WorkspaceName string `json:"workspace_name,omitempty"`
+	PaneID        string `json:"pane_id,omitempty"`
+	Status        string `json:"status,omitempty"`
+	TerminalID    string `json:"terminal_id,omitempty"`
 }
 
 func eventPayload(event Event) ([]byte, error) {
-	payload := pushPayload{Destination: event.Destination, Kind: string(event.Kind)}
+	payload := pushPayload{
+		Destination: event.Destination, Kind: string(event.Kind), WorkspaceName: event.WorkspaceName,
+	}
 	if event.Kind == EventStatus {
 		payload.PaneID = event.PaneID
 		payload.Status = string(event.Status)

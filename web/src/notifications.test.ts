@@ -293,7 +293,7 @@ test("exact notification route prefers valid current state over stale selection"
   }), "waiting");
 });
 
-test("push worker derives generic exact notices and safely handles click fallback", async () => {
+test("push worker shows plain workspace names and safely handles click fallback", async () => {
   const worker = serviceWorkerHarness();
   assert.equal(worker.listenerNames(), "notificationclick,push");
 
@@ -303,9 +303,29 @@ test("push worker derives generic exact notices and safely handles click fallbac
     pane_id: "w1:p1",
     status: "blocked",
     terminal_id: "term-1",
+    workspace_name: "Review <workspace>",
   });
-  assert.equal(worker.shownBody(), "A workspace needs attention.");
+  assert.equal(worker.shownBody(), "Review <workspace> needs attention.");
   assert.equal(worker.shownDestination(), "/#terminal=w1%3Ap1&terminal_id=term-1");
+
+  await worker.push({
+    destination: "/#terminal=w1%3Ap1&terminal_id=term-1",
+    kind: "status",
+    pane_id: "w1:p1",
+    status: "done",
+    terminal_id: "term-1",
+    workspace_name: "   ",
+  });
+  assert.equal(worker.shownBody(), "A workspace finished.");
+  assert.equal(worker.shownDestination(), "/#terminal=w1%3Ap1&terminal_id=term-1");
+
+  await worker.push({ destination: "/", kind: "workspace_opened", workspace_name: "Temporary" });
+  assert.equal(worker.shownBody(), "Temporary opened.");
+  assert.equal(worker.shownDestination(), "/");
+
+  await worker.push({ destination: "/", kind: "workspace_closed", workspace_name: "Temporary" });
+  assert.equal(worker.shownBody(), "Temporary closed.");
+  assert.equal(worker.shownDestination(), "/");
 
   await worker.push({
     destination: "/#terminal=wrong&terminal_id=term-1",

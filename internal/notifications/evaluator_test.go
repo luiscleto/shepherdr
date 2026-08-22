@@ -2,6 +2,7 @@ package notifications
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/luisc/shepherdr/internal/herdr"
@@ -20,7 +21,7 @@ func TestSnapshotEvaluatorUsesOnlyContiguousCompleteDifferences(t *testing.T) {
 		t.Fatalf("status plus workspace-open burst produced %d events, want 2: %+v", len(events), events)
 	}
 	status := events[0]
-	if status.Kind != EventStatus || status.Status != herdr.StatusBlocked || status.PaneID != "w1:p1" || status.TerminalID != "term-1" {
+	if status.Kind != EventStatus || status.Status != herdr.StatusBlocked || status.WorkspaceName != "Workspace w1" || status.PaneID != "w1:p1" || status.TerminalID != "term-1" {
 		t.Fatalf("status event = %+v", status)
 	}
 	if status.Destination != "/#terminal=w1%3Ap1&terminal_id=term-1" {
@@ -37,6 +38,42 @@ func TestSnapshotEvaluatorUsesOnlyContiguousCompleteDifferences(t *testing.T) {
 	afterGap := notificationSnapshot("idle", "w1")
 	if events := evaluator.Observe(afterGap, false); len(events) != 1 || events[0].Status != herdr.StatusIdle {
 		t.Fatalf("first contiguous post-gap transition = %+v", events)
+	}
+}
+
+func TestSnapshotEvaluatorEmitsOneNamedWorkspaceLifecyclePairAcrossSilentBaselines(t *testing.T) {
+	evaluator := snapshotEvaluator{}
+	initial := notificationSnapshot("working", "w1")
+	if events := evaluator.Observe(initial, true); len(events) != 0 {
+		t.Fatalf("initial baseline produced %+v", events)
+	}
+
+	opened := notificationSnapshot("working", "w1", "temporary")
+	events := evaluator.Observe(opened, false)
+	wantOpened := Event{Kind: EventWorkspaceOpened, WorkspaceName: "Workspace temporary", Destination: "/"}
+	if len(events) != 1 || events[0] != wantOpened {
+		t.Fatalf("workspace opened events = %+v, want [%+v]", events, wantOpened)
+	}
+	if events := evaluator.Observe(opened, true); len(events) != 0 {
+		t.Fatalf("replacement-subscription baseline produced %+v", events)
+	}
+	if events := evaluator.Observe(opened, false); len(events) != 0 {
+		t.Fatalf("unchanged post-baseline snapshot produced %+v", events)
+	}
+
+	closed := notificationSnapshot("working", "w1")
+	events = evaluator.Observe(closed, false)
+	wantClosed := Event{Kind: EventWorkspaceClosed, WorkspaceName: "Workspace temporary", Destination: "/"}
+	if len(events) != 1 || events[0] != wantClosed {
+		t.Fatalf("workspace closed events = %+v, want [%+v]", events, wantClosed)
+	}
+
+	reconnect := notificationSnapshot("working", "w1", "reconnected")
+	if events := evaluator.Observe(reconnect, true); len(events) != 0 {
+		t.Fatalf("reconnect baseline produced %+v", events)
+	}
+	if events := evaluator.Observe(reconnect, false); len(events) != 0 {
+		t.Fatalf("unchanged reconnect snapshot produced %+v", events)
 	}
 }
 
@@ -57,10 +94,20 @@ func TestDefaultSelectionsAreBlockedAndDoneOnly(t *testing.T) {
 	}
 }
 
+func TestNotificationWorkspaceNameUsesOnlyShortNonBlankDisplayText(t *testing.T) {
+	if got := notificationWorkspaceName("  Review workspace  "); got != "Review workspace" {
+		t.Fatalf("trimmed workspace name = %q", got)
+	}
+	if got := notificationWorkspaceName(strings.Repeat("x", 161)); got != "" {
+		t.Fatalf("overlong workspace name = %q, want generic fallback", got)
+	}
+}
+
 func notificationSnapshot(status string, workspaceIDs ...string) herdr.Snapshot {
 	workspaces := make([]herdr.WorkspaceInfo, len(workspaceIDs))
 	for index, id := range workspaceIDs {
 		workspaces[index].WorkspaceID = id
+		workspaces[index].Label = "Workspace " + id
 	}
 	return herdr.Snapshot{
 		Agents: []herdr.AgentInfo{{

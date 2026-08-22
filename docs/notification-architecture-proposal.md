@@ -13,7 +13,7 @@ A browser becomes eligible only after the operator supplies a valid VAPID contac
 
 Home and Terminal each offer one **Notifications** settings action afterward. It can enable notifications, change event choices, or turn notifications off. Opening settings does not itself ask for browser permission.
 
-Lock-screen text is generic, for example **A workspace needs attention** or **A workspace finished**. A status notification links to the exact Terminal identified when the transition was observed. Shepherdr opens it only if that same terminal still exists in the current Herdr snapshot. Otherwise it shows the existing **Terminal unavailable** state with a way back to Home; it never guesses another terminal. Workspace notices open Home.
+Lock-screen text names the relevant Herdr workspace, for example **Review needs attention** or **Review finished**. Use the existing generic wording only when Herdr supplies no usable workspace name. A status notification links to the exact Terminal identified when the transition was observed. Shepherdr opens it only if that same terminal still exists in the current Herdr snapshot. Otherwise it shows the existing **Terminal unavailable** state with a way back to Home; it never guesses another terminal. Workspace notices open Home.
 
 The first slice has no push history, inbox, banners, unread badge, visible-page suppression, presence, cross-device seen state, retry queue, or replay. It sends one best-effort push for each subscribed event it can truthfully observe.
 
@@ -46,13 +46,13 @@ Shepherdr compares consecutive, complete, validated Herdr snapshots during one u
 
 | Setting | Notification event |
 | --- | --- |
-| `working`, `blocked`, `idle`, `done`, `unknown` | The same exact pane and terminal has an agent in both snapshots, and its status changed into the selected value. A newly observed agent has no known prior status, so its first value is not a transition. |
-| Workspace opened | A workspace identifier is absent from one complete snapshot and present in the next. Say **A workspace opened.** Shepherdr cannot claim that it was newly created or explain how it was opened. |
-| Workspace closed | A workspace identifier is present and then absent. Say **A workspace closed.** Shepherdr cannot claim that a checkout, branch, or files were deleted. |
+| `working`, `blocked`, `idle`, `done`, `unknown` | The same exact pane and terminal has an agent in both snapshots, and its status changed into the selected value. Name that pane's Herdr workspace in the notice. A newly observed agent has no known prior status, so its first value is not a transition. |
+| Workspace opened | A workspace identifier is absent from one complete snapshot and present in the next. Say **Review opened.** Shepherdr cannot claim that it was newly created or explain how it was opened. |
+| Workspace closed | A workspace identifier is present and then absent. Say **Review closed.** Shepherdr cannot claim that a checkout, branch, or files were deleted. |
 
 The first valid snapshot after Shepherdr starts, Herdr reconnects, or an event gap is only a new baseline. It sends nothing. This prevents false transitions but means real changes during the gap may be missed. Likewise, two complete reads may skip a fast intermediate status; Shepherdr does not invent it.
 
-For a burst of workspace openings or closings observed in one comparison, send one summary rather than a notification per workspace. Status transitions remain per exact terminal because each has a useful destination. Terminal output, messages, prompts, focus changes, renames, and ordering changes are not notification events.
+For a burst of workspace openings or closings observed in one comparison, send one summary rather than a notification per workspace. When one usable workspace name identifies the summary, include it; otherwise use the existing generic fallback. Status transitions remain per exact terminal because each has a useful destination. Terminal output, messages, prompts, focus changes, renames, and ordering changes are not notification events.
 
 ## Per-browser settings and permission
 
@@ -83,7 +83,7 @@ Sources: [secure contexts](https://w3c.github.io/webappsec-secure-contexts/), [W
 
 After the explicit tap, the browser registers the same-origin service worker, requests permission, creates a Push API subscription, and sends it with the selected events to Shepherdr. The existing process observes snapshot differences, encrypts a small Web Push/VAPID payload, and sends it to the subscription endpoint. The service worker displays it and handles a click. The standards are [RFC 8030](https://www.rfc-editor.org/rfc/rfc8030), [RFC 8291](https://www.rfc-editor.org/rfc/rfc8291), and [RFC 8292](https://www.rfc-editor.org/rfc/rfc8292).
 
-When sign-in is off, anyone who can reach Shepherdr already has operator authority under the approved trust model. Such a browser may subscribe only after an explicit tap. This does not establish device trust. It does mean the push service may continue delivering generic alerts after the device leaves the private network, so the operator must be willing to grant that continuing access.
+When sign-in is off, anyone who can reach Shepherdr already has operator authority under the approved trust model. Such a browser may subscribe only after an explicit tap. This does not establish device trust. It does mean the push service may continue delivering workspace-named alerts after the device leaves the private network, so the operator must be willing to grant that continuing access.
 
 Subscriptions belong to this Shepherdr deployment, not to one Herdr session identity. They survive Shepherdr and machine restarts and continue if the operator starts the deployment against another Herdr socket. Each start or reconnect still begins from a silent snapshot baseline, so only later observed transitions notify. The first slice adds no session-binding or migration system; the operator can clear all notification state before or after repointing the deployment.
 
@@ -95,7 +95,7 @@ The VAPID private key and subscription authentication values are secrets. The VA
 
 A subscription endpoint is an untrusted URL and a server-side request boundary. Accept only valid HTTPS endpoints, reject embedded credentials and fragments, do not follow redirects, resolve and reject local, private, link-local, and tailnet destinations, defend against DNS rebinding, and use tight request size and time limits. Use a maintained Web Push library for encryption and signing. These controls avoid turning subscription enrollment into SSRF while remaining independent of a particular push vendor.
 
-Payloads stay generic and contain only the event kind plus the minimum opaque identifiers needed for a relative same-origin destination. Do not include workspace names, repository paths, terminal text, agent output, or messages. Push encryption protects payload content in transit, but the push provider still sees timing, frequency, and size, and the operating system may show text on a lock screen.
+Payloads contain the event kind, the relevant Herdr workspace display name when usable, and the minimum opaque identifiers needed for a relative same-origin destination. The workspace name is untrusted display text only; it cannot select a route, target, control, or authority. Do not include agent names, repository paths, terminal text, agent output, prompts, messages, or other content. Push encryption protects payload content in transit, but the push provider still sees timing, frequency, and size, and the operating system may show text on a lock screen.
 
 Use a five-minute time to live. Do not retry after acceptance, timeout, or an ambiguous result; a retry queue would add duplicates and imply reliability the system does not have. A push-service acceptance response means only accepted for possible delivery. Restarts, reconnects, permission changes, expired subscriptions, and offline phones can cause missed events. Duplicate delivery is also possible. The interface should promise neither notification history nor offline replay.
 
@@ -103,7 +103,7 @@ Use a five-minute time to live. Do not retry after acceptance, timeout, or an am
 
 1. **Always send subscribed push in the first slice, even when Shepherdr is visible.** Suppression waits for acknowledged banners and a bounded wait.
 2. **Allow any browser already able to use sign-in-off Shepherdr to subscribe after an explicit tap.** This does not establish device trust.
-3. **Use generic notification text.** Keep sensitive content off lock screens and away from push providers.
+3. **Name the relevant Herdr workspace in notification text.** Treat it only as untrusted display text and use generic wording when no usable name exists. Keep every other name and content field off lock screens and away from push providers.
 4. **Use a five-minute TTL.** Prefer current signals to stale alerts.
 5. **Send one summary per workspace-opened or workspace-closed burst.** Make no stronger lifecycle claim.
 6. **Use one stable private HTTPS origin for phone settings.** Another origin is another browser installation.
@@ -132,7 +132,7 @@ Gate the slice with real Herdr, a real Android phone, and a second browser or br
 
 - On Android Chrome over the stable private HTTPS origin, verify the first-visit invitation, **Not now** memory, explicit enable tap, denial guidance, and notification settings.
 - Confirm a fresh browser defaults to `blocked` and `done`, and that each status plus workspace opened/closed can be independently selected without changing a second browser.
-- Drive real Herdr transitions and workspace changes. Verify exact generic text, one workspace-burst summary, and no notification from the initial snapshot or after a reconnect baseline.
+- Drive real Herdr transitions and workspace changes. Verify exact workspace-named text, the honest generic fallback, one workspace-burst summary, and no notification from the initial snapshot or after a reconnect baseline.
 - Tap a current status notice and reach the exact Terminal. Then make the identifier stale and verify **Terminal unavailable** and the Home fallback, with no guessed terminal.
 - Restart Shepherdr and confirm settings and subscriptions remain. Reset notification state and confirm browsers must enable again, with Home and Terminal still usable.
 - Put a phone offline beyond the five-minute TTL and confirm the product makes no history, replay, read-state, or delivery-success claim. Allow a duplicate if the platform produces one.

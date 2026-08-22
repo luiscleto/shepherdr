@@ -192,6 +192,7 @@ func (p *Projector) followSubscription(ctx context.Context, subscription *Subscr
 		default:
 		}
 		if !subscriptionCoversSnapshot(basis, candidate) {
+			p.observeSnapshot(candidate, baseline)
 			return subscriptionResult{resubscribe: true, snapshot: candidate}
 		}
 		if p.publishLiveObserved(candidate, baseline) {
@@ -290,12 +291,7 @@ func (p *Projector) publishLiveObserved(snapshot Snapshot, baseline bool) bool {
 		p.publishError(err)
 		return false
 	}
-	p.mu.RLock()
-	observer := p.observer
-	p.mu.RUnlock()
-	if observer != nil {
-		observer.ObserveSnapshot(snapshot, baseline)
-	}
+	p.observeSnapshot(snapshot, baseline)
 	p.mu.Lock()
 	state := p.state
 	state.Connection = ConnectionLive
@@ -307,6 +303,15 @@ func (p *Projector) publishLiveObserved(snapshot Snapshot, baseline bool) bool {
 	p.publishLocked(state)
 	p.mu.Unlock()
 	return true
+}
+
+func (p *Projector) observeSnapshot(snapshot Snapshot, baseline bool) {
+	p.mu.RLock()
+	observer := p.observer
+	p.mu.RUnlock()
+	if observer != nil {
+		observer.ObserveSnapshot(snapshot, baseline)
+	}
 }
 
 func (p *Projector) publishLocked(state State) {

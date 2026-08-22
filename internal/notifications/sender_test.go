@@ -97,26 +97,26 @@ func vapidSubject(t *testing.T, authorization string) string {
 	return subject
 }
 
-func TestPayloadsAreGenericAndCarryOnlyExactDestinationFields(t *testing.T) {
+func TestPayloadsCarryOnlyWorkspaceDisplayNameAndExactDestinationFields(t *testing.T) {
 	payload, err := eventPayload(Event{
 		Kind: EventStatus, Status: herdr.StatusDone, PaneID: "w1:p1", TerminalID: "term-1",
-		Destination: "/#terminal=w1%3Ap1&terminal_id=term-1",
+		WorkspaceName: "Review workspace", Destination: "/#terminal=w1%3Ap1&terminal_id=term-1",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := string(payload)
-	want := `{"destination":"/#terminal=w1%3Ap1\u0026terminal_id=term-1","kind":"status","pane_id":"w1:p1","status":"done","terminal_id":"term-1"}`
+	want := `{"destination":"/#terminal=w1%3Ap1\u0026terminal_id=term-1","kind":"status","workspace_name":"Review workspace","pane_id":"w1:p1","status":"done","terminal_id":"term-1"}`
 	if got != want {
 		t.Fatalf("status payload = %s", got)
 	}
-	for _, forbidden := range []string{"workspace_name", "repository", "agent", "message", "body", "title"} {
+	for _, forbidden := range []string{"repository", "checkout", "path", "agent", "message", "body", "title"} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("payload exposed %q: %s", forbidden, got)
 		}
 	}
-	workspace, _ := eventPayload(Event{Kind: EventWorkspaceClosed, Destination: "/"})
-	if string(workspace) != `{"destination":"/","kind":"workspace_closed"}` {
+	workspace, _ := eventPayload(Event{Kind: EventWorkspaceClosed, WorkspaceName: "Temporary", Destination: "/"})
+	if string(workspace) != `{"destination":"/","kind":"workspace_closed","workspace_name":"Temporary"}` {
 		t.Fatalf("workspace payload = %s", workspace)
 	}
 	if libraryContact("mailto:operator@example.com") != "operator@example.com" {

@@ -153,7 +153,7 @@ func TestProjectorObservesOnlyValidatedPublicationsWithBaselineBoundary(t *testi
 	}
 }
 
-func TestProjectorTreatsNewPaneResubscriptionAsSilentBaseline(t *testing.T) {
+func TestProjectorObservesConfirmedNewWorkspaceBeforeSilentReplacementBaseline(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -181,9 +181,12 @@ func TestProjectorTreatsNewPaneResubscriptionAsSilentBaseline(t *testing.T) {
 		t.Fatalf("initial observation = %+v", first)
 	}
 	close(triggerNewPane)
-	observations := waitForSnapshotObservations(t, observer, 2)
-	if !observations[1].baseline || len(observations[1].snapshot.Panes) != 2 {
-		t.Fatalf("post-resubscription observation = %+v", observations[1])
+	observations := waitForSnapshotObservations(t, observer, 3)
+	if observations[1].baseline || len(observations[1].snapshot.Workspaces) != 2 || len(observations[1].snapshot.Panes) != 2 {
+		t.Fatalf("confirmed pre-resubscription observation = %+v", observations[1])
+	}
+	if !observations[2].baseline || len(observations[2].snapshot.Workspaces) != 2 || len(observations[2].snapshot.Panes) != 2 {
+		t.Fatalf("post-resubscription baseline = %+v", observations[2])
 	}
 	if got := subscriptions.Load(); got != 2 {
 		t.Fatalf("subscriptions = %d, want initial plus replacement", got)
@@ -533,8 +536,14 @@ func serveResubscriptionBaselineFixture(
 				number := snapshots.Add(1)
 				snapshot := stableProjectorSnapshot()
 				if number > 2 {
+					snapshot.Workspaces = append(snapshot.Workspaces, WorkspaceInfo{
+						ActiveTabID: "w2:t1", WorkspaceID: "w2", Number: 2, Label: "Temporary",
+					})
+					snapshot.Tabs = append(snapshot.Tabs, TabInfo{
+						TabID: "w2:t1", WorkspaceID: "w2", Number: 1, Label: "1",
+					})
 					snapshot.Panes = append(snapshot.Panes, PaneInfo{
-						PaneID: "w1:p2", TabID: "w1:t1", TerminalID: "term-2", TerminalTitleStripped: "Two", WorkspaceID: "w1",
+						PaneID: "w2:p1", TabID: "w2:t1", TerminalID: "term-2", TerminalTitleStripped: "Two", WorkspaceID: "w2",
 					})
 				}
 				_ = encoder.Encode(map[string]any{

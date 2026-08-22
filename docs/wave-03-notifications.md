@@ -12,7 +12,7 @@ Add the smallest complete notification loop to the existing Shepherdr process:
 - keep settings separate for each browser or installed web app;
 - default `blocked` and `done` on;
 - allow any Herdr status plus workspace opened and workspace closed to be selected;
-- send generic standards-based Web Push notifications;
+- send standards-based Web Push notifications that name the relevant Herdr workspace;
 - open the exact current Terminal from a status notification, or fail honestly when it is gone; and
 - keep notification settings available from Home and Terminal.
 
@@ -72,9 +72,9 @@ Provide one local `-reset-notifications` command-line action. The operator stops
 
 Subscription endpoints and keys are secrets and untrusted input. Keep them out of logs and source control. Require same-origin settings requests, strictly validate sizes and shapes, and ensure outbound push requests cannot reach local, private, link-local, or private-network addresses through redirects or name resolution. Use short request and response limits. Do not implement Web Push encryption or VAPID signing by hand.
 
-Use generic notification text with no workspace, repository, terminal, agent, output, or message content. Use a five-minute push expiry. One accepted request means only that the push service accepted it; do not say it was delivered. Do not retry an accepted, timed-out, or ambiguous send.
+Include the relevant Herdr workspace name in every status, workspace-opened, and workspace-closed notice when one usable name identifies the event. Use the existing generic wording otherwise. Treat that name only as untrusted display text. Do not include agent names, repository or path data, terminal content, output, prompts, messages, or other content. Use a five-minute push expiry. One accepted request means only that the push service accepted it; do not say it was delivered. Do not retry an accepted, timed-out, or ambiguous send.
 
-A status payload contains only its event kind, exact Herdr status, minimum opaque pane and terminal identifiers, and a same-origin relative destination. A notification click reuses the existing application startup, connection handling, and exact Terminal validation, with no notification-specific wait or timeout. Open Terminal only when those identifiers resolve in current state. Otherwise use the existing **Terminal unavailable** path back to Home. Workspace notifications open Home.
+A status payload contains only its event kind, Herdr workspace display name, exact Herdr status, minimum opaque pane and terminal identifiers, and a same-origin relative destination. A notification click reuses the existing application startup, connection handling, and exact Terminal validation, with no notification-specific wait or timeout. The display name never selects the destination. Open Terminal only when those identifiers resolve in current state. Otherwise use the existing **Terminal unavailable** path back to Home. Workspace notifications open Home.
 
 ## Platform behavior
 
@@ -98,7 +98,7 @@ Worker `wave03-notifications-worker` owns this end-to-end slice:
 
 Likely overlap is limited to the Home masthead, Terminal header, application startup, routing, embedded assets, and server configuration. The worker must not alter Terminal rendering, control, sending, history, lifecycle, or tests except for a focused assertion that the Notifications settings action and notification destination do not disturb them.
 
-Do not add authentication, trusted-device management, public hosting, Chat, message notifications, names or content in pushes, a push-vendor account, provider-specific logic, a general event model, speculative later-work structure, or changes to Herdr.
+Do not add authentication, trusted-device management, public hosting, Chat, message notifications, agent names or content beyond the approved workspace display name in pushes, a push-vendor account, provider-specific logic, a general event model, speculative later-work structure, or changes to Herdr.
 
 ## Tests and worker evidence
 
@@ -111,7 +111,7 @@ Use a few focused tests for:
 - missing, valid, invalid, persisted, and updated VAPID contact behavior;
 - strict subscription input, secret handling, and outbound endpoint safety;
 - persistent settings and VAPID identity across restart;
-- generic payloads, five-minute expiry, no automatic retry, and exact links; and
+- workspace-named payloads with honest generic fallback, five-minute expiry, no automatic retry, and exact links; and
 - removal of an expired subscription only after a definitive gone response, never after a timeout or ambiguous result;
 - the local reset action and required browser re-enablement; and
 - honest stale-target failure.
@@ -135,7 +135,7 @@ The human supplies the running private HTTPS route and witnesses the real Androi
 1. Start without a VAPID contact. Confirm Home and Terminal work, no invitation appears, and Notifications settings explain the local `-vapid-contact` setup. Stop Shepherdr, start it with a valid operator contact, then confirm the quiet first-visit invitation appears on Android Chrome. Choose **Not now**, refresh, and confirm it stays dismissed while settings remain reachable from Home and Terminal.
 2. Open settings without triggering permission. Then deny the explicit permission request and confirm Shepherdr explains that notification permission must be changed in browser settings without prompting again.
 3. Restore permission in Android browser settings, enable Android Chrome through an explicit tap, and confirm `blocked` and `done` start on while every other event starts off.
-4. On Android Chrome, with Shepherdr in the background, drive real agents into `blocked` and `done`. Confirm generic notifications arrive and open the exact current Terminal. Repeat once while Shepherdr is visibly open and confirm the subscribed push still appears.
+4. On Android Chrome, with Shepherdr in the background, drive real agents into `blocked` and `done`. Confirm notifications name the correct Herdr workspace and open the exact current Terminal. Repeat once while Shepherdr is visibly open and confirm the subscribed push still appears.
 5. Independently enable and exercise `working`, `idle`, `unknown`, workspace opened, and workspace closed. Confirm one summary for a workspace burst and no notification for the initial snapshot.
 6. Make a notified terminal stale before tapping. Confirm **Terminal unavailable** and the route to Home, with no fallback terminal.
 7. Restart Shepherdr and interrupt/recover Herdr. Confirm settings survive, recovery is a silent baseline, and Home and Terminal still behave as accepted.

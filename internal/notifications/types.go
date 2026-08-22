@@ -3,6 +3,8 @@ package notifications
 import (
 	"fmt"
 	"net/url"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/luisc/shepherdr/internal/herdr"
 )
@@ -53,11 +55,12 @@ const (
 )
 
 type Event struct {
-	Kind        EventKind
-	Status      herdr.Status
-	PaneID      string
-	TerminalID  string
-	Destination string
+	Kind          EventKind
+	Status        herdr.Status
+	WorkspaceName string
+	PaneID        string
+	TerminalID    string
+	Destination   string
 }
 
 func (e Event) selected(settings EventSettings) bool {
@@ -94,6 +97,10 @@ func (e *snapshotEvaluator) Observe(snapshot herdr.Snapshot, baseline bool) []Ev
 	if baseline || previous == nil {
 		return nil
 	}
+	currentWorkspaces := make(map[string]herdr.WorkspaceInfo, len(snapshot.Workspaces))
+	for _, workspace := range snapshot.Workspaces {
+		currentWorkspaces[workspace.WorkspaceID] = workspace
+	}
 
 	previousAgents := make(map[string]herdr.AgentInfo, len(previous.Agents))
 	for _, agent := range previous.Agents {
@@ -107,39 +114,57 @@ func (e *snapshotEvaluator) Observe(snapshot herdr.Snapshot, baseline bool) []Ev
 		}
 		destination := "/#terminal=" + url.QueryEscape(agent.PaneID) + "&terminal_id=" + url.QueryEscape(agent.TerminalID)
 		events = append(events, Event{
-			Kind:        EventStatus,
-			Status:      agent.AgentStatus,
-			PaneID:      agent.PaneID,
-			TerminalID:  agent.TerminalID,
-			Destination: destination,
+			Kind:          EventStatus,
+			Status:        agent.AgentStatus,
+			WorkspaceName: notificationWorkspaceName(currentWorkspaces[agent.WorkspaceID].Label),
+			PaneID:        agent.PaneID,
+			TerminalID:    agent.TerminalID,
+			Destination:   destination,
 		})
 	}
 
-	previousWorkspaces := make(map[string]struct{}, len(previous.Workspaces))
+	previousWorkspaces := make(map[string]herdr.WorkspaceInfo, len(previous.Workspaces))
 	for _, workspace := range previous.Workspaces {
-		previousWorkspaces[workspace.WorkspaceID] = struct{}{}
+		previousWorkspaces[workspace.WorkspaceID] = workspace
 	}
-	currentWorkspaces := make(map[string]struct{}, len(snapshot.Workspaces))
-	opened := false
+	opened := make([]herdr.WorkspaceInfo, 0)
 	for _, workspace := range snapshot.Workspaces {
-		currentWorkspaces[workspace.WorkspaceID] = struct{}{}
 		if _, ok := previousWorkspaces[workspace.WorkspaceID]; !ok {
-			opened = true
+			opened = append(opened, workspace)
 		}
 	}
-	closed := false
+	closed := make([]herdr.WorkspaceInfo, 0)
 	for _, workspace := range previous.Workspaces {
 		if _, ok := currentWorkspaces[workspace.WorkspaceID]; !ok {
-			closed = true
+			closed = append(closed, workspace)
 		}
 	}
-	if opened {
-		events = append(events, Event{Kind: EventWorkspaceOpened, Destination: "/"})
+	if len(opened) > 0 {
+		events = append(events, Event{
+			Kind: EventWorkspaceOpened, WorkspaceName: singleWorkspaceName(opened), Destination: "/",
+		})
 	}
-	if closed {
-		events = append(events, Event{Kind: EventWorkspaceClosed, Destination: "/"})
+	if len(closed) > 0 {
+		events = append(events, Event{
+			Kind: EventWorkspaceClosed, WorkspaceName: singleWorkspaceName(closed), Destination: "/",
+		})
 	}
 	return events
+}
+
+func singleWorkspaceName(workspaces []herdr.WorkspaceInfo) string {
+	if len(workspaces) != 1 {
+		return ""
+	}
+	return notificationWorkspaceName(workspaces[0].Label)
+}
+
+func notificationWorkspaceName(label string) string {
+	name := strings.TrimSpace(label)
+	if utf8.RuneCountInString(name) > 160 {
+		return ""
+	}
+	return name
 }
 
 func terminalKey(paneID, terminalID string) string {

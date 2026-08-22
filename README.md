@@ -87,7 +87,7 @@ Do not use `tailscale funnel`. Funnel makes the service public.
 - Open any current real Herdr terminal, whether or not it has an agent.
 - From a phone, send one text or shortcut batch and release control after it is acknowledged. See [Terminal direction](docs/terminal-direction.md).
 - Keep Home up to date after a connection drops. Shepherdr shows clearly labelled last-known values without presenting them as openable until it reconnects.
-- Send per-browser, generic notifications for selected Herdr status transitions and workspace openings or closings.
+- Send per-browser notifications that name the relevant Herdr workspace for selected status transitions and workspace openings or closings.
 - Open the exact current terminal from a status notification, or show **Terminal unavailable** when that exact terminal is gone.
 
 If Herdr stops, start it again and Shepherdr will reconnect automatically.
