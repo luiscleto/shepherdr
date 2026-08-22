@@ -943,7 +943,7 @@ button.terminal-row:hover {
   position: fixed;
   z-index: 20;
   right: 0;
-  bottom: max(0px, calc(100vh - 100dvh));
+  bottom: 0;
   left: 0;
   justify-content: center;
   gap: 0.75rem;
@@ -1104,7 +1104,7 @@ button.terminal-row:hover {
   min-height: 0;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
-  align-items: end;
+  align-items: center;
   overflow: hidden;
   background: rgba(33, 31, 29, 0.32);
   padding: max(1rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) max(0.75rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
