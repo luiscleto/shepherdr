@@ -16,7 +16,7 @@ self.addEventListener("push", (event) => {
     payload = undefined;
   }
   const notice = notificationFor(payload);
-  event.waitUntil(self.registration.showNotification("Shepherdr", {
+  event.waitUntil(self.registration.showNotification(notice.title, {
     body: notice.body,
     data: { destination: notice.destination },
     icon: "/icon-192.png",
@@ -36,10 +36,14 @@ function notificationFor(value) {
   const destination = safeDestination(value.destination);
   const workspaceName = usableWorkspaceName(value.workspace_name);
   if (value.kind === "workspace_opened") {
-    return { body: workspaceName ? `${workspaceName} opened.` : "A workspace opened.", destination: "/" };
+    return workspaceName
+      ? { title: "Workspace opened", body: workspaceName, destination: "/" }
+      : { title: "Shepherdr", body: "A workspace opened.", destination: "/" };
   }
   if (value.kind === "workspace_closed") {
-    return { body: workspaceName ? `${workspaceName} closed.` : "A workspace closed.", destination: "/" };
+    return workspaceName
+      ? { title: "Workspace closed", body: workspaceName, destination: "/" }
+      : { title: "Shepherdr", body: "A workspace closed.", destination: "/" };
   }
   if (value.kind !== "status" || !validOpaqueID(value.pane_id) || !validOpaqueID(value.terminal_id)) {
     return fallbackNotice();
@@ -53,15 +57,16 @@ function notificationFor(value) {
     working: "A workspace is working.",
   };
   if (!Object.prototype.hasOwnProperty.call(bodies, value.status)) return fallbackNotice();
-  const namedBodies = {
-    blocked: "needs attention.",
-    done: "finished.",
-    idle: "is idle.",
-    unknown: "status changed.",
-    working: "is working.",
+  const titles = {
+    blocked: "Agent is blocked",
+    done: "Agent is done",
+    idle: "Agent is idle",
+    unknown: "Agent status is unknown",
+    working: "Agent is working",
   };
-  const body = workspaceName ? `${workspaceName} ${namedBodies[value.status]}` : bodies[value.status];
-  return { body, destination };
+  return workspaceName
+    ? { title: titles[value.status], body: `Workspace: ${workspaceName}`, destination }
+    : { title: "Shepherdr", body: bodies[value.status], destination };
 }
 
 function usableWorkspaceName(value) {
@@ -71,7 +76,7 @@ function usableWorkspaceName(value) {
 }
 
 function fallbackNotice() {
-  return { body: "A workspace changed.", destination: "/" };
+  return { title: "Shepherdr", body: "A workspace changed.", destination: "/" };
 }
 
 function validOpaqueID(value) {

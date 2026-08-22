@@ -112,6 +112,7 @@ function serviceWorkerHarness(homeClientPresent = true) {
   let opened = "";
   let shownBody = "";
   let shownDestination = "";
+  let shownTitle = "";
   let claimed = 0;
   let skipped = 0;
   const client = {
@@ -129,7 +130,8 @@ function serviceWorkerHarness(homeClientPresent = true) {
     },
     location: { origin: "https://shepherdr.example" },
     registration: {
-      async showNotification(_title: string, options: { body: string; data: { destination: string } }) {
+      async showNotification(title: string, options: { body: string; data: { destination: string } }) {
+        shownTitle = title;
         shownBody = options.body;
         shownDestination = options.data.destination;
       },
@@ -185,6 +187,7 @@ function serviceWorkerHarness(homeClientPresent = true) {
     push,
     shownBody: () => shownBody,
     shownDestination: () => shownDestination,
+    shownTitle: () => shownTitle,
     skipped: () => skipped,
   };
 }
@@ -328,7 +331,8 @@ test("push worker shows plain workspace names and safely handles payload fallbac
     terminal_id: "term-1",
     workspace_name: "Review <workspace>",
   });
-  assert.equal(worker.shownBody(), "Review <workspace> needs attention.");
+  assert.equal(worker.shownTitle(), "Agent is blocked");
+  assert.equal(worker.shownBody(), "Workspace: Review <workspace>");
   assert.equal(worker.shownDestination(), "/#terminal=w1%3Ap1&terminal_id=term-1");
 
   await worker.push({
@@ -339,15 +343,23 @@ test("push worker shows plain workspace names and safely handles payload fallbac
     terminal_id: "term-1",
     workspace_name: "   ",
   });
+  assert.equal(worker.shownTitle(), "Shepherdr");
   assert.equal(worker.shownBody(), "A workspace finished.");
   assert.equal(worker.shownDestination(), "/#terminal=w1%3Ap1&terminal_id=term-1");
 
   await worker.push({ destination: "/", kind: "workspace_opened", workspace_name: "Temporary" });
-  assert.equal(worker.shownBody(), "Temporary opened.");
+  assert.equal(worker.shownTitle(), "Workspace opened");
+  assert.equal(worker.shownBody(), "Temporary");
   assert.equal(worker.shownDestination(), "/");
 
   await worker.push({ destination: "/", kind: "workspace_closed", workspace_name: "Temporary" });
-  assert.equal(worker.shownBody(), "Temporary closed.");
+  assert.equal(worker.shownTitle(), "Workspace closed");
+  assert.equal(worker.shownBody(), "Temporary");
+  assert.equal(worker.shownDestination(), "/");
+
+  await worker.push({ destination: "/", kind: "workspace_opened", workspace_name: "   " });
+  assert.equal(worker.shownTitle(), "Shepherdr");
+  assert.equal(worker.shownBody(), "A workspace opened.");
   assert.equal(worker.shownDestination(), "/");
 
   await worker.push({
@@ -357,6 +369,7 @@ test("push worker shows plain workspace names and safely handles payload fallbac
     status: "done",
     terminal_id: "term-1",
   });
+  assert.equal(worker.shownTitle(), "Shepherdr");
   assert.equal(worker.shownBody(), "A workspace changed.");
   assert.equal(worker.shownDestination(), "/");
 
@@ -369,6 +382,47 @@ test("push worker shows plain workspace names and safely handles payload fallbac
 
   const styles = readFileSync(new URL("./style.css", import.meta.url), "utf8");
   assert.match(styles, /\.notification-invitation-actions button,[\s\S]*min-height:\s*44px;/);
+});
+
+test("named status pushes use exact Herdr status titles and workspace bodies", async () => {
+  const worker = serviceWorkerHarness();
+  const destination = "/#terminal=w1%3Ap1&terminal_id=term-1";
+  for (const [status, title] of [
+    ["working", "Agent is working"],
+    ["blocked", "Agent is blocked"],
+    ["idle", "Agent is idle"],
+    ["done", "Agent is done"],
+    ["unknown", "Agent status is unknown"],
+  ] as const) {
+    await worker.push({
+      destination,
+      kind: "status",
+      pane_id: "w1:p1",
+      status,
+      terminal_id: "term-1",
+      workspace_name: "Review workspace",
+    });
+    assert.equal(worker.shownTitle(), title);
+    assert.equal(worker.shownBody(), "Workspace: Review workspace");
+    assert.equal(worker.shownDestination(), destination);
+  }
+});
+
+test("an unvalidated workspace name keeps generic status copy", async () => {
+  const worker = serviceWorkerHarness();
+  const destination = "/#terminal=w1%3Ap1&terminal_id=term-1";
+  await worker.push({
+    destination,
+    kind: "status",
+    pane_id: "w1:p1",
+    status: "done",
+    terminal_id: "term-1",
+    workspace_name: "x".repeat(161),
+  });
+
+  assert.equal(worker.shownTitle(), "Shepherdr");
+  assert.equal(worker.shownBody(), "A workspace finished.");
+  assert.equal(worker.shownDestination(), destination);
 });
 
 test("status click opens the exact terminal URL instead of reusing same-origin Home", async () => {
