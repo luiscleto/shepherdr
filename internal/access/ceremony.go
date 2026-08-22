@@ -20,6 +20,21 @@ const (
 	maxAttempts    = 5
 )
 
+var errCeremonyInFlight = errors.New("ceremony verification is already in flight")
+
+type ceremonyResolution uint8
+
+const (
+	ceremonyVerificationFailed ceremonyResolution = iota
+	ceremonyTerminal
+	ceremonySucceeded
+)
+
+type ceremonyVerificationHooks struct {
+	assertion    func(*ceremony, *http.Request) (*webauthn.Credential, string, error)
+	registration func(operatorUser, *ceremony, *http.Request) (*webauthn.Credential, error)
+}
+
 type ceremony struct {
 	kind             string
 	clientDigest     string
@@ -28,6 +43,7 @@ type ceremony struct {
 	invitationDigest string
 	label            string
 	sessionDigest    string
+	inFlight         bool
 }
 
 type ceremonyAttempts struct {
@@ -84,6 +100,9 @@ func (m *Manager) beginAssertion(kind, clientToken string, current SessionIdenti
 	defer m.ceremonyMu.Unlock()
 	m.pruneCeremoniesLocked(now)
 	key := ceremonyKey(kind, clientDigest)
+	if current := m.ceremonies[key]; current != nil && current.inFlight {
+		return CeremonyBegin{}, ErrUnauthorized
+	}
 	if attempts := m.attempts[key]; attempts.count >= maxAttempts && now.Before(attempts.expiresAt) {
 		return CeremonyBegin{}, ErrUnauthorized
 	}
@@ -129,6 +148,9 @@ func (m *Manager) BeginTrust(clientToken, invitationToken, label string) (Ceremo
 	defer m.ceremonyMu.Unlock()
 	m.pruneCeremoniesLocked(now)
 	key := ceremonyKey(CeremonyTrust, clientDigest)
+	if current := m.ceremonies[key]; current != nil && current.inFlight {
+		return CeremonyBegin{}, ErrInvitationGeneric
+	}
 	if attempts := m.attempts[key]; attempts.count >= maxAttempts && now.Before(attempts.expiresAt) {
 		return CeremonyBegin{}, ErrInvitationGeneric
 	}
@@ -192,15 +214,19 @@ func (m *Manager) BeginTrust(clientToken, invitationToken, label string) (Ceremo
 }
 
 func (m *Manager) FinishSignIn(clientToken string, request *http.Request, old *SessionIdentity) (SessionIssue, error) {
-	ceremony, err := m.takeCeremony(CeremonySignIn, clientToken)
+	ceremony, err := m.startCeremonyVerification(CeremonySignIn, clientToken)
 	if err != nil {
-		return SessionIssue{}, ErrUnauthorized
+		return SessionIssue{}, ceremonyStartError(err, ErrUnauthorized)
 	}
 	credential, trustID, err := m.verifyAssertion(ceremony, request)
 	if err != nil {
-		if m.recordFailure(ceremony) {
+		if m.resolveCeremony(ceremony, ceremonyVerificationFailed) {
 			return SessionIssue{}, &retryableCeremonyError{cause: ErrUnauthorized}
 		}
+		return SessionIssue{}, ErrUnauthorized
+	}
+	if !m.ceremonyCanCommit(ceremony) {
+		m.resolveCeremony(ceremony, ceremonyTerminal)
 		return SessionIssue{}, ErrUnauthorized
 	}
 	oldDigest := ""
@@ -209,48 +235,63 @@ func (m *Manager) FinishSignIn(clientToken string, request *http.Request, old *S
 	}
 	issue, err := m.commitAssertion(credential, trustID, oldDigest, false)
 	if err != nil {
+		m.resolveCeremony(ceremony, ceremonyTerminal)
 		return SessionIssue{}, ErrUnauthorized
 	}
-	m.clearAttempts(ceremony)
+	m.resolveCeremony(ceremony, ceremonySucceeded)
 	return issue, nil
 }
 
 func (m *Manager) FinishReauthentication(clientToken string, request *http.Request, current SessionIdentity) (SessionIssue, error) {
-	ceremony, err := m.takeCeremony(CeremonyReauth, clientToken)
-	if err != nil || ceremony.sessionDigest != current.Digest {
+	ceremony, err := m.startCeremonyVerification(CeremonyReauth, clientToken)
+	if err != nil {
+		return SessionIssue{}, ceremonyStartError(err, ErrUnauthorized)
+	}
+	if ceremony.sessionDigest != current.Digest {
+		m.resolveCeremony(ceremony, ceremonyTerminal)
 		return SessionIssue{}, ErrUnauthorized
 	}
 	credential, trustID, err := m.verifyAssertion(ceremony, request)
 	if err != nil {
-		if m.recordFailure(ceremony) {
+		if m.resolveCeremony(ceremony, ceremonyVerificationFailed) {
 			return SessionIssue{}, &retryableCeremonyError{cause: ErrUnauthorized}
 		}
 		return SessionIssue{}, ErrUnauthorized
 	}
-	issue, err := m.commitAssertion(credential, trustID, current.Digest, true)
-	if err != nil {
+	if !m.ceremonyCanCommit(ceremony) {
+		m.resolveCeremony(ceremony, ceremonyTerminal)
 		return SessionIssue{}, ErrUnauthorized
 	}
-	m.clearAttempts(ceremony)
+	issue, err := m.commitAssertion(credential, trustID, current.Digest, true)
+	if err != nil {
+		m.resolveCeremony(ceremony, ceremonyTerminal)
+		return SessionIssue{}, ErrUnauthorized
+	}
+	m.resolveCeremony(ceremony, ceremonySucceeded)
 	return issue, nil
 }
 
 func (m *Manager) FinishTrust(clientToken string, request *http.Request, old *SessionIdentity) (SessionIssue, error) {
-	ceremony, err := m.takeCeremony(CeremonyTrust, clientToken)
+	ceremony, err := m.startCeremonyVerification(CeremonyTrust, clientToken)
 	if err != nil {
-		return SessionIssue{}, ErrInvitationGeneric
+		return SessionIssue{}, ceremonyStartError(err, ErrInvitationGeneric)
 	}
 	m.gate.RLock()
 	user, userErr := m.activeUserLocked()
 	m.gate.RUnlock()
 	if userErr != nil {
+		m.resolveCeremony(ceremony, ceremonyTerminal)
 		return SessionIssue{}, ErrInvitationGeneric
 	}
-	credential, err := m.webauthn.FinishRegistration(user, ceremony.session, request)
+	credential, err := m.verifyRegistration(user, ceremony, request)
 	if err != nil {
-		if m.recordFailure(ceremony) {
+		if m.resolveCeremony(ceremony, ceremonyVerificationFailed) {
 			return SessionIssue{}, &retryableCeremonyError{cause: ErrInvitationGeneric}
 		}
+		return SessionIssue{}, ErrInvitationGeneric
+	}
+	if !m.ceremonyCanCommit(ceremony) {
+		m.resolveCeremony(ceremony, ceremonyTerminal)
 		return SessionIssue{}, ErrInvitationGeneric
 	}
 	oldDigest := ""
@@ -259,13 +300,21 @@ func (m *Manager) FinishTrust(clientToken string, request *http.Request, old *Se
 	}
 	issue, err := m.commitRegistration(ceremony, credential, oldDigest)
 	if err != nil {
+		m.resolveCeremony(ceremony, ceremonyTerminal)
 		return SessionIssue{}, ErrInvitationGeneric
 	}
-	m.clearAttempts(ceremony)
+	m.resolveCeremony(ceremony, ceremonySucceeded)
 	return issue, nil
 }
 
-func (m *Manager) takeCeremony(kind, clientToken string) (*ceremony, error) {
+func ceremonyStartError(err, cause error) error {
+	if errors.Is(err, errCeremonyInFlight) {
+		return &retryableCeremonyError{cause: cause}
+	}
+	return cause
+}
+
+func (m *Manager) startCeremonyVerification(kind, clientToken string) (*ceremony, error) {
 	if len(clientToken) < 40 || len(clientToken) > 128 {
 		return nil, ErrUnauthorized
 	}
@@ -279,11 +328,26 @@ func (m *Manager) takeCeremony(kind, clientToken string) (*ceremony, error) {
 	if current == nil || !now.Before(current.expiresAt) {
 		return nil, ErrUnauthorized
 	}
-	delete(m.ceremonies, key)
+	if current.inFlight {
+		return nil, errCeremonyInFlight
+	}
+	attempts := m.attempts[key]
+	if attempts.count >= maxAttempts && now.Before(attempts.expiresAt) {
+		return nil, ErrUnauthorized
+	}
+	attempts.count++
+	if attempts.expiresAt.IsZero() {
+		attempts.expiresAt = current.expiresAt
+	}
+	m.attempts[key] = attempts
+	current.inFlight = true
 	return current, nil
 }
 
 func (m *Manager) verifyAssertion(ceremony *ceremony, request *http.Request) (*webauthn.Credential, string, error) {
+	if m.ceremonyHooks != nil && m.ceremonyHooks.assertion != nil {
+		return m.ceremonyHooks.assertion(ceremony, request)
+	}
 	var actualTrustID string
 	handler := func(rawID, userHandle []byte) (webauthn.User, error) {
 		m.gate.RLock()
@@ -300,6 +364,13 @@ func (m *Manager) verifyAssertion(ceremony *ceremony, request *http.Request) (*w
 		return nil, "", ErrUnauthorized
 	}
 	return credential, actualTrustID, nil
+}
+
+func (m *Manager) verifyRegistration(user operatorUser, ceremony *ceremony, request *http.Request) (*webauthn.Credential, error) {
+	if m.ceremonyHooks != nil && m.ceremonyHooks.registration != nil {
+		return m.ceremonyHooks.registration(user, ceremony, request)
+	}
+	return m.webauthn.FinishRegistration(user, ceremony.session, request)
 }
 
 func (m *Manager) commitAssertion(credential *webauthn.Credential, trustID, oldDigest string, reauthentication bool) (SessionIssue, error) {
@@ -503,32 +574,50 @@ func ceremonyKey(kind, clientDigest string) string { return kind + ":" + clientD
 
 func (m *Manager) pruneCeremoniesLocked(now time.Time) {
 	for key, current := range m.ceremonies {
-		if !now.Before(current.expiresAt) {
+		if !current.inFlight && !now.Before(current.expiresAt) {
 			delete(m.ceremonies, key)
 		}
 	}
 	for key, attempts := range m.attempts {
 		if !now.Before(attempts.expiresAt) {
+			if current := m.ceremonies[key]; current != nil && current.inFlight {
+				continue
+			}
 			delete(m.attempts, key)
 		}
 	}
 }
 
-func (m *Manager) recordFailure(current *ceremony) bool {
+func (m *Manager) ceremonyCanCommit(current *ceremony) bool {
 	m.ceremonyMu.Lock()
 	defer m.ceremonyMu.Unlock()
 	key := ceremonyKey(current.kind, current.clientDigest)
 	attempts := m.attempts[key]
-	attempts.count++
-	if attempts.expiresAt.IsZero() {
-		attempts.expiresAt = current.expiresAt
-	}
-	m.attempts[key] = attempts
-	return attempts.count < maxAttempts && m.clock.Now().Before(attempts.expiresAt)
+	return m.ceremonies[key] == current && current.inFlight && attempts.count > 0 && attempts.count <= maxAttempts && m.clock.Now().Before(current.expiresAt)
 }
 
-func (m *Manager) clearAttempts(current *ceremony) {
+func (m *Manager) resolveCeremony(current *ceremony, resolution ceremonyResolution) bool {
 	m.ceremonyMu.Lock()
-	delete(m.attempts, ceremonyKey(current.kind, current.clientDigest))
-	m.ceremonyMu.Unlock()
+	defer m.ceremonyMu.Unlock()
+	key := ceremonyKey(current.kind, current.clientDigest)
+	if m.ceremonies[key] != current || !current.inFlight {
+		return false
+	}
+	delete(m.ceremonies, key)
+	attempts := m.attempts[key]
+	switch resolution {
+	case ceremonySucceeded, ceremonyTerminal:
+		delete(m.attempts, key)
+		return false
+	case ceremonyVerificationFailed:
+		now := m.clock.Now()
+		if !now.Before(attempts.expiresAt) {
+			delete(m.attempts, key)
+			return false
+		}
+		return attempts.count < maxAttempts
+	default:
+		delete(m.attempts, key)
+		return false
+	}
 }

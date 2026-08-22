@@ -2,6 +2,7 @@ package access
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -475,6 +477,319 @@ func TestTrustRetryKeepsReservationAndDeadline(t *testing.T) {
 	if _, err := manager.FinishTrust(client, failedCeremonyRequest(), nil); CeremonyCanRetry(err) {
 		t.Fatalf("expired trust challenge remained retryable: %v", err)
 	}
+}
+
+func TestBeginCannotReplaceAnInFlightCeremony(t *testing.T) {
+	clock := &testClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
+	manager, store, _, _ := seededManager(t, clock, 1, "30d")
+	defer manager.Close()
+	defer store.Close()
+	client := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{81}, 32))
+	first, err := manager.BeginSignIn(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	manager.ceremonyHooks = &ceremonyVerificationHooks{assertion: func(*ceremony, *http.Request) (*webauthn.Credential, string, error) {
+		close(started)
+		<-release
+		return nil, "", ErrUnauthorized
+	}}
+	finished := make(chan error, 1)
+	go func() {
+		_, err := manager.FinishSignIn(client, failedCeremonyRequest(), nil)
+		finished <- err
+	}()
+	<-started
+	key := ceremonyKey(CeremonySignIn, digestToken(client))
+	manager.ceremonyMu.Lock()
+	current := manager.ceremonies[key]
+	attempts := manager.attempts[key]
+	manager.ceremonyMu.Unlock()
+	if current == nil || !current.inFlight || attempts.count != 1 {
+		t.Fatalf("in-flight state ceremony=%+v attempts=%+v", current, attempts)
+	}
+	if _, err := manager.BeginSignIn(client); err == nil {
+		t.Fatal("begin replaced a challenge whose verification was in flight")
+	}
+	manager.ceremonyMu.Lock()
+	if manager.ceremonies[key] != current || manager.attempts[key].count != 1 {
+		t.Fatal("refused begin changed the authoritative in-flight ceremony")
+	}
+	manager.ceremonyMu.Unlock()
+	close(release)
+	if err := <-finished; !CeremonyCanRetry(err) {
+		t.Fatalf("ordinary in-flight failure was not retryable: %v", err)
+	}
+	manager.ceremonyMu.Lock()
+	_, stillLive := manager.ceremonies[key]
+	attempts = manager.attempts[key]
+	manager.ceremonyMu.Unlock()
+	if stillLive || attempts.count != 1 {
+		t.Fatalf("resolved failure live=%t attempts=%+v", stillLive, attempts)
+	}
+	retry, err := manager.BeginSignIn(client)
+	if err != nil || !retry.ExpiresAt.Equal(first.ExpiresAt) {
+		t.Fatalf("retry expiry=%v err=%v, want %v", retry.ExpiresAt, err, first.ExpiresAt)
+	}
+}
+
+func TestTrustBeginCannotReplaceAnInFlightRegistration(t *testing.T) {
+	clock := &testClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
+	manager, store, _, _ := seededManager(t, clock, 1, "30d")
+	defer manager.Close()
+	defer store.Close()
+	link, _, err := manager.CreateLocalInvitation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	invitationToken := strings.TrimPrefix(link, manager.origin.Value+"/#trust=")
+	client := ceremonyClient(82)
+	first, err := manager.BeginTrust(client, invitationToken, "Phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	manager.ceremonyHooks = &ceremonyVerificationHooks{registration: func(operatorUser, *ceremony, *http.Request) (*webauthn.Credential, error) {
+		close(started)
+		<-release
+		return nil, ErrInvitationGeneric
+	}}
+	finished := make(chan error, 1)
+	go func() {
+		_, err := manager.FinishTrust(client, failedCeremonyRequest(), nil)
+		finished <- err
+	}()
+	<-started
+	_, racingBeginErr := manager.BeginTrust(client, invitationToken, "Phone")
+	close(release)
+	finishErr := <-finished
+	if racingBeginErr == nil || !CeremonyCanRetry(finishErr) {
+		t.Fatalf("racing trust begin=%v finish=%v", racingBeginErr, finishErr)
+	}
+	retry, err := manager.BeginTrust(client, invitationToken, "Phone")
+	if err != nil || !retry.ExpiresAt.Equal(first.ExpiresAt) {
+		t.Fatalf("trust retry expiry=%v err=%v, want %v", retry.ExpiresAt, err, first.ExpiresAt)
+	}
+}
+
+func TestConcurrentValidFinishesReserveOneAttemptAndIssueOneSession(t *testing.T) {
+	clock := &testClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
+	manager, store, _, trustIDs := seededManager(t, clock, 1, "30d")
+	defer manager.Close()
+	defer store.Close()
+	client := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{82}, 32))
+	if _, err := manager.BeginSignIn(client); err != nil {
+		t.Fatal(err)
+	}
+	credential := manager.state.Credentials[0].Credential
+	type finishEvent struct {
+		kind  string
+		issue SessionIssue
+		err   error
+	}
+	events := make(chan finishEvent, 32)
+	release := make(chan struct{})
+	var verificationCalls atomic.Int32
+	manager.ceremonyHooks = &ceremonyVerificationHooks{assertion: func(*ceremony, *http.Request) (*webauthn.Credential, string, error) {
+		verificationCalls.Add(1)
+		events <- finishEvent{kind: "verify"}
+		<-release
+		copy := credential
+		return &copy, trustIDs[0], nil
+	}}
+	finish := func() {
+		issue, err := manager.FinishSignIn(client, failedCeremonyRequest(), nil)
+		events <- finishEvent{kind: "return", issue: issue, err: err}
+	}
+	go finish()
+	if event := <-events; event.kind != "verify" {
+		t.Fatalf("first finish event=%+v", event)
+	}
+	_, racingBeginErr := manager.BeginSignIn(client)
+	key := ceremonyKey(CeremonySignIn, digestToken(client))
+	manager.ceremonyMu.Lock()
+	if current := manager.ceremonies[key]; current == nil || !current.inFlight || manager.attempts[key].count != 1 {
+		manager.ceremonyMu.Unlock()
+		t.Fatal("first finish did not atomically reserve one live attempt")
+	}
+	manager.ceremonyMu.Unlock()
+	for index := 0; index < maxAttempts+2; index++ {
+		go finish()
+	}
+	returned := 0
+	for index := 0; index < maxAttempts+2; index++ {
+		event := <-events
+		if event.kind == "return" {
+			returned++
+		}
+	}
+	close(release)
+	succeeded := 0
+	for returned < maxAttempts+3 {
+		event := <-events
+		if event.kind != "return" {
+			continue
+		}
+		returned++
+		if event.err == nil && event.issue.Token != "" {
+			succeeded++
+		}
+	}
+	if racingBeginErr == nil || verificationCalls.Load() != 1 || succeeded != 1 {
+		t.Fatalf("racing begin=%v verification calls=%d successful outcomes=%d", racingBeginErr, verificationCalls.Load(), succeeded)
+	}
+	manager.ceremonyMu.Lock()
+	_, ceremonyLive := manager.ceremonies[key]
+	_, attemptsLive := manager.attempts[key]
+	manager.ceremonyMu.Unlock()
+	if ceremonyLive || attemptsLive || len(manager.state.Sessions) != 2 {
+		t.Fatalf("completion ceremony=%t attempts=%t sessions=%d", ceremonyLive, attemptsLive, len(manager.state.Sessions))
+	}
+}
+
+func TestInFlightCeremonyCountsTowardCapacityAndCompletionReleasesIt(t *testing.T) {
+	clock := &testClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
+	manager, store, _, trustIDs := seededManager(t, clock, 1, "30d")
+	defer manager.Close()
+	defer store.Close()
+	for index := 0; index < maxCeremonies-1; index++ {
+		if _, err := manager.BeginSignIn(ceremonyClient(index)); err != nil {
+			t.Fatalf("fill ceremony %d: %v", index, err)
+		}
+	}
+	client := ceremonyClient(maxCeremonies - 1)
+	if _, err := manager.BeginSignIn(client); err != nil {
+		t.Fatal(err)
+	}
+	credential := manager.state.Credentials[0].Credential
+	started := make(chan struct{})
+	release := make(chan struct{})
+	manager.ceremonyHooks = &ceremonyVerificationHooks{assertion: func(*ceremony, *http.Request) (*webauthn.Credential, string, error) {
+		close(started)
+		<-release
+		copy := credential
+		return &copy, trustIDs[0], nil
+	}}
+	finished := make(chan error, 1)
+	go func() {
+		_, err := manager.FinishSignIn(client, failedCeremonyRequest(), nil)
+		finished <- err
+	}()
+	<-started
+	manager.ceremonyMu.Lock()
+	ceremonyCount, attemptCount := len(manager.ceremonies), len(manager.attempts)
+	manager.ceremonyMu.Unlock()
+	if ceremonyCount != maxCeremonies || attemptCount != maxCeremonies {
+		t.Fatalf("capacity ceremonies=%d attempts=%d", ceremonyCount, attemptCount)
+	}
+	if _, err := manager.BeginSignIn(ceremonyClient(maxCeremonies)); !errors.Is(err, ErrCapacity) {
+		t.Fatalf("in-flight ceremony did not hold capacity: %v", err)
+	}
+	close(release)
+	if err := <-finished; err != nil {
+		t.Fatal(err)
+	}
+	manager.ceremonyMu.Lock()
+	ceremonyCount, attemptCount = len(manager.ceremonies), len(manager.attempts)
+	manager.ceremonyMu.Unlock()
+	if ceremonyCount != maxCeremonies-1 || attemptCount != maxCeremonies-1 {
+		t.Fatalf("completion leaked capacity ceremonies=%d attempts=%d", ceremonyCount, attemptCount)
+	}
+	if _, err := manager.BeginSignIn(ceremonyClient(maxCeremonies)); err != nil {
+		t.Fatalf("released capacity could not be reused: %v", err)
+	}
+}
+
+func TestCanceledAndTerminalInFlightCeremoniesResolveWithoutDetachedWork(t *testing.T) {
+	for _, outcome := range []string{"canceled", "terminal"} {
+		t.Run(outcome, func(t *testing.T) {
+			clock := &testClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
+			manager, store, _, trustIDs := seededManager(t, clock, 1, "30d")
+			defer manager.Close()
+			defer store.Close()
+			client := ceremonyClient(220 + len(outcome))
+			if _, err := manager.BeginSignIn(client); err != nil {
+				t.Fatal(err)
+			}
+			manager.ceremonyHooks = &ceremonyVerificationHooks{assertion: func(*ceremony, *http.Request) (*webauthn.Credential, string, error) {
+				if outcome == "canceled" {
+					return nil, "", context.Canceled
+				}
+				return &webauthn.Credential{ID: []byte{255}, PublicKey: []byte{254}}, trustIDs[0], nil
+			}}
+			_, err := manager.FinishSignIn(client, failedCeremonyRequest(), nil)
+			if outcome == "canceled" && !CeremonyCanRetry(err) {
+				t.Fatalf("canceled verification was not retryable: %v", err)
+			}
+			if outcome == "terminal" && CeremonyCanRetry(err) {
+				t.Fatalf("unrecoverable commit was retryable: %v", err)
+			}
+			key := ceremonyKey(CeremonySignIn, digestToken(client))
+			manager.ceremonyMu.Lock()
+			_, ceremonyLive := manager.ceremonies[key]
+			attempts, attemptsLive := manager.attempts[key]
+			manager.ceremonyMu.Unlock()
+			if ceremonyLive || outcome == "terminal" && attemptsLive || outcome == "canceled" && (!attemptsLive || attempts.count != 1) {
+				t.Fatalf("outcome=%s ceremony=%t attempts=%+v live=%t", outcome, ceremonyLive, attempts, attemptsLive)
+			}
+			if _, err := manager.BeginSignIn(client); err != nil {
+				t.Fatalf("outcome=%s left client unable to begin: %v", outcome, err)
+			}
+		})
+	}
+}
+
+func TestExpiredInFlightCeremonyCannotDetachOrCommit(t *testing.T) {
+	clock := &testClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
+	manager, store, _, trustIDs := seededManager(t, clock, 1, "30d")
+	defer manager.Close()
+	defer store.Close()
+	client := ceremonyClient(240)
+	if _, err := manager.BeginSignIn(client); err != nil {
+		t.Fatal(err)
+	}
+	credential := manager.state.Credentials[0].Credential
+	started := make(chan struct{})
+	release := make(chan struct{})
+	manager.ceremonyHooks = &ceremonyVerificationHooks{assertion: func(*ceremony, *http.Request) (*webauthn.Credential, string, error) {
+		close(started)
+		<-release
+		copy := credential
+		return &copy, trustIDs[0], nil
+	}}
+	finished := make(chan error, 1)
+	go func() {
+		_, err := manager.FinishSignIn(client, failedCeremonyRequest(), nil)
+		finished <- err
+	}()
+	<-started
+	clock.Advance(ReservationLifetime)
+	_, beginErr := manager.BeginSignIn(client)
+	key := ceremonyKey(CeremonySignIn, digestToken(client))
+	manager.ceremonyMu.Lock()
+	current := manager.ceremonies[key]
+	_, attemptsLive := manager.attempts[key]
+	manager.ceremonyMu.Unlock()
+	accounted := current != nil && current.inFlight && attemptsLive
+	close(release)
+	finishErr := <-finished
+	if beginErr == nil || !accounted || finishErr == nil || CeremonyCanRetry(finishErr) {
+		t.Fatalf("expired begin=%v accounted=%t finish=%v", beginErr, accounted, finishErr)
+	}
+	manager.ceremonyMu.Lock()
+	_, ceremonyLive := manager.ceremonies[key]
+	_, attemptsLive = manager.attempts[key]
+	manager.ceremonyMu.Unlock()
+	if ceremonyLive || attemptsLive || len(manager.state.Sessions) != 1 {
+		t.Fatalf("expired resolution ceremony=%t attempts=%t sessions=%d", ceremonyLive, attemptsLive, len(manager.state.Sessions))
+	}
+}
+
+func ceremonyClient(index int) string {
+	return base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{byte(index + 1)}, 32))
 }
 
 func failedCeremonyRequest() *http.Request {

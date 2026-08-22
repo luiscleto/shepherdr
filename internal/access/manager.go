@@ -70,16 +70,17 @@ type NotificationAuthority interface {
 }
 
 type Manager struct {
-	gate       sync.RWMutex
-	store      *Store
-	state      *State
-	origin     Origin
-	webauthn   *webauthn.WebAuthn
-	clock      Clock
-	authority  NotificationAuthority
-	ceremonyMu sync.Mutex
-	ceremonies map[string]*ceremony
-	attempts   map[string]ceremonyAttempts
+	gate          sync.RWMutex
+	store         *Store
+	state         *State
+	origin        Origin
+	webauthn      *webauthn.WebAuthn
+	clock         Clock
+	authority     NotificationAuthority
+	ceremonyMu    sync.Mutex
+	ceremonies    map[string]*ceremony
+	attempts      map[string]ceremonyAttempts
+	ceremonyHooks *ceremonyVerificationHooks
 
 	runtimeMu sync.Mutex
 	runtimes  map[string]*sessionRuntime
