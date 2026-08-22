@@ -31,8 +31,9 @@ const (
 )
 
 type ceremonyVerificationHooks struct {
-	assertion    func(*ceremony, *http.Request) (*webauthn.Credential, string, error)
-	registration func(operatorUser, *ceremony, *http.Request) (*webauthn.Credential, error)
+	assertion             func(*ceremony, *http.Request) (*webauthn.Credential, string, error)
+	registration          func(operatorUser, *ceremony, *http.Request) (*webauthn.Credential, error)
+	beforeAssertionCommit func()
 }
 
 type ceremony struct {
@@ -233,7 +234,7 @@ func (m *Manager) FinishSignIn(clientToken string, request *http.Request, old *S
 	if old != nil {
 		oldDigest = old.Digest
 	}
-	issue, err := m.commitAssertion(credential, trustID, oldDigest, false)
+	issue, err := m.commitAssertion(credential, trustID, oldDigest, false, ceremony.expiresAt)
 	if err != nil {
 		m.resolveCeremony(ceremony, ceremonyTerminal)
 		return SessionIssue{}, ErrUnauthorized
@@ -262,7 +263,7 @@ func (m *Manager) FinishReauthentication(clientToken string, request *http.Reque
 		m.resolveCeremony(ceremony, ceremonyTerminal)
 		return SessionIssue{}, ErrUnauthorized
 	}
-	issue, err := m.commitAssertion(credential, trustID, current.Digest, true)
+	issue, err := m.commitAssertion(credential, trustID, current.Digest, true, ceremony.expiresAt)
 	if err != nil {
 		m.resolveCeremony(ceremony, ceremonyTerminal)
 		return SessionIssue{}, ErrUnauthorized
@@ -373,10 +374,17 @@ func (m *Manager) verifyRegistration(user operatorUser, ceremony *ceremony, requ
 	return m.webauthn.FinishRegistration(user, ceremony.session, request)
 }
 
-func (m *Manager) commitAssertion(credential *webauthn.Credential, trustID, oldDigest string, reauthentication bool) (SessionIssue, error) {
+func (m *Manager) commitAssertion(credential *webauthn.Credential, trustID, oldDigest string, reauthentication bool, deadline time.Time) (SessionIssue, error) {
+	if m.ceremonyHooks != nil && m.ceremonyHooks.beforeAssertionCommit != nil {
+		m.ceremonyHooks.beforeAssertionCommit()
+	}
+
 	m.gate.Lock()
 	defer m.gate.Unlock()
 	now := m.clock.Now()
+	if !now.Before(deadline) {
+		return SessionIssue{}, ErrUnauthorized
+	}
 	if reauthentication {
 		if _, ok := m.activeSessionLocked(oldDigest, now); !ok {
 			return SessionIssue{}, ErrUnauthorized

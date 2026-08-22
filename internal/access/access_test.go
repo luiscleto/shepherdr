@@ -788,6 +788,123 @@ func TestExpiredInFlightCeremonyCannotDetachOrCommit(t *testing.T) {
 	}
 }
 
+func TestAssertionCommitRechecksCeremonyDeadlineInsideAuthorityGate(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		kind string
+	}{
+		{name: "sign-in", kind: CeremonySignIn},
+		{name: "reauthentication", kind: CeremonyReauth},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			clock := &testClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
+			manager, store, tokens, trustIDs := seededManager(t, clock, 1, "30d")
+			defer manager.Close()
+			defer store.Close()
+			identity, ok := manager.AuthenticateToken(tokens[0])
+			if !ok {
+				t.Fatal("seed session did not authenticate")
+			}
+			lease, ok := manager.Bind(identity)
+			if !ok {
+				t.Fatal("seed session did not bind")
+			}
+			defer lease.Close()
+
+			client := ceremonyClient(245 + len(test.name))
+			var begin CeremonyBegin
+			var err error
+			if test.kind == CeremonyReauth {
+				begin, err = manager.BeginReauthentication(client, identity)
+			} else {
+				begin, err = manager.BeginSignIn(client)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			beforeState, err := json.Marshal(manager.state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			beforeFile, err := os.ReadFile(store.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			credential := manager.state.Credentials[0].Credential
+			verified := make(chan struct{})
+			waitingForGate := make(chan struct{})
+			manager.ceremonyHooks = &ceremonyVerificationHooks{
+				assertion: func(*ceremony, *http.Request) (*webauthn.Credential, string, error) {
+					if !clock.Now().Before(begin.ExpiresAt) {
+						return nil, "", errors.New("verification reached the ceremony deadline")
+					}
+					close(verified)
+					copy := credential
+					return &copy, trustIDs[0], nil
+				},
+				beforeAssertionCommit: func() {
+					close(waitingForGate)
+				},
+			}
+
+			type finishResult struct {
+				issue SessionIssue
+				err   error
+			}
+			finished := make(chan finishResult, 1)
+			manager.gate.Lock()
+			go func() {
+				var issue SessionIssue
+				var err error
+				if test.kind == CeremonyReauth {
+					issue, err = manager.FinishReauthentication(client, failedCeremonyRequest(), identity)
+				} else {
+					issue, err = manager.FinishSignIn(client, failedCeremonyRequest(), nil)
+				}
+				finished <- finishResult{issue: issue, err: err}
+			}()
+			<-verified
+			<-waitingForGate
+			clock.Advance(begin.ExpiresAt.Sub(clock.Now()))
+			manager.gate.Unlock()
+
+			result := <-finished
+			if !errors.Is(result.err, ErrUnauthorized) || CeremonyCanRetry(result.err) {
+				t.Fatalf("deadline commit error=%v retryable=%t", result.err, CeremonyCanRetry(result.err))
+			}
+			if result.issue.Token != "" || result.issue.ExpiresAt != nil || len(result.issue.Runtimes) != 0 {
+				t.Fatalf("deadline commit returned an issue: %+v", result.issue)
+			}
+			afterState, err := json.Marshal(manager.state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			afterFile, err := os.ReadFile(store.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(afterState, beforeState) || !bytes.Equal(afterFile, beforeFile) {
+				t.Fatal("deadline commit mutated access state")
+			}
+			if len(manager.state.Sessions) != 1 || !manager.Recheck(identity) || !lease.Valid() {
+				t.Fatalf("deadline commit changed the existing session: sessions=%d recheck=%t lease=%t", len(manager.state.Sessions), manager.Recheck(identity), lease.Valid())
+			}
+			if _, ok := manager.AuthenticateToken(tokens[0]); !ok {
+				t.Fatal("deadline commit invalidated the existing session token")
+			}
+			key := ceremonyKey(test.kind, digestToken(client))
+			manager.ceremonyMu.Lock()
+			_, ceremonyLive := manager.ceremonies[key]
+			_, attemptsLive := manager.attempts[key]
+			manager.ceremonyMu.Unlock()
+			if ceremonyLive || attemptsLive {
+				t.Fatalf("terminal deadline leaked ceremony=%t attempts=%t", ceremonyLive, attemptsLive)
+			}
+		})
+	}
+}
+
 func ceremonyClient(index int) string {
 	return base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{byte(index + 1)}, 32))
 }
