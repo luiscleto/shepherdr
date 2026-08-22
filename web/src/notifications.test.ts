@@ -102,11 +102,12 @@ function buttonWithText(root: ParentNode, text: string): HTMLButtonElement {
   return button;
 }
 
-function serviceWorkerHarness() {
+function serviceWorkerHarness(homeClientPresent = true) {
   type Listener = (event: Record<string, unknown>) => void;
   const listeners = new Map<string, Listener>();
   let closed = 0;
   let focused = 0;
+  let matched = 0;
   let navigated = "";
   let opened = "";
   let shownBody = "";
@@ -114,7 +115,7 @@ function serviceWorkerHarness() {
   let claimed = 0;
   let skipped = 0;
   const client = {
-    url: "https://shepherdr.example/#terminal=old",
+    url: "https://shepherdr.example/",
     async focus() { focused++; return client; },
     async navigate(destination: string) { navigated = destination; return client; },
   };
@@ -123,7 +124,7 @@ function serviceWorkerHarness() {
     async skipWaiting() { skipped++; },
     clients: {
       async claim() { claimed++; },
-      async matchAll() { return [client]; },
+      async matchAll() { matched++; return homeClientPresent ? [client] : []; },
       async openWindow(destination: string) { opened = destination; return client; },
     },
     location: { origin: "https://shepherdr.example" },
@@ -178,6 +179,7 @@ function serviceWorkerHarness() {
     focused: () => focused,
     listenerNames: () => Array.from(listeners.keys()).sort().join(","),
     lifecycle,
+    matched: () => matched,
     navigated: () => navigated,
     opened: () => opened,
     push,
@@ -310,7 +312,7 @@ test("exact notification route prefers valid current state over stale selection"
   }), "waiting");
 });
 
-test("push worker shows plain workspace names and safely handles click fallback", async () => {
+test("push worker shows plain workspace names and safely handles payload fallback", async () => {
   const worker = serviceWorkerHarness();
   assert.equal(worker.listenerNames(), "activate,install,notificationclick,push");
   await worker.lifecycle("install");
@@ -360,10 +362,40 @@ test("push worker shows plain workspace names and safely handles click fallback"
 
   await worker.click("https://outside.example/terminal");
   assert.equal(worker.closed(), 1);
-  assert.equal(worker.navigated(), "https://shepherdr.example/");
-  assert.equal(worker.focused(), 1);
-  assert.equal(worker.opened(), "");
+  assert.equal(worker.opened(), "https://shepherdr.example/");
+  assert.equal(worker.matched(), 0);
+  assert.equal(worker.navigated(), "");
+  assert.equal(worker.focused(), 0);
 
   const styles = readFileSync(new URL("./style.css", import.meta.url), "utf8");
   assert.match(styles, /\.notification-invitation-actions button,[\s\S]*min-height:\s*44px;/);
+});
+
+test("status click opens the exact terminal URL instead of reusing same-origin Home", async () => {
+  const worker = serviceWorkerHarness(true);
+  await worker.click("/#terminal=w1%3Ap1&terminal_id=term-1");
+
+  assert.equal(worker.closed(), 1);
+  assert.equal(worker.opened(), "https://shepherdr.example/#terminal=w1%3Ap1&terminal_id=term-1");
+  assert.equal(worker.matched(), 0);
+  assert.equal(worker.navigated(), "");
+  assert.equal(worker.focused(), 0);
+});
+
+test("status click without an existing client opens the exact terminal URL", async () => {
+  const worker = serviceWorkerHarness(false);
+  await worker.click("/#terminal=w1%3Ap1&terminal_id=term-1");
+
+  assert.equal(worker.closed(), 1);
+  assert.equal(worker.opened(), "https://shepherdr.example/#terminal=w1%3Ap1&terminal_id=term-1");
+  assert.equal(worker.matched(), 0);
+});
+
+test("lifecycle click opens Home", async () => {
+  const worker = serviceWorkerHarness(true);
+  await worker.click("/");
+
+  assert.equal(worker.closed(), 1);
+  assert.equal(worker.opened(), "https://shepherdr.example/");
+  assert.equal(worker.matched(), 0);
 });

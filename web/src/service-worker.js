@@ -28,15 +28,7 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const destination = safeDestination(event.notification.data?.destination);
   const absolute = new URL(destination, self.location.origin).href;
-  event.waitUntil((async () => {
-    const windows = await self.clients.matchAll({ includeUncontrolled: true, type: "window" });
-    for (const client of windows) {
-      if (new URL(client.url).origin !== self.location.origin) continue;
-      await client.navigate(absolute);
-      return client.focus();
-    }
-    return self.clients.openWindow(absolute);
-  })());
+  event.waitUntil(self.clients.openWindow(absolute));
 });
 
 function notificationFor(value) {
