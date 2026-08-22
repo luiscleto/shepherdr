@@ -38,13 +38,17 @@ Do not add **Sign in**, **Trust this device**, **Devices**, or related controls 
 
 When sign-in is off, the first screen is Home and it quietly keeps **Sign-in is off** visible. Do not add a mode picker or a red warning page.
 
-In protected mode, an ordinary visit starts at **Sign in**. A valid first-setup or invitation link starts at **Trust this device**, then asks the person to create a passkey. Keep the explanation short and use ordinary words.
+When passkeys are on, an ordinary visit starts at **Sign in** and asks the person to use their passkey. It asks for no name, email address, or account.
 
-If an invitation is expired or was already used, say that the link cannot be used and tell the person to create a new invitation on the machine running Shepherdr or from a trusted device. If browser data is lost, say **Sign in again.** Do not expose internal access or protocol terms when the person does not need them to act.
+First setup prints a link and QR code. Open the link on that computer, or scan the QR code on a phone. A valid setup or invitation link, whether opened directly or through a scanned QR code, starts at **Trust this device** and then asks the person to create a passkey. A setup link or QR code is only for trusting that browser and making a passkey; a new browser cannot trust itself.
 
-**Devices** exists only when passkeys are on. It lists trusted sign-ins without claiming that a row is one physical device. Explain that a passkey may sync and its copies share one entry and are revoked together. From this screen a person can verify with a passkey to create a short-lived invitation as a link or QR code, revoke any entry except the last one, and sign out.
+Every unusable setup or invitation uses the same explanation, whatever the reason: **This invitation can't be used. Create a new invitation on the machine running Shepherdr or from a trusted device.** If someone who has a passkey loses browser data, say **Sign in again.** Do not combine these recovery paths or expose internal access or protocol terms when the person does not need them to act.
 
-Keep this work within the current small phone interface. Preserve Home, Terminal, workspace actions, and existing **Notifications** settings. Add no placeholder access controls before the complete protected flow exists.
+**Devices** exists only when passkeys are on. It lists trusted sign-ins without claiming that a row is one physical device. Explain that a passkey may sync and its copies share one entry and are revoked together. If copy or backup state is shown, label it **last reported by this passkey** and include the observation time; never imply a provider or live physical-device state.
+
+From **Devices**, a person can use their passkey before creating a short-lived invitation as a link or QR code or revoking a trusted sign-in. Offer **Revoke** only when another trusted sign-in remains; do not show a disabled final **Revoke**. Clearing all access requires stopping Shepherdr and resetting it on the machine. A person can also sign out.
+
+Keep this work within the current small phone interface. Preserve Home, Terminal, workspace actions, and the existing placement and behavior of **Notifications** settings. Add no placeholder access controls before the complete passkey flow exists.
 
 ## Visual character
 

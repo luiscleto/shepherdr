@@ -80,7 +80,11 @@ Notification settings belong to each browser or installed app. `blocked` and `do
 
 Sign-in and device trust are not implemented. The current build starts without sign-in, so anyone who can reach Shepherdr can act as the operator and the interface quietly keeps **Sign-in is off** visible.
 
-Passkeys are the approved recommended mode alongside a trusted private network. The approved design keeps one operator, supports multiple trusted passkeys, requires existing trusted or machine-local authority before a new browser can be trusted, and keeps an explicit sign-in-off mode. The exact access boundary, setup, invitation, session, revocation, reset, and implementation decisions live in the [approved passkey and device architecture](passkey-device-architecture-proposal.md).
+Passkeys are the approved recommended mode alongside a trusted private network. The approved design keeps one operator, supports multiple trusted passkeys, and keeps an explicit sign-in-off mode.
+
+When passkeys are on, an ordinary return asks the person to sign in with a passkey, not a name, email address, or account. First setup prints a link and QR code. Open the link on that computer, or scan the QR code on a phone. A valid setup or invitation link, whether opened directly or through a scanned QR code, starts at **Trust this device** and then creates a passkey. The setup link or QR code exists only to trust that browser and make a passkey; a new browser cannot trust itself.
+
+The exact access boundary, setup, invitation, session, revocation, reset, and implementation decisions live in the [approved passkey and device architecture](passkey-device-architecture-proposal.md).
 
 Team accounts, roles, organizations, and remote lost-device recovery are not part of the current product.
 
