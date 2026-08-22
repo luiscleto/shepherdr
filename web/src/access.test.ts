@@ -49,8 +49,10 @@ test("sign-in, trust labeling, and unusable invitations use the approved small s
   controller.renderTrust(host, validInvitation);
   assert.equal(host.querySelector("h1")?.textContent, "Trust this device");
   assert.equal(host.querySelector("input")?.getAttribute("maxlength"), "160");
-  assert.equal(host.querySelector(".access-field > span")?.textContent, "Label");
-  assert.equal(host.querySelector(".access-field-help")?.textContent, "Shown on Devices. Not an account.");
+  assert.equal(host.querySelector("input")?.hasAttribute("required"), true);
+  assert.equal(host.querySelector<HTMLInputElement>("input")?.value, "");
+  assert.equal(host.querySelector(".access-field > span")?.textContent, "Short label");
+  assert.equal(host.querySelector(".access-field-help")?.textContent, "Use a name you will recognize in Devices. Not an account.");
 
   controller.renderTrust(host, "");
   assert.equal(
@@ -85,6 +87,8 @@ test("Trust keeps local passkey cancellation retryable but removes a server-reje
     });
     try {
       controller.renderTrust(host, validInvitation);
+      const label = host.querySelector<HTMLInputElement>('input[name="device-label"]');
+      if (label) label.value = "Personal phone";
       const trust = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Trust this device");
       trust?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -113,6 +117,8 @@ test("Trust keeps local passkey cancellation retryable but removes a server-reje
     }, 400);
     try {
       controller.renderTrust(host, validInvitation);
+      const label = host.querySelector<HTMLInputElement>('input[name="device-label"]');
+      if (label) label.value = "Personal phone";
       const trust = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Trust this device");
       trust?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -126,6 +132,28 @@ test("Trust keeps local passkey cancellation retryable but removes a server-reje
     assert.equal(host.querySelectorAll("input").length, 0);
     assert.equal(host.querySelectorAll("button").length, 0);
   });
+});
+
+test("Trust requires a human label before beginning the passkey ceremony", async () => {
+  const window = new Window();
+  const host = window.document.createElement("main");
+  window.document.body.append(host);
+  const controller = new AccessController(host, accessActions());
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => {
+    requests++;
+    return jsonResponse({});
+  };
+  try {
+    controller.renderTrust(host, validInvitation);
+    buttonWithText(host, "Trust this device").click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(requests, 0);
+  assert.equal(host.querySelector(".access-feedback")?.textContent, "Enter a short label for this trusted sign-in.");
 });
 
 test("Devices confines hostile labels and omits Revoke for the final trusted sign-in", async () => {
@@ -203,6 +231,45 @@ test("Devices offers Revoke only when another trusted sign-in remains", async ()
   assert.equal(backupObservations.length, 2);
   assert.equal(backupObservations.every((text) => text.endsWith(": no backup")), true);
   assert.equal(root.textContent?.includes("This is the last trusted sign-in."), false);
+});
+
+test("browser invitations render a square image QR", async () => {
+  const window = new Window();
+  const root = window.document.createElement("div");
+  window.document.body.append(root);
+  const controller = new AccessController(root, accessActions());
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => init?.method === "POST"
+    ? jsonResponse({
+      expires_at: "2026-08-22T10:10:00Z",
+      link: `https://shepherdr.example/#trust=${validInvitation}`,
+      qr: "data:image/png;base64,iVBORw0KGgo=",
+    })
+    : jsonResponse({
+      can_revoke: false,
+      current_trust_id: "one",
+      devices: [{
+        backup_eligible: false,
+        backup_observed_at: "2026-08-22T10:00:00Z",
+        backup_state: false,
+        created_at: "2026-08-22T09:00:00Z",
+        label: "Personal phone",
+        last_used_at: "2026-08-22T10:00:00Z",
+        trust_id: "one",
+      }],
+    });
+  try {
+    await controller.openDevices();
+    buttonWithText(root, "Trust another device").click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  const qr = root.querySelector<HTMLImageElement>("img.access-qr");
+  assert.equal(qr?.alt, "Invitation QR code");
+  assert.equal(qr?.width, 320);
+  assert.equal(qr?.height, 320);
+  assert.equal(qr?.src.startsWith("data:image/png;base64,"), true);
 });
 
 test("Sign out stays truthful on failure and closes only after confirmation", async (t) => {
@@ -309,7 +376,7 @@ test("access probe distinguishes protected, signed-out, and sign-in-off modes", 
   }
 });
 
-test("Home quietly distinguishes sign-in-off from protected Devices", () => {
+test("Home keeps one Settings action and no separate Devices header action", () => {
   const window = new Window();
   const app = window.document.createElement("main");
   window.document.body.append(app);
@@ -339,10 +406,17 @@ test("Home quietly distinguishes sign-in-off from protected Devices", () => {
   assert.equal(app.querySelector(".quiet")?.textContent, "Sign-in is off.");
   assert.equal((app.querySelector(".quiet") as HTMLElement | null)?.hidden, false);
   assert.equal(app.querySelector(".home-devices"), null);
+  assert.equal(app.querySelectorAll(".settings-action").length, 1);
 
   view.render({ ...model, signInOff: false });
   assert.equal((app.querySelector(".quiet") as HTMLElement | null)?.hidden, true);
-  assert.equal((app.querySelector(".home-devices") as HTMLElement | null)?.hidden, false);
-  assert.equal(app.querySelector(".home-devices")?.textContent, "Devices");
+  assert.equal(app.querySelector(".home-devices"), null);
   assert.equal(app.querySelectorAll(".settings-action").length, 1);
 });
+
+function buttonWithText(root: ParentNode, text: string): HTMLButtonElement {
+  const button = Array.from(root.querySelectorAll<HTMLButtonElement>("button"))
+    .find((candidate) => candidate.textContent === text);
+  if (!button) throw new Error(`missing button ${text}`);
+  return button;
+}

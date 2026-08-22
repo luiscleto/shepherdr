@@ -119,6 +119,10 @@ func TestPayloadsCarryOnlyWorkspaceDisplayNameAndExactDestinationFields(t *testi
 	if string(workspace) != `{"destination":"/","kind":"workspace_closed","workspace_name":"Temporary"}` {
 		t.Fatalf("workspace payload = %s", workspace)
 	}
+	accessChange, _ := eventPayload(Event{Kind: EventTrustedSignInRemoved, TrustLabel: "Phone <script>", Destination: "/"})
+	if string(accessChange) != `{"destination":"/","kind":"trusted_sign_in_removed","trust_label":"Phone \u003cscript\u003e"}` {
+		t.Fatalf("access-change payload = %s", accessChange)
+	}
 	if libraryContact("mailto:operator@example.com") != "operator@example.com" {
 		t.Fatal("mailto contact was not adapted to the pinned library without changing its value")
 	}

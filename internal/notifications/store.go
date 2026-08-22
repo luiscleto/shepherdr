@@ -84,6 +84,26 @@ func OpenStore(path, suppliedContact string) (*Store, error) {
 	}
 
 	store.state = state
+	if state != nil && state.Version != stateVersion {
+		updated := cloneState(state)
+		updated.Version = stateVersion
+		for index := range updated.Subscriptions {
+			updated.Subscriptions[index].Events.TrustedSignInAdded = true
+			updated.Subscriptions[index].Events.TrustedSignInRemoved = true
+		}
+		if err := validateState(updated); err != nil {
+			store.err = err
+			store.state = nil
+			return store, err
+		}
+		if err := writeState(path, updated); err != nil {
+			store.err = err
+			store.state = nil
+			return store, err
+		}
+		store.state = updated
+		state = updated
+	}
 	if suppliedContact != "" && state.VAPIDContact != suppliedContact {
 		updated := cloneState(state)
 		updated.VAPIDContact = suppliedContact
@@ -450,7 +470,7 @@ func readState(path string) (*persistedState, error) {
 }
 
 func validateState(state *persistedState) error {
-	if state.Version != stateVersion && state.Version != legacyStateVersion {
+	if state.Version != stateVersion && state.Version != ownedStateVersion && state.Version != legacyStateVersion {
 		return fmt.Errorf("unsupported notification state version %d", state.Version)
 	}
 	contact, err := ValidateContact(state.VAPIDContact)
@@ -485,7 +505,7 @@ func validateState(state *persistedState) error {
 		if err := validateSubscriptionShape(subscription); err != nil {
 			return fmt.Errorf("notification state has an invalid subscription: %w", err)
 		}
-		if state.Version == stateVersion && subscription.TrustID != "" {
+		if state.Version >= ownedStateVersion && subscription.TrustID != "" {
 			if decoded, err := base64.RawURLEncoding.DecodeString(subscription.TrustID); err != nil || len(decoded) != 16 {
 				return errors.New("notification state has an invalid subscription owner")
 			}

@@ -26,7 +26,7 @@ On the first protected start, give Shepherdr its one lasting private HTTPS addre
 ./bin/shepherdr -public-origin https://shepherdr.example-private.net
 ```
 
-Use the exact address that browsers will open. Shepherdr saves it, prints a ten-minute setup link and terminal QR code, and will not reveal that bearer link again after a restart. Open the link on the computer or scan the QR code on a phone, then choose **Trust this device** to create the first passkey. A new browser cannot trust itself without one of these invitations.
+Use the exact address that browsers will open. Shepherdr saves it, prints a ten-minute setup link and terminal QR code, and will not reveal that bearer link again after a restart. Open the link on the computer or scan the QR code on a phone, enter a short label you will recognize, then choose **Trust this device** to create the first passkey. A new browser cannot trust itself without one of these invitations.
 
 Later protected starts reuse the saved address:
 
@@ -87,7 +87,7 @@ Revoke refuses to remove the final passkey. If every passkey must be discarded, 
 
 Access reset rotates the operator identity, clears passkeys, sessions, invitations, and notification subscriptions, and preserves the private origin and notification identity. It creates no invitation itself; the next protected start prints a new bootstrap invitation.
 
-While signed in, **Devices** shows the same trusted sign-ins. Viewing them needs a valid session. Creating an invitation or revoking a trusted sign-in asks for a passkey if the latest verification is more than five minutes old. **Sign out** invalidates only that browser session.
+While signed in, open **Settings**, then **Devices**, to see the same trusted sign-ins. Device settings are hidden when sign-in is off. Viewing them needs a valid session. Creating an invitation or revoking a trusted sign-in asks for a passkey if the latest verification is more than five minutes old. **Sign out** invalidates only that browser session.
 
 ## Turn on notifications
 
@@ -99,7 +99,7 @@ Each Shepherdr installation needs a real operator contact before browsers can en
 
 The contact is saved outside the repository with the installation's notification keys and subscriptions. Later starts reuse it. Supplying a different valid contact updates the contact without changing notification keys or browser subscriptions. Browser push providers receive this operator contact as part of standard Web Push; it is not a Shepherdr project contact.
 
-Without a configured contact, Home and Terminal continue to work and Notifications settings explain the local setup command. After configuration, each signed-in browser or installed app enables and configures its own notifications from **Notifications** on Home or Terminal. `blocked` and `done` start on; the other Herdr statuses and workspace opened or closed notices start off. When an older installation first turns on protected access, subscriptions without a trusted-sign-in owner become inactive and each browser must explicitly enable notifications again.
+Without a configured contact, Home and Terminal continue to work and Notifications settings explain the local setup command. After configuration, each browser or installed app enables and configures its own notifications from **Settings** on Home or Terminal. `blocked`, `done`, trusted sign-in added, and trusted sign-in removed start on; the other Herdr statuses and workspace opened or closed notices start off. Existing enabled subscriptions safely gain the two trusted-sign-in choices. When an older installation first turns on protected access, subscriptions without a trusted-sign-in owner become inactive and each browser must explicitly enable notifications again.
 
 A phone needs one stable private HTTPS address. Android Chrome does not require installation. On iPhone or iPad, add Shepherdr to the Home Screen and open it there before enabling notifications.
 

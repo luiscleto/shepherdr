@@ -32,6 +32,117 @@ func (s *countingSender) Send(context.Context, Event, Subscription, string, stri
 	return sendAccepted
 }
 
+type selectiveTrustAuthority struct {
+	mu     sync.RWMutex
+	active map[string]bool
+}
+
+func (a *selectiveTrustAuthority) WithActiveTrustRead(trustID string, operation func() error) error {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if !a.active[trustID] {
+		return errors.New("inactive")
+	}
+	return operation()
+}
+
+func (a *selectiveTrustAuthority) setActive(trustID string, active bool) {
+	a.mu.Lock()
+	a.active[trustID] = active
+	a.mu.Unlock()
+}
+
+type capturedSend struct {
+	event   Event
+	trustID string
+}
+
+type captureSender struct {
+	mu    sync.Mutex
+	sends []capturedSend
+}
+
+func (s *captureSender) Send(_ context.Context, event Event, subscription Subscription, _, _, _ string) sendOutcome {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sends = append(s.sends, capturedSend{event: event, trustID: subscription.TrustID})
+	return sendAccepted
+}
+
+func (s *captureSender) take() []capturedSend {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	result := append([]capturedSend(nil), s.sends...)
+	s.sends = nil
+	return result
+}
+
+func TestAccessChangeNotificationsUseLabelsAndExcludeRemovedTrust(t *testing.T) {
+	store, err := OpenStore(t.TempDir()+"/notifications.json", "mailto:operator@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	removedTrust := "AAAAAAAAAAAAAAAAAAAAAA"
+	remainingTrust := "AgAAAAAAAAAAAAAAAAAAAA"
+	authority := &selectiveTrustAuthority{active: map[string]bool{removedTrust: true, remainingTrust: true}}
+	var logs strings.Builder
+	manager := NewManager(store, slog.New(slog.NewTextHandler(&logs, nil)))
+	if err := manager.EnableProtected(authority, map[string]struct{}{removedTrust: {}, remainingTrust: {}}); err != nil {
+		t.Fatal(err)
+	}
+	for endpoint, trustID := range map[string]string{
+		"https://push.example/removed":   removedTrust,
+		"https://push.example/remaining": remainingTrust,
+	} {
+		subscription := validSubscription(t, endpoint, DefaultEventSettings())
+		if err := manager.CommitOwned(subscription, trustID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sender := &captureSender{}
+	manager.sender = sender
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	manager.Start(ctx)
+
+	manager.TrustedSignInAdded("  Tablet <script>  ")
+	manager.WaitPending()
+	added := sender.take()
+	if len(added) != 2 {
+		t.Fatalf("add sends=%d, want both active subscriptions", len(added))
+	}
+	for _, sent := range added {
+		if sent.event.Kind != EventTrustedSignInAdded || sent.event.TrustLabel != "Tablet <script>" || sent.event.Destination != "/" {
+			t.Fatalf("added event=%+v", sent.event)
+		}
+	}
+
+	authority.setActive(removedTrust, false)
+	if err := manager.RemoveTrustSubscriptions(removedTrust, "Phone <b>"); err != nil {
+		t.Fatal(err)
+	}
+	manager.WaitPending()
+	if _, found, err := store.LookupOwned("https://push.example/removed", removedTrust); err != nil || found {
+		t.Fatalf("removed subscription found=%t err=%v", found, err)
+	}
+	removed := sender.take()
+	if len(removed) != 1 || removed[0].trustID != remainingTrust || removed[0].event.Kind != EventTrustedSignInRemoved ||
+		removed[0].event.TrustLabel != "Phone <b>" || removed[0].event.Destination != "/" {
+		t.Fatalf("removed sends=%+v", removed)
+	}
+	logged := logs.String()
+	for _, report := range []string{"Trusted sign-in added", "Trusted sign-in removed", "Tablet <script>", "Phone <b>"} {
+		if !strings.Contains(logged, report) {
+			t.Errorf("running-service report omitted %q: %s", report, logged)
+		}
+	}
+	for _, secret := range []string{removedTrust, remainingTrust, "https://push.example/removed", "https://push.example/remaining"} {
+		if strings.Contains(logged, secret) {
+			t.Errorf("running-service report exposed %q: %s", secret, logged)
+		}
+	}
+}
+
 type gatedTrustAuthority struct {
 	mu     sync.RWMutex
 	active bool

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-webauthn/webauthn/protocol"
@@ -132,11 +133,9 @@ func (m *Manager) beginAssertion(kind, clientToken string, current SessionIdenti
 }
 
 func (m *Manager) BeginTrust(clientToken, invitationToken, label string) (CeremonyBegin, error) {
-	if len(label) > 160 {
+	label = strings.TrimSpace(label)
+	if label == "" || len(label) > 160 {
 		return CeremonyBegin{}, ErrInvitationGeneric
-	}
-	if label == "" {
-		label = "Trusted sign-in"
 	}
 	now := m.clock.Now()
 	clientToken, clientDigest, err := normalizeCeremonyClient(clientToken)
@@ -464,6 +463,9 @@ func (m *Manager) commitRegistration(ceremony *ceremony, credential *webauthn.Cr
 	}
 	issue.Runtimes = m.cancelRuntimes(invalidated)
 	m.installRuntime(digestToken(issue.Token))
+	if m.authority != nil {
+		m.authority.TrustedSignInAdded(ceremony.label)
+	}
 	return issue, nil
 }
 

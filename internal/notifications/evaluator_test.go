@@ -87,8 +87,10 @@ func TestSnapshotEvaluatorDoesNotTreatNewAgentAsTransition(t *testing.T) {
 	}
 }
 
-func TestDefaultSelectionsAreBlockedAndDoneOnly(t *testing.T) {
-	want := EventSettings{Blocked: true, Done: true}
+func TestDefaultSelectionsIncludeAccessChanges(t *testing.T) {
+	want := EventSettings{
+		Blocked: true, Done: true, TrustedSignInAdded: true, TrustedSignInRemoved: true,
+	}
 	if got := DefaultEventSettings(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("defaults = %+v, want %+v", got, want)
 	}

@@ -2,6 +2,8 @@ export interface NotificationEvents {
   blocked: boolean;
   done: boolean;
   idle: boolean;
+  trusted_sign_in_added: boolean;
+  trusted_sign_in_removed: boolean;
   unknown: boolean;
   working: boolean;
   workspace_closed: boolean;
@@ -56,6 +58,8 @@ export const defaultNotificationEvents: NotificationEvents = {
   blocked: true,
   done: true,
   idle: false,
+  trusted_sign_in_added: true,
+  trusted_sign_in_removed: true,
   unknown: false,
   working: false,
   workspace_closed: false,
@@ -166,6 +170,8 @@ export class NotificationsController {
   #dialogOpen = false;
   #dismissedForVisit = false;
   #events = { ...defaultNotificationEvents };
+  #devicesAvailable = false;
+  #openDevices: ((returnFocus?: HTMLElement) => void) | undefined;
   #returnFocus: HTMLElement | undefined;
   #subscription: BrowserPushSubscription | undefined;
 
@@ -191,6 +197,15 @@ export class NotificationsController {
     }
     this.#render();
     await workerRefresh;
+  }
+
+  setDeviceSettingsHandler(open: (returnFocus?: HTMLElement) => void): void {
+    this.#openDevices = open;
+  }
+
+  setDeviceSettingsAvailable(available: boolean): void {
+    this.#devicesAvailable = available;
+    if (this.#dialogOpen) this.#renderSettings();
   }
 
   openSettings(): void {
@@ -365,44 +380,47 @@ export class NotificationsController {
     const panel = element(this.#document, "section", "notification-panel");
     panel.setAttribute("role", "dialog");
     panel.setAttribute("aria-modal", "true");
-    panel.setAttribute("aria-labelledby", "notification-title");
+    panel.setAttribute("aria-labelledby", "settings-title");
     panel.tabIndex = -1;
-    const heading = element(this.#document, "h2", undefined, "Notifications");
-    heading.id = "notification-title";
+    const heading = element(this.#document, "h2", undefined, "Settings");
+    heading.id = "settings-title";
     const close = action(this.#document, "Close", () => this.#closeSettings(), "notification-close");
     const header = element(this.#document, "header", "notification-panel-header");
     header.append(heading, close);
-    panel.append(
-      header,
+    panel.append(header);
+    const notificationSection = element(this.#document, "section", "settings-section");
+    const notificationHeading = element(this.#document, "h3", undefined, "Notifications");
+    notificationSection.append(
+      notificationHeading,
       element(this.#document, "p", "notification-scope", "These settings apply only to this browser or installed app."),
     );
 
     const config = this.#config;
     if (!config) {
-      panel.append(element(this.#document, "p", undefined, message ?? "Loading notification settings…"));
+      notificationSection.append(element(this.#document, "p", undefined, message ?? "Loading notification settings…"));
     } else if (config.unavailable) {
-      heading.textContent = "Notifications unavailable";
-      panel.append(element(this.#document, "p", undefined, "Check Shepherdr on the machine where it is running."));
+      notificationHeading.textContent = "Notifications unavailable";
+      notificationSection.append(element(this.#document, "p", undefined, "Check Shepherdr on the machine where it is running."));
     } else if (!config.setup) {
-      heading.textContent = "Notifications aren't set up";
+      notificationHeading.textContent = "Notifications aren't set up";
       const setup = element(this.#document, "p");
       setup.append(
         "On the machine running Shepherdr, start it with ",
         element(this.#document, "code", undefined, "-vapid-contact"),
         " and a contact email or website.",
       );
-      panel.append(setup);
+      notificationSection.append(setup);
     } else if (this.#platform.iosBrowserTab()) {
-      panel.append(element(this.#document, "p", undefined, "Add Shepherdr to your Home Screen, then open it there."));
+      notificationSection.append(element(this.#document, "p", undefined, "Add Shepherdr to your Home Screen, then open it there."));
     } else if (!this.#platform.supported()) {
-      panel.append(element(
+      notificationSection.append(element(
         this.#document,
         "p",
         undefined,
         "Notifications aren't available in this browser.",
       ));
     } else if (this.#platform.permission() === "denied") {
-      panel.append(element(
+      notificationSection.append(element(
         this.#document,
         "p",
         undefined,
@@ -411,7 +429,7 @@ export class NotificationsController {
     } else if (!this.#subscription) {
       const turnOn = action(this.#document, "Turn on notifications", () => void this.#turnOn(), "notification-primary");
       turnOn.disabled = this.#busy;
-      panel.append(
+      notificationSection.append(
         element(this.#document, "p", undefined, message ?? "Choose which events matter after notifications are on."),
         turnOn,
       );
@@ -432,8 +450,19 @@ export class NotificationsController {
         event.preventDefault();
         void this.#save(form);
       });
-      panel.append(form);
-      if (message) panel.append(element(this.#document, "p", "notification-feedback", message));
+      notificationSection.append(form);
+      if (message) notificationSection.append(element(this.#document, "p", "notification-feedback", message));
+    }
+
+    panel.append(notificationSection);
+    if (this.#devicesAvailable && this.#openDevices) {
+      const devicesSection = element(this.#document, "section", "settings-section settings-devices");
+      devicesSection.append(
+        element(this.#document, "h3", undefined, "Devices"),
+        element(this.#document, "p", "notification-scope", "View trusted sign-ins, create an invitation, or sign out."),
+        action(this.#document, "Open devices", () => this.#openDeviceSettings()),
+      );
+      panel.append(devicesSection);
     }
 
     layer.append(panel);
@@ -446,6 +475,14 @@ export class NotificationsController {
     this.#root.replaceChildren(layer);
     panel.focus({ preventScroll: true });
   }
+
+  #openDeviceSettings(): void {
+    const returnFocus = this.#returnFocus;
+    this.#dialogOpen = false;
+    this.#returnFocus = undefined;
+    this.#root.replaceChildren();
+    this.#openDevices?.(returnFocus);
+  }
 }
 
 const eventChoices: ReadonlyArray<[keyof NotificationEvents, string]> = [
@@ -456,6 +493,8 @@ const eventChoices: ReadonlyArray<[keyof NotificationEvents, string]> = [
   ["unknown", "unknown"],
   ["workspace_opened", "Workspace opened"],
   ["workspace_closed", "Workspace closed"],
+  ["trusted_sign_in_added", "Trusted sign-in added"],
+  ["trusted_sign_in_removed", "Trusted sign-in removed"],
 ];
 
 function eventCheckbox(
@@ -479,6 +518,8 @@ function eventsFromForm(form: HTMLFormElement): NotificationEvents {
     blocked: data.has("blocked"),
     done: data.has("done"),
     idle: data.has("idle"),
+    trusted_sign_in_added: data.has("trusted_sign_in_added"),
+    trusted_sign_in_removed: data.has("trusted_sign_in_removed"),
     unknown: data.has("unknown"),
     working: data.has("working"),
     workspace_closed: data.has("workspace_closed"),

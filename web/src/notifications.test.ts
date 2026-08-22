@@ -200,7 +200,8 @@ test("missing local setup hides the invitation and settings explain the CLI acti
 
   controller.openSettings();
   await settle();
-  assert.equal(root.querySelector("h2")?.textContent, "Notifications aren't set up");
+  assert.equal(root.querySelector("h2")?.textContent, "Settings");
+  assert.equal(root.querySelector("h3")?.textContent, "Notifications aren't set up");
   assert.match(root.textContent ?? "", /On the machine running Shepherdr, start it with -vapid-contact and a contact email or website\./);
   assert.equal(platform.requestCount, 0);
   assert.equal(root.querySelectorAll(".notification-primary").length, 0);
@@ -231,9 +232,42 @@ test("explicit enable tap requests permission and saves blocked and done default
   assert.deepEqual(api.saved[0]?.events, defaultNotificationEvents);
   assert.equal(root.querySelector<HTMLInputElement>('input[name="blocked"]')?.checked, true);
   assert.equal(root.querySelector<HTMLInputElement>('input[name="done"]')?.checked, true);
+  assert.equal(root.querySelector<HTMLInputElement>('input[name="trusted_sign_in_added"]')?.checked, true);
+  assert.equal(root.querySelector<HTMLInputElement>('input[name="trusted_sign_in_removed"]')?.checked, true);
   assert.equal(root.querySelector<HTMLInputElement>('input[name="working"]')?.checked, false);
   assert.equal(root.querySelector<HTMLInputElement>('input[name="workspace_opened"]')?.checked, false);
   assert.match(root.textContent ?? "", /These settings apply only to this browser or installed app\./);
+});
+
+test("Devices is reached inside Settings only when sign-in is protected", async () => {
+  const { api, controller, root, window } = notificationView();
+  api.configValue = { contact: "mailto:operator@example.com", public_key: "public", setup: true };
+  let opened = 0;
+  let returnedFocus: HTMLElement | undefined;
+  controller.setDeviceSettingsHandler((focus) => {
+    opened++;
+    returnedFocus = focus;
+  });
+  await controller.init();
+
+  const settingsAction = window.document.createElement("button");
+  window.document.body.append(settingsAction);
+  settingsAction.focus();
+  controller.setDeviceSettingsAvailable(false);
+  controller.openSettings();
+  await settle();
+  assert.equal(root.querySelector(".settings-devices"), null);
+  buttonWithText(root, "Close").click();
+
+  settingsAction.focus();
+  controller.setDeviceSettingsAvailable(true);
+  controller.openSettings();
+  await settle();
+  assert.equal(root.querySelector(".settings-devices h3")?.textContent, "Devices");
+  buttonWithText(root, "Open devices").click();
+  assert.equal(opened, 1);
+  assert.equal(returnedFocus === settingsAction, true);
+  assert.equal(root.childElementCount, 0);
 });
 
 test("denied permission shows browser guidance without subscribing", async () => {
@@ -356,6 +390,16 @@ test("push worker shows plain workspace names and safely handles payload fallbac
   assert.equal(worker.shownBody(), "Temporary");
   assert.equal(worker.shownDestination(), "/");
 
+  await worker.push({ destination: "/", kind: "trusted_sign_in_added", trust_label: "Phone <script>" });
+  assert.equal(worker.shownTitle(), "Trusted sign-in added");
+  assert.equal(worker.shownBody(), "Label: Phone <script>");
+  assert.equal(worker.shownDestination(), "/");
+
+  await worker.push({ destination: "/", kind: "trusted_sign_in_removed", trust_label: "   " });
+  assert.equal(worker.shownTitle(), "Trusted sign-in removed");
+  assert.equal(worker.shownBody(), "A trusted sign-in was removed.");
+  assert.equal(worker.shownDestination(), "/");
+
   await worker.push({ destination: "/", kind: "workspace_opened", workspace_name: "   " });
   assert.equal(worker.shownTitle(), "Shepherdr");
   assert.equal(worker.shownBody(), "A workspace opened.");
@@ -419,6 +463,12 @@ test("invalid lifecycle destinations keep generic copy and do not expose workspa
     assert.equal(worker.shownBody().includes("Private workspace"), false);
     assert.equal(worker.shownDestination(), "/");
   }
+
+  await worker.push({ destination: "https://outside.example/", kind: "trusted_sign_in_added", trust_label: "Private phone" });
+  assert.equal(worker.shownTitle(), "Shepherdr");
+  assert.equal(worker.shownBody(), "A workspace changed.");
+  assert.equal(worker.shownBody().includes("Private phone"), false);
+  assert.equal(worker.shownDestination(), "/");
 });
 
 test("an unvalidated workspace name keeps generic status copy", async () => {

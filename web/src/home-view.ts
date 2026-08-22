@@ -33,7 +33,6 @@ interface HomeViewActions {
   onFocusPane: (paneID: string) => void;
   onOpen: (entry: TerminalEntry) => void;
   onNotifications?: () => void;
-  onDevices?: () => void;
   onShowAll: () => void;
   onShowBlocked: () => void;
   prepareWorkspaceAction: (request: PrepareWorkspaceActionRequest) => Promise<PreparedWorkspaceActionResponse>;
@@ -148,7 +147,6 @@ export class HomeView {
   readonly #connectionHeading: HTMLElement;
   readonly #connectionPanel: HTMLElement;
   readonly #accessNotice: HTMLElement;
-  readonly #devicesAction: HTMLButtonElement;
   readonly #document: Document;
   readonly #empty: HTMLElement;
   readonly #expandAction: HTMLButtonElement;
@@ -204,8 +202,6 @@ export class HomeView {
     this.#connectionHeading = element(this.#document, "span", "connection-label");
     connectionIndicator.append(this.#connectionDot, this.#connectionHeading);
     this.#notificationsAction = settingsAction(this.#document, () => actions.onNotifications?.(), "home-notifications");
-    this.#devicesAction = this.#button("Devices", () => actions.onDevices?.());
-    this.#devicesAction.className = "home-devices";
     this.#connectionPanel.append(connectionIndicator, this.#notificationsAction);
     const mastheadActions = element(this.#document, "div", "masthead-actions");
     mastheadActions.append(this.#connectionPanel);
@@ -284,12 +280,6 @@ export class HomeView {
     setText(this.#headerHeading, model.mode === "blocked" ? "Blocked" : "Home");
     setHidden(this.#headerHeading, model.mode === "all");
     setHidden(this.#accessNotice, !model.signInOff);
-    if (model.signInOff === false) {
-      if (this.#devicesAction.parentElement !== this.#connectionPanel) this.#connectionPanel.append(this.#devicesAction);
-    } else {
-      this.#devicesAction.remove();
-    }
-
     const live = model.reachability === "current" && model.state.connection === "live" && !model.state.last_known;
 
     const desired: Node[] = [this.#header];

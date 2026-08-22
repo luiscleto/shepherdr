@@ -1,7 +1,7 @@
 package server
 
 import (
-	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/luisc/shepherdr/internal/access"
-	"github.com/mdp/qrterminal/v3"
+	"rsc.io/qr"
 )
 
 const (
@@ -195,16 +195,25 @@ func (s *Server) deviceInvitation(writer http.ResponseWriter, request *http.Requ
 		writeAccessError(writer, http.StatusConflict, "An invitation could not be created.")
 		return
 	}
-	var qr bytes.Buffer
-	qrterminal.GenerateWithConfig(link, qrterminal.Config{
-		Level: qrterminal.L, Writer: &qr, HalfBlocks: true, QuietZone: qrterminal.QUIET_ZONE,
-		BlackChar: "█", BlackWhiteChar: "▀", WhiteChar: " ", WhiteBlackChar: "▄",
-	})
+	qrImage, err := invitationQRDataURL(link)
+	if err != nil {
+		writeAccessError(writer, http.StatusConflict, "An invitation could not be created.")
+		return
+	}
 	writeAccessJSON(writer, http.StatusOK, struct {
 		ExpiresAt time.Time `json:"expires_at"`
 		Link      string    `json:"link"`
 		QR        string    `json:"qr"`
-	}{ExpiresAt: expiresAt, Link: link, QR: qr.String()})
+	}{ExpiresAt: expiresAt, Link: link, QR: qrImage})
+}
+
+func invitationQRDataURL(link string) (string, error) {
+	code, err := qr.Encode(link, qr.L)
+	if err != nil {
+		return "", err
+	}
+	code.Scale = 8
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(code.PNG()), nil
 }
 
 func (s *Server) deviceRevoke(writer http.ResponseWriter, request *http.Request) {
@@ -219,7 +228,7 @@ func (s *Server) deviceRevoke(writer http.ResponseWriter, request *http.Request)
 		writeAccessError(writer, http.StatusUnauthorized, "Sign in again.")
 		return
 	}
-	runtimes, err := s.access.RevokeBrowser(session, body.TrustID)
+	result, err := s.access.RevokeBrowser(session, body.TrustID)
 	if errors.Is(err, access.ErrFreshRequired) {
 		writeAccessError(writer, http.StatusPreconditionRequired, "Use a passkey before revoking this trusted sign-in.")
 		return
@@ -235,7 +244,7 @@ func (s *Server) deviceRevoke(writer http.ResponseWriter, request *http.Request)
 	if body.TrustID == session.TrustID {
 		deleteSessionCookie(writer)
 	}
-	access.WaitRuntimes(runtimes)
+	access.WaitRuntimes(result.Runtimes)
 	writeAccessJSON(writer, http.StatusOK, map[string]bool{"revoked": true})
 }
 

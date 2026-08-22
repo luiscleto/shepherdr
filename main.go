@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -287,7 +288,8 @@ func runAccessCommand(arguments []string, accessPath, notificationPath string) e
 			return nil
 		}
 		for _, device := range devices {
-			fmt.Printf("%s  %q\n", device.TrustID, device.Label)
+			fmt.Printf("%q\n", trustedSignInLabel(device.Label))
+			fmt.Printf("  trust ID %s\n", device.TrustID)
 			fmt.Printf("  created %s; last used %s\n", device.CreatedAt.Format(time.RFC3339), device.LastUsedAt.Format(time.RFC3339))
 			fmt.Printf("  backup eligible: %t; backup state last reported by this passkey at %s: %t\n", device.BackupEligible, device.BackupObservedAt.Format(time.RFC3339), device.BackupState)
 		}
@@ -298,16 +300,21 @@ func runAccessCommand(arguments []string, accessPath, notificationPath string) e
 		}
 		notificationStore, _ := notifications.OpenStore(notificationPath, "")
 		notificationManager := notifications.NewManager(notificationStore, nil)
+		notificationContext, stopNotifications := context.WithCancel(context.Background())
+		defer stopNotifications()
+		notificationManager.Start(notificationContext)
+		_ = notificationManager.EnableProtected(manager, manager.ActiveTrustIDs())
 		manager.SetNotificationAuthority(notificationManager)
-		runtimes, err := manager.RevokeLocal(arguments[1])
+		result, err := manager.RevokeLocal(arguments[1])
 		if err != nil {
 			return err
 		}
-		access.WaitRuntimes(runtimes)
-		if err := notificationManager.RemoveTrustSubscriptions(arguments[1]); err != nil {
-			return fmt.Errorf("access was revoked, but notification cleanup must be retried: %w", err)
+		access.WaitRuntimes(result.Runtimes)
+		notificationManager.WaitPending()
+		if result.NotificationCleanupError != nil {
+			return fmt.Errorf("access was revoked, but notification cleanup must be retried: %w", result.NotificationCleanupError)
 		}
-		fmt.Println("Trusted sign-in revoked.")
+		fmt.Printf("Trusted sign-in removed: %q\n", trustedSignInLabel(result.Label))
 		return nil
 	case "reset":
 		if len(arguments) != 1 {
@@ -324,11 +331,19 @@ func runAccessCommand(arguments []string, accessPath, notificationPath string) e
 		if err := notificationManager.ResetProtectedSubscriptions(); err != nil {
 			return fmt.Errorf("access was reset, but notification cleanup must be retried: %w", err)
 		}
-		fmt.Println("Protected access reset. The next protected start will print a new invitation.")
+		fmt.Println("Protected access reset. All trusted sign-ins were removed. The next protected start will print a new invitation.")
 		return nil
 	default:
 		return fmt.Errorf("unknown access command %q", arguments[0])
 	}
+}
+
+func trustedSignInLabel(label string) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return "Trusted sign-in"
+	}
+	return label
 }
 
 func printInvitation(writer io.Writer, link string) {

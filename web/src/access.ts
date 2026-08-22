@@ -121,7 +121,7 @@ export class AccessController {
     host.replaceChildren(panel);
   }
 
-  renderTrust(host: HTMLElement, token: string, message?: string): void {
+  renderTrust(host: HTMLElement, token: string, message?: string, currentLabel = ""): void {
     host.className = "access-screen";
     if (!token) {
       const panel = element(this.#document, "section", "access-panel");
@@ -133,14 +133,16 @@ export class AccessController {
     panel.append(element(this.#document, "p", undefined, "Create a passkey to trust this browser."));
     const label = element(this.#document, "label", "access-field");
     label.append(
-      element(this.#document, "span", undefined, "Label"),
-      element(this.#document, "span", "access-field-help", "Shown on Devices. Not an account."),
+      element(this.#document, "span", undefined, "Short label"),
+      element(this.#document, "span", "access-field-help", "Use a name you will recognize in Devices. Not an account."),
     );
     const input = element(this.#document, "input");
     input.name = "device-label";
     input.maxLength = 160;
+    input.required = true;
     input.autocomplete = "off";
-    input.value = "Trusted sign-in";
+    input.placeholder = "For example, personal phone";
+    input.value = currentLabel;
     label.append(input);
     const trust = action(this.#document, "Trust this device", () => void this.#trust(host, token, input.value), "access-primary");
     panel.append(label, trust);
@@ -148,12 +150,14 @@ export class AccessController {
     host.replaceChildren(panel);
   }
 
-  async openDevices(): Promise<void> {
+  async openDevices(returnFocus?: HTMLElement): Promise<void> {
     if (this.#busy) return;
     const HTMLElementConstructor = this.#document.defaultView?.HTMLElement;
-    this.#returnFocus = HTMLElementConstructor && this.#document.activeElement instanceof HTMLElementConstructor
-      ? this.#document.activeElement
-      : undefined;
+    this.#returnFocus = returnFocus ?? (
+      HTMLElementConstructor && this.#document.activeElement instanceof HTMLElementConstructor
+        ? this.#document.activeElement
+        : undefined
+    );
     this.#renderDevices(undefined, "Loading trusted sign-ins…");
     try {
       const devices = await accessRequest<DevicesResponse>("/api/devices", "GET");
@@ -190,8 +194,13 @@ export class AccessController {
 
   async #trust(host: HTMLElement, token: string, label: string): Promise<void> {
     if (this.#busy) return;
+    label = label.trim();
+    if (!label) {
+      this.renderTrust(host, token, "Enter a short label for this trusted sign-in.");
+      return;
+    }
     this.#busy = true;
-    this.renderTrust(host, token, "Waiting for your passkey…");
+    this.renderTrust(host, token, "Waiting for your passkey…", label);
     try {
       const begin = await accessRequest<PublicKeyOptions>("/api/auth/trust/begin", "POST", { label, token });
       const credential = await createCredential(begin);
@@ -204,7 +213,7 @@ export class AccessController {
         this.renderTrust(host, "");
         return;
       }
-      this.renderTrust(host, token, "Passkey not created. Try again.");
+      this.renderTrust(host, token, "Passkey not created. Try again.", label);
     }
   }
 
@@ -258,7 +267,7 @@ export class AccessController {
         const item = element(this.#document, "li", "device-row");
         const copy = element(this.#document, "div");
         copy.append(
-          element(this.#document, "strong", undefined, device.label || "Trusted sign-in"),
+          element(this.#document, "strong", undefined, trustedSignInLabel(device.label)),
           element(this.#document, "span", undefined, "Last used " + formatTime(device.last_used_at)),
           element(
             this.#document,
@@ -326,8 +335,11 @@ export class AccessController {
     const header = element(this.#document, "header", "access-panel-header");
     header.append(heading, close);
     const link = element(this.#document, "code", "access-invitation-link", invitation.link);
-    const qr = element(this.#document, "pre", "access-qr", invitation.qr);
-    qr.setAttribute("aria-label", "Invitation QR code");
+    const qr = element(this.#document, "img", "access-qr");
+    qr.src = invitation.qr;
+    qr.alt = "Invitation QR code";
+    qr.width = 320;
+    qr.height = 320;
     panel.append(
       header,
       element(this.#document, "p", undefined, "Open this link on that device, or scan the QR code. It expires in ten minutes."),
@@ -343,7 +355,7 @@ export class AccessController {
 
   async #revoke(device: Device, devices: DevicesResponse): Promise<void> {
     if (this.#busy || !devices.can_revoke) return;
-    if (!window.confirm("Revoke " + (device.label || "this trusted sign-in") + "? Its passkey copies will no longer open Shepherdr.")) return;
+    if (!window.confirm("Revoke " + trustedSignInLabel(device.label) + "? Its passkey copies will no longer open Shepherdr.")) return;
     this.#busy = true;
     this.#renderDevices(devices, "Waiting for your passkey…");
     try {
@@ -516,4 +528,8 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function formatTime(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.valueOf()) ? "at an unknown time" : date.toLocaleString();
+}
+
+function trustedSignInLabel(value: string): string {
+  return value.trim() || "Trusted sign-in";
 }

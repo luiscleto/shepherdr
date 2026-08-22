@@ -4,11 +4,51 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestExistingSubscriptionsAndOlderSettingsEnableAccessChanges(t *testing.T) {
+	var decoded EventSettings
+	if err := json.Unmarshal([]byte(`{"blocked":true,"done":true}`), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !decoded.TrustedSignInAdded || !decoded.TrustedSignInRemoved {
+		t.Fatalf("older browser settings did not safely default access changes on: %+v", decoded)
+	}
+
+	path := filepath.Join(t.TempDir(), "notifications.json")
+	store, err := OpenStore(path, "mailto:operator@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscription := validSubscription(t, "https://push.example/existing", EventSettings{Blocked: true})
+	if err := store.Upsert(subscription); err != nil {
+		t.Fatal(err)
+	}
+	prior := cloneState(store.state)
+	prior.Version = ownedStateVersion
+	prior.Subscriptions[0].Events.TrustedSignInAdded = false
+	prior.Subscriptions[0].Events.TrustedSignInRemoved = false
+	if err := writeState(path, prior); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted, err := OpenStore(path, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, found, err := restarted.Lookup(subscription.Endpoint)
+	if err != nil || !found || !settings.TrustedSignInAdded || !settings.TrustedSignInRemoved {
+		t.Fatalf("migrated settings=%+v found=%t err=%v", settings, found, err)
+	}
+	if restarted.state.Version != stateVersion {
+		t.Fatalf("migrated version=%d, want %d", restarted.state.Version, stateVersion)
+	}
+}
 
 func TestProtectedMigrationOwnershipAndResetPreserveVAPIDIdentity(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "notifications.json")

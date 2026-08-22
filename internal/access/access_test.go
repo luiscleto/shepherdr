@@ -28,11 +28,16 @@ type testClock struct {
 }
 
 type testNotificationAuthority struct {
+	added   []string
 	removed []string
 	resets  int
 }
 
-func (a *testNotificationAuthority) RemoveTrustSubscriptions(trustID string) error {
+func (a *testNotificationAuthority) TrustedSignInAdded(label string) {
+	a.added = append(a.added, label)
+}
+
+func (a *testNotificationAuthority) RemoveTrustSubscriptions(trustID, _ string) error {
 	a.removed = append(a.removed, trustID)
 	return nil
 }
@@ -307,6 +312,9 @@ func TestInvitationReservationIsBoundedAndPasskeyPolicyIsExact(t *testing.T) {
 	defer result.Store.Close()
 	clientA := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))
 	clientB := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{2}, 32))
+	if _, err := manager.BeginTrust(clientA, result.BootstrapToken, "   "); !errors.Is(err, ErrInvitationGeneric) {
+		t.Fatalf("blank trusted sign-in label result = %v", err)
+	}
 	begin, err := manager.BeginTrust(clientA, result.BootstrapToken, "Phone <script>")
 	if err != nil {
 		t.Fatal(err)
@@ -1088,6 +1096,8 @@ func TestRegistrationConsumesInvitationAndRotatesAnExistingSessionAtomically(t *
 	manager, store, tokens, _ := seededManager(t, clock, 1, "30d")
 	defer manager.Close()
 	defer store.Close()
+	authority := &testNotificationAuthority{}
+	manager.SetNotificationAuthority(authority)
 	invitationToken, invitation, err := newInvitation(clock.Now(), "")
 	if err != nil {
 		t.Fatal(err)
@@ -1139,6 +1149,9 @@ func TestRegistrationConsumesInvitationAndRotatesAnExistingSessionAtomically(t *
 	if succeeded != 1 || refused != 1 {
 		t.Fatalf("registration race succeeded=%d refused=%d", succeeded, refused)
 	}
+	if !slices.Equal(authority.added, []string{"New passkey"}) {
+		t.Fatalf("durable registration reports=%v", authority.added)
+	}
 	WaitRuntimes(issue.Runtimes)
 	if manager.Recheck(old) {
 		t.Fatal("registration left the overwritten browser session active")
@@ -1180,8 +1193,8 @@ func TestConcurrentRevocationPreservesFinalPasskeyAndResetIsScoped(t *testing.T)
 	results := make(chan error, 2)
 	for _, trustID := range trustIDs {
 		go func(id string) {
-			runtimes, err := manager.RevokeLocal(id)
-			WaitRuntimes(runtimes)
+			result, err := manager.RevokeLocal(id)
+			WaitRuntimes(result.Runtimes)
 			results <- err
 		}(trustID)
 	}

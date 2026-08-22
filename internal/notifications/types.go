@@ -1,32 +1,77 @@
 package notifications
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/luisc/shepherdr/internal/herdr"
 )
 
 const (
-	stateVersion       = 2
+	stateVersion       = 3
 	legacyStateVersion = 1
+	ownedStateVersion  = 2
 	MaxSubscriptions   = 256
 )
 
 type EventSettings struct {
-	Working         bool `json:"working"`
-	Blocked         bool `json:"blocked"`
-	Idle            bool `json:"idle"`
-	Done            bool `json:"done"`
-	Unknown         bool `json:"unknown"`
-	WorkspaceOpened bool `json:"workspace_opened"`
-	WorkspaceClosed bool `json:"workspace_closed"`
+	Working              bool `json:"working"`
+	Blocked              bool `json:"blocked"`
+	Idle                 bool `json:"idle"`
+	Done                 bool `json:"done"`
+	Unknown              bool `json:"unknown"`
+	WorkspaceOpened      bool `json:"workspace_opened"`
+	WorkspaceClosed      bool `json:"workspace_closed"`
+	TrustedSignInAdded   bool `json:"trusted_sign_in_added"`
+	TrustedSignInRemoved bool `json:"trusted_sign_in_removed"`
 }
 
 func DefaultEventSettings() EventSettings {
-	return EventSettings{Blocked: true, Done: true}
+	return EventSettings{
+		Blocked: true, Done: true, TrustedSignInAdded: true, TrustedSignInRemoved: true,
+	}
+}
+
+func (s *EventSettings) UnmarshalJSON(data []byte) error {
+	var value struct {
+		Working              bool  `json:"working"`
+		Blocked              bool  `json:"blocked"`
+		Idle                 bool  `json:"idle"`
+		Done                 bool  `json:"done"`
+		Unknown              bool  `json:"unknown"`
+		WorkspaceOpened      bool  `json:"workspace_opened"`
+		WorkspaceClosed      bool  `json:"workspace_closed"`
+		TrustedSignInAdded   *bool `json:"trusted_sign_in_added"`
+		TrustedSignInRemoved *bool `json:"trusted_sign_in_removed"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return errors.New("notification settings contain extra JSON")
+	}
+	*s = EventSettings{
+		Working: value.Working, Blocked: value.Blocked, Idle: value.Idle, Done: value.Done,
+		Unknown: value.Unknown, WorkspaceOpened: value.WorkspaceOpened, WorkspaceClosed: value.WorkspaceClosed,
+		TrustedSignInAdded: true, TrustedSignInRemoved: true,
+	}
+	if value.TrustedSignInAdded != nil {
+		s.TrustedSignInAdded = *value.TrustedSignInAdded
+	}
+	if value.TrustedSignInRemoved != nil {
+		s.TrustedSignInRemoved = *value.TrustedSignInRemoved
+	}
+	return nil
 }
 
 type SubscriptionKeys struct {
@@ -51,9 +96,11 @@ type BrowserSubscription struct {
 type EventKind string
 
 const (
-	EventStatus          EventKind = "status"
-	EventWorkspaceOpened EventKind = "workspace_opened"
-	EventWorkspaceClosed EventKind = "workspace_closed"
+	EventStatus               EventKind = "status"
+	EventWorkspaceOpened      EventKind = "workspace_opened"
+	EventWorkspaceClosed      EventKind = "workspace_closed"
+	EventTrustedSignInAdded   EventKind = "trusted_sign_in_added"
+	EventTrustedSignInRemoved EventKind = "trusted_sign_in_removed"
 )
 
 type Event struct {
@@ -63,6 +110,8 @@ type Event struct {
 	PaneID        string
 	TerminalID    string
 	Destination   string
+	TrustLabel    string
+	pending       *sync.WaitGroup
 }
 
 func (e Event) selected(settings EventSettings) bool {
@@ -71,6 +120,10 @@ func (e Event) selected(settings EventSettings) bool {
 		return settings.WorkspaceOpened
 	case EventWorkspaceClosed:
 		return settings.WorkspaceClosed
+	case EventTrustedSignInAdded:
+		return settings.TrustedSignInAdded
+	case EventTrustedSignInRemoved:
+		return settings.TrustedSignInRemoved
 	case EventStatus:
 		switch e.Status {
 		case herdr.StatusWorking:

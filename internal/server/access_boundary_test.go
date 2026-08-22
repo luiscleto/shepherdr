@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"image/png"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +24,28 @@ import (
 	"github.com/luisc/shepherdr/internal/access"
 	"github.com/luisc/shepherdr/internal/herdr"
 )
+
+func TestInvitationQRCodeIsAnIntrinsicSquarePNG(t *testing.T) {
+	value, err := invitationQRDataURL("https://shepherdr.private/#trust=" + strings.Repeat("A", 43))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const prefix = "data:image/png;base64,"
+	if !strings.HasPrefix(value, prefix) {
+		t.Fatalf("QR data URL prefix = %q", value[:min(len(value), len(prefix))])
+	}
+	data, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(value, prefix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := png.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Width != config.Height || config.Width < 200 {
+		t.Fatalf("QR dimensions = %dx%d", config.Width, config.Height)
+	}
+}
 
 func TestProtectedRouteInventoryIsDenyByDefault(t *testing.T) {
 	for _, test := range []struct {
@@ -238,11 +261,11 @@ func TestProtectedTerminalLabSocketsCloseAndCollectChildrenForEveryInvalidation(
 			case "sign-out":
 				signOutTestSession(t, testServer.manager, testServer.tokens[0])
 			case "revoke":
-				runtimes, err := testServer.manager.RevokeLocal(testServer.trustIDs[0])
+				result, err := testServer.manager.RevokeLocal(testServer.trustIDs[0])
 				if err != nil {
 					t.Fatal(err)
 				}
-				access.WaitRuntimes(runtimes)
+				access.WaitRuntimes(result.Runtimes)
 			case "reset":
 				runtimes, err := testServer.manager.Reset()
 				if err != nil {

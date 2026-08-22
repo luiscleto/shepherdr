@@ -65,8 +65,15 @@ type sessionRuntime struct {
 }
 
 type NotificationAuthority interface {
-	RemoveTrustSubscriptions(string) error
+	TrustedSignInAdded(string)
+	RemoveTrustSubscriptions(string, string) error
 	ResetProtectedSubscriptions() error
+}
+
+type Revocation struct {
+	Runtimes                 []*sessionRuntime
+	Label                    string
+	NotificationCleanupError error
 }
 
 type Manager struct {
@@ -328,41 +335,43 @@ func (m *Manager) CreateLocalInvitation() (string, time.Time, error) {
 	return m.origin.InvitationURL(token), invitation.ExpiresAt, nil
 }
 
-func (m *Manager) RevokeBrowser(session SessionIdentity, targetTrustID string) ([]*sessionRuntime, error) {
+func (m *Manager) RevokeBrowser(session SessionIdentity, targetTrustID string) (Revocation, error) {
 	m.gate.Lock()
 	now := m.clock.Now()
 	sessionRecord, ok := m.activeSessionLocked(session.Digest, now)
 	if !ok || sessionRecord.TrustID != session.TrustID {
 		m.gate.Unlock()
-		return nil, ErrUnauthorized
+		return Revocation{}, ErrUnauthorized
 	}
 	if now.Sub(sessionRecord.FreshAt) > FreshLifetime || !m.activeTrustLocked(sessionRecord.FreshTrustID) {
 		m.gate.Unlock()
-		return nil, ErrFreshRequired
+		return Revocation{}, ErrFreshRequired
 	}
-	runtimes, err := m.revokeLocked(targetTrustID, now)
+	result, err := m.revokeLocked(targetTrustID, now)
 	m.gate.Unlock()
-	return runtimes, err
+	return result, err
 }
 
-func (m *Manager) RevokeLocal(targetTrustID string) ([]*sessionRuntime, error) {
+func (m *Manager) RevokeLocal(targetTrustID string) (Revocation, error) {
 	m.gate.Lock()
-	runtimes, err := m.revokeLocked(targetTrustID, m.clock.Now())
+	result, err := m.revokeLocked(targetTrustID, m.clock.Now())
 	m.gate.Unlock()
-	return runtimes, err
+	return result, err
 }
 
-func (m *Manager) revokeLocked(targetTrustID string, now time.Time) ([]*sessionRuntime, error) {
+func (m *Manager) revokeLocked(targetTrustID string, now time.Time) (Revocation, error) {
 	if activeCredentialCount(m.state) <= 1 {
-		return nil, ErrLastCredential
+		return Revocation{}, ErrLastCredential
 	}
 	found := false
+	label := ""
 	updated, err := cloneState(m.state)
 	if err != nil {
-		return nil, err
+		return Revocation{}, err
 	}
 	for index := range updated.Credentials {
 		if updated.Credentials[index].TrustID == targetTrustID && updated.Credentials[index].RevokedAt == nil {
+			label = updated.Credentials[index].Label
 			revoked := now.UTC()
 			updated.Credentials[index].RevokedAt = &revoked
 			found = true
@@ -370,7 +379,7 @@ func (m *Manager) revokeLocked(targetTrustID string, now time.Time) ([]*sessionR
 		}
 	}
 	if !found {
-		return nil, errors.New("trusted sign-in not found")
+		return Revocation{}, errors.New("trusted sign-in not found")
 	}
 	var invalidated []string
 	updated.Sessions = slices.DeleteFunc(updated.Sessions, func(record SessionRecord) bool {
@@ -384,13 +393,13 @@ func (m *Manager) revokeLocked(targetTrustID string, now time.Time) ([]*sessionR
 		return record.IssuerTrustID == targetTrustID
 	})
 	if err := m.commitLocked(updated); err != nil {
-		return nil, err
+		return Revocation{}, err
 	}
-	runtimes := m.cancelRuntimes(invalidated)
+	result := Revocation{Runtimes: m.cancelRuntimes(invalidated), Label: label}
 	if m.authority != nil {
-		_ = m.authority.RemoveTrustSubscriptions(targetTrustID)
+		result.NotificationCleanupError = m.authority.RemoveTrustSubscriptions(targetTrustID, label)
 	}
-	return runtimes, nil
+	return result, nil
 }
 
 func (m *Manager) SignOut(session SessionIdentity) ([]*sessionRuntime, error) {

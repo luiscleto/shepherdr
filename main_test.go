@@ -18,3 +18,12 @@ func TestInvitationPrintUsesOrdinaryFirstStartAndLocalInviteInstructions(t *test
 		t.Fatalf("invitation output prefix = %q, want %q", output.String(), wantPrefix)
 	}
 }
+
+func TestTrustedSignInLabelKeepsLegacyFallbackHonest(t *testing.T) {
+	if got := trustedSignInLabel("  Personal phone  "); got != "Personal phone" {
+		t.Fatalf("human label = %q", got)
+	}
+	if got := trustedSignInLabel("   "); got != "Trusted sign-in" {
+		t.Fatalf("legacy fallback = %q", got)
+	}
+}

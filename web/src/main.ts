@@ -88,6 +88,7 @@ const accessController = new AccessController(accessNode, {
   onSignedIn: accessSignedIn,
   onSignedOut: accessSignedOut,
 });
+notifications.setDeviceSettingsHandler((returnFocus) => void accessController.openDevices(returnFocus));
 const homeView = new HomeView(app, {
   isHomeActive: homeInterfaceActive,
   onFocusPane: (paneID) => {
@@ -95,7 +96,6 @@ const homeView = new HomeView(app, {
   },
   onOpen: openTerminal,
   onNotifications: () => notifications.openSettings(),
-  onDevices: () => void accessController.openDevices(),
   onShowAll: showAllTerminals,
   onShowBlocked: showBlockedTerminals,
   prepareWorkspaceAction: (request) => workspaceActions.prepare(request),
@@ -317,6 +317,7 @@ function applyAccessProbe(mode: AccessProbe): void {
     homeAuthorityReady = true;
     trustRoute = false;
     trustToken = undefined;
+    notifications.setDeviceSettingsAvailable(true);
     if (changed) void notifications.init();
     render();
     connectHome();
@@ -326,6 +327,7 @@ function applyAccessProbe(mode: AccessProbe): void {
     const changed = accessMode !== "sign-in-off";
     accessMode = "sign-in-off";
     homeAuthorityReady = false;
+    notifications.setDeviceSettingsAvailable(false);
     if (changed) void notifications.init();
     render();
     connectHome();
@@ -381,6 +383,7 @@ function accessSignedOut(): void {
   };
   publishedStateSignature = "";
   selectedTerminal = undefined;
+  notifications.setDeviceSettingsAvailable(false);
   notificationsNode!.replaceChildren();
   accessMode = "signed-out";
   window.location.hash = "";

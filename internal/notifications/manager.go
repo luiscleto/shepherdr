@@ -4,8 +4,10 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/luisc/shepherdr/internal/herdr"
 )
@@ -26,6 +28,7 @@ type Manager struct {
 
 	evaluatorMu sync.Mutex
 	evaluator   snapshotEvaluator
+	pending     sync.WaitGroup
 }
 
 type TrustAuthority interface {
@@ -58,12 +61,7 @@ func (m *Manager) ObserveSnapshot(snapshot herdr.Snapshot, baseline bool) {
 	m.evaluatorMu.Unlock()
 	for _, event := range events {
 		m.logger.Info("Notification candidate observed")
-		select {
-		case m.events <- event:
-			m.logger.Info("Notification candidate enqueued")
-		default:
-			m.logger.Info("Notification candidate dropped")
-		}
+		m.enqueue(event)
 	}
 }
 
@@ -154,8 +152,21 @@ func (m *Manager) RemoveOwned(endpoint, trustID string) (bool, error) {
 	return m.store.RemoveOwned(endpoint, trustID)
 }
 
-func (m *Manager) RemoveTrustSubscriptions(trustID string) error {
-	return m.store.RemoveTrustSubscriptions(trustID)
+func (m *Manager) TrustedSignInAdded(label string) {
+	label = notificationTrustLabel(label)
+	m.logger.Info("Trusted sign-in added", "label", displayTrustLabel(label))
+	m.enqueue(Event{Kind: EventTrustedSignInAdded, Destination: "/", TrustLabel: label})
+}
+
+func (m *Manager) RemoveTrustSubscriptions(trustID, label string) error {
+	label = notificationTrustLabel(label)
+	if err := m.store.RemoveTrustSubscriptions(trustID); err != nil {
+		m.logger.Error("Trusted sign-in removed, but notification cleanup failed", "label", displayTrustLabel(label))
+		return err
+	}
+	m.logger.Info("Trusted sign-in removed", "label", displayTrustLabel(label))
+	m.enqueue(Event{Kind: EventTrustedSignInRemoved, Destination: "/", TrustLabel: label})
+	return nil
 }
 
 func (m *Manager) ResetProtectedSubscriptions() error {
@@ -176,8 +187,27 @@ func (m *Manager) deliver(ctx context.Context) {
 			return
 		case event := <-m.events:
 			m.deliverEvent(ctx, event)
+			if event.pending != nil {
+				event.pending.Done()
+			}
 		}
 	}
+}
+
+func (m *Manager) enqueue(event Event) {
+	m.pending.Add(1)
+	event.pending = &m.pending
+	select {
+	case m.events <- event:
+		m.logger.Info("Notification candidate enqueued")
+	default:
+		m.pending.Done()
+		m.logger.Info("Notification candidate dropped")
+	}
+}
+
+func (m *Manager) WaitPending() {
+	m.pending.Wait()
 }
 
 func (m *Manager) deliverEvent(ctx context.Context, event Event) {
@@ -215,6 +245,21 @@ func (m *Manager) deliverEvent(ctx context.Context, event Event) {
 			}
 		}
 	}
+}
+
+func notificationTrustLabel(label string) string {
+	label = strings.TrimSpace(label)
+	if label == "" || utf8.RuneCountInString(label) > 160 {
+		return ""
+	}
+	return label
+}
+
+func displayTrustLabel(label string) string {
+	if label == "" {
+		return "Trusted sign-in"
+	}
+	return label
 }
 
 type managerError string

@@ -133,10 +133,6 @@ button:disabled {
   background: transparent;
 }
 
-.home-devices {
-  align-self: flex-end;
-}
-
 .access-screen {
   display: grid;
   width: min(100%, 34rem);
@@ -277,16 +273,13 @@ button:disabled {
 }
 
 .access-qr {
-  max-width: 100%;
-  overflow: auto;
+  display: block;
+  width: min(100%, 20rem);
+  height: auto;
+  aspect-ratio: 1;
   margin: 1rem auto 0;
   background: #fff;
-  color: #000;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 6px;
-  line-height: 0.95;
-  padding: 0.75rem;
-  text-align: center;
+  image-rendering: pixelated;
 }
 
 .masthead,
@@ -1296,6 +1289,16 @@ button.terminal-row:hover {
 .notification-panel-header h2,
 .notification-panel p:last-child {
   margin-bottom: 0;
+}
+
+.settings-section h3 {
+  margin-bottom: 0.35rem;
+}
+
+.settings-section + .settings-section {
+  border-top: 1px solid var(--line);
+  margin-top: 1rem;
+  padding-top: 1rem;
 }
 
 .notification-close {

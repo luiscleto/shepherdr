@@ -38,6 +38,16 @@ function notificationFor(value) {
   }
   const destination = safeDestination(value.destination);
   const workspaceName = usableWorkspaceName(value.workspace_name);
+  if (value.kind === "trusted_sign_in_added" || value.kind === "trusted_sign_in_removed") {
+    if (value.destination !== "/") return fallbackNotice();
+    const label = usableTrustLabel(value.trust_label);
+    const added = value.kind === "trusted_sign_in_added";
+    return {
+      title: added ? "Trusted sign-in added" : "Trusted sign-in removed",
+      body: label ? `Label: ${label}` : `A trusted sign-in was ${added ? "added" : "removed"}.`,
+      destination: "/",
+    };
+  }
   if (value.kind === "workspace_opened") {
     return workspaceName
       ? { title: "Workspace opened", body: workspaceName, destination: "/" }
@@ -76,6 +86,12 @@ function usableWorkspaceName(value) {
   if (typeof value !== "string") return "";
   const name = value.trim();
   return name && Array.from(name).length <= 160 ? name : "";
+}
+
+function usableTrustLabel(value) {
+  if (typeof value !== "string") return "";
+  const label = value.trim();
+  return label && Array.from(label).length <= 160 ? label : "";
 }
 
 function fallbackNotice() {
