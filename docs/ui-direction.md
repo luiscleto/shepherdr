@@ -4,7 +4,7 @@ Status: proposed
 
 This is a voice and interface guide, not a component library.
 
-The current product includes Home, Terminal, workspace management, and per-browser notifications. Sign-in, device trust, and Chat remain later work.
+The current runnable product includes Home, Terminal, workspace management, and per-browser notifications. Sign-in and device trust have approved direction but are not implemented. Chat remains later work.
 
 ## Voice
 
@@ -32,9 +32,19 @@ The current product has two main screens:
 
 Workspace management uses small sheets from Home rather than another main screen. Notification settings are reached from Home or Terminal.
 
-**Sign in**, **Trust this device**, and **Devices** remain later work. Do not add screens, tabs, or controls for work that does not exist.
+Do not add **Sign in**, **Trust this device**, **Devices**, or related controls before protected access is implemented.
 
-With current sign-in-off access, Home opens directly and quietly keeps **Sign-in is off** visible.
+## Planned access experience
+
+When sign-in is off, the first screen is Home and it quietly keeps **Sign-in is off** visible. Do not add a mode picker or a red warning page.
+
+In protected mode, an ordinary visit starts at **Sign in**. A valid first-setup or invitation link starts at **Trust this device**, then asks the person to create a passkey. Keep the explanation short and use ordinary words.
+
+If an invitation is expired or was already used, say that the link cannot be used and tell the person to create a new invitation on the machine running Shepherdr or from a trusted device. If browser data is lost, say **Sign in again.** Do not expose internal access or protocol terms when the person does not need them to act.
+
+**Devices** exists only when passkeys are on. It lists trusted sign-ins without claiming that a row is one physical device. Explain that a passkey may sync and its copies share one entry and are revoked together. From this screen a person can verify with a passkey to create a short-lived invitation as a link or QR code, revoke any entry except the last one, and sign out.
+
+Keep this work within the current small phone interface. Preserve Home, Terminal, workspace actions, and existing **Notifications** settings. Add no placeholder access controls before the complete protected flow exists.
 
 ## Visual character
 

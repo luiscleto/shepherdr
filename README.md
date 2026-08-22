@@ -36,7 +36,7 @@ Shepherdr prints its localhost address. Open that address directly on the machin
 
 Sign-in is off. Anyone who can reach Shepherdr can act as the operator.
 
-Passkey setup is not available in this build. A future release will require an explicit command-line flag to start without sign-in; the commands above remain correct until that behavior is implemented.
+Passkey setup is not available in this build. The [approved protected-access architecture](docs/passkey-device-architecture-proposal.md) makes passkeys the planned default and requires an explicit `-no-sign-in` flag to retain today's access. Those changes and flags are not implemented yet; the commands above remain correct until the complete protected cutover lands.
 
 ## Turn on notifications
 
@@ -110,5 +110,6 @@ npm run build --prefix web
 - [Interface direction](docs/ui-direction.md)
 - [Terminal direction](docs/terminal-direction.md)
 - [Notification architecture](docs/notification-architecture-proposal.md)
+- [Protected-access architecture](docs/passkey-device-architecture-proposal.md)
 
 Apache License 2.0.

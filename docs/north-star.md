@@ -4,7 +4,7 @@ Status: proposed
 
 Scope: the current product
 
-The current product includes Home, Terminal, workspace management, and per-browser notifications. All four have passed their acceptance gates. Sign-in, device trust, and Chat remain later work.
+The current runnable product includes Home, Terminal, workspace management, and per-browser notifications. All four have passed their acceptance gates. Sign-in and device trust have approved architecture but are not implemented. Chat remains later work.
 
 ## The promise
 
@@ -24,7 +24,7 @@ The broader product direction remains:
 6. Choose whether this browser or installed app receives blocked-agent notifications.
 7. Tap a blocked-agent notification and open that agent's terminal.
 
-The daily return path is short: open Shepherdr, see who is blocked, and reach that work. This is the product bar, not an implementation order. The current product implements Home, Terminal, workspace management, and per-browser notifications. Sign-in, device trust, and Chat remain later work.
+The daily return path is short: open Shepherdr, see who is blocked, and reach that work. This is the product bar, not an implementation order. The current runnable product implements Home, Terminal, workspace management, and per-browser notifications. Sign-in and device trust are approved but unbuilt. Chat remains later work.
 
 ## Home and attention
 
@@ -78,13 +78,11 @@ Notification settings belong to each browser or installed app. `blocked` and `do
 
 ## Sign-in and devices
 
-Sign-in and device trust remain later work. The current build starts without sign-in, so anyone who can reach Shepherdr can act as the operator and the interface quietly keeps **Sign-in is off** visible.
+Sign-in and device trust are not implemented. The current build starts without sign-in, so anyone who can reach Shepherdr can act as the operator and the interface quietly keeps **Sign-in is off** visible.
 
-Passkey sign-in is the recommended stronger mode alongside a trusted private network. When sign-in is implemented, starting without it will require an explicit command-line flag and will continue to grant operator authority to anyone who can reach Shepherdr.
+Passkeys are the approved recommended mode alongside a trusted private network. The approved design keeps one operator, supports multiple trusted passkeys, requires existing trusted or machine-local authority before a new browser can be trusted, and keeps an explicit sign-in-off mode. The exact access boundary, setup, invitation, session, revocation, reset, and implementation decisions live in the [approved passkey and device architecture](passkey-device-architecture-proposal.md).
 
-Initial local setup will print a link and QR code for trusting the first device. The link can be used on the desktop, or the QR code can be scanned by a phone. Further one-time links or QR codes may be generated from the local command line or a trusted device. A new device never trusts itself.
-
-The flag spelling, URL format, link and code lifetime, bootstrap and approval protocol, cryptography, storage, data model, recovery flow, and implementation architecture remain deliberately undecided. Team accounts, roles, organizations, and lost-device recovery are not part of the current product.
+Team accounts, roles, organizations, and remote lost-device recovery are not part of the current product.
 
 ## Private network
 
