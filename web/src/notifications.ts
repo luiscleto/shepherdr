@@ -38,6 +38,7 @@ export interface NotificationPlatform {
   iosBrowserTab(): boolean;
   permission(): NotificationPermission;
   requestPermission(): Promise<NotificationPermission>;
+  refreshWorker(): Promise<void>;
   subscribe(publicKey: string): Promise<BrowserPushSubscription>;
   supported(): boolean;
 }
@@ -125,6 +126,11 @@ class BrowserNotificationPlatform implements NotificationPlatform {
     return Notification.requestPermission();
   }
 
+  async refreshWorker(): Promise<void> {
+    const registration = await navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
+    await registration.update();
+  }
+
   iosBrowserTab(): boolean {
     const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -175,12 +181,16 @@ export class NotificationsController {
   }
 
   async init(): Promise<void> {
+    const workerRefresh = this.#platform.supported()
+      ? this.#platform.refreshWorker().catch(() => undefined)
+      : Promise.resolve();
     try {
       this.#config = await this.#api.config();
     } catch {
       this.#config = { setup: false, unavailable: true };
     }
     this.#render();
+    await workerRefresh;
   }
 
   openSettings(): void {

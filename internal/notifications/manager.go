@@ -52,9 +52,12 @@ func (m *Manager) ObserveSnapshot(snapshot herdr.Snapshot, baseline bool) {
 	events := m.evaluator.Observe(snapshot, baseline)
 	m.evaluatorMu.Unlock()
 	for _, event := range events {
+		m.logger.Info("Notification candidate observed")
 		select {
 		case m.events <- event:
+			m.logger.Info("Notification candidate enqueued")
 		default:
+			m.logger.Info("Notification candidate dropped")
 		}
 	}
 }
@@ -123,7 +126,13 @@ func (m *Manager) deliverEvent(ctx context.Context, event Event) {
 			continue
 		}
 		outcome := m.sender.Send(ctx, event, subscription, contact, publicKey, privateKey)
-		if outcome == sendGone {
+		switch outcome {
+		case sendAccepted:
+			m.logger.Info("Push service accepted notification")
+		case sendFailed:
+			m.logger.Info("Notification push failed")
+		case sendGone:
+			m.logger.Info("Push service reports subscription gone")
 			if _, err := m.store.Remove(subscription.Endpoint); err != nil {
 				m.logger.Warn("Could not remove an expired notification subscription")
 			}

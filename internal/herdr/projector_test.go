@@ -153,7 +153,7 @@ func TestProjectorObservesOnlyValidatedPublicationsWithBaselineBoundary(t *testi
 	}
 }
 
-func TestProjectorObservesConfirmedNewWorkspaceBeforeSilentReplacementBaseline(t *testing.T) {
+func TestProjectorObservesDottedStatusAndNewPaneBeforeSilentReplacementBaseline(t *testing.T) {
 	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -164,10 +164,10 @@ func TestProjectorObservesConfirmedNewWorkspaceBeforeSilentReplacementBaseline(t
 		cancelServer()
 		listener.Close()
 	})
-	triggerNewPane := make(chan struct{})
+	triggerStatusAndNewPane := make(chan struct{})
 	var snapshots atomic.Int32
 	var subscriptions atomic.Int32
-	go serveResubscriptionBaselineFixture(ctx, listener, triggerNewPane, &snapshots, &subscriptions)
+	go serveStatusResubscriptionBoundaryFixture(ctx, listener, triggerStatusAndNewPane, &snapshots, &subscriptions)
 
 	projector := NewProjector(NewClient(socketPath))
 	observer := &recordingSnapshotObserver{}
@@ -177,15 +177,17 @@ func TestProjectorObservesConfirmedNewWorkspaceBeforeSilentReplacementBaseline(t
 	go projector.Run(runCtx)
 
 	first := waitForSnapshotObservations(t, observer, 1)[0]
-	if !first.baseline || len(first.snapshot.Panes) != 1 {
+	if !first.baseline || len(first.snapshot.Panes) != 1 || len(first.snapshot.Agents) != 1 || first.snapshot.Agents[0].AgentStatus != StatusWorking {
 		t.Fatalf("initial observation = %+v", first)
 	}
-	close(triggerNewPane)
+	close(triggerStatusAndNewPane)
 	observations := waitForSnapshotObservations(t, observer, 3)
-	if observations[1].baseline || len(observations[1].snapshot.Workspaces) != 2 || len(observations[1].snapshot.Panes) != 2 {
+	if observations[1].baseline || len(observations[1].snapshot.Workspaces) != 2 || len(observations[1].snapshot.Panes) != 2 ||
+		len(observations[1].snapshot.Agents) != 1 || observations[1].snapshot.Agents[0].AgentStatus != StatusBlocked {
 		t.Fatalf("confirmed pre-resubscription observation = %+v", observations[1])
 	}
-	if !observations[2].baseline || len(observations[2].snapshot.Workspaces) != 2 || len(observations[2].snapshot.Panes) != 2 {
+	if !observations[2].baseline || len(observations[2].snapshot.Workspaces) != 2 || len(observations[2].snapshot.Panes) != 2 ||
+		len(observations[2].snapshot.Agents) != 1 || observations[2].snapshot.Agents[0].AgentStatus != StatusBlocked {
 		t.Fatalf("post-resubscription baseline = %+v", observations[2])
 	}
 	if got := subscriptions.Load(); got != 2 {
@@ -510,10 +512,10 @@ func waitForSnapshotObservations(t *testing.T, observer *recordingSnapshotObserv
 	return nil
 }
 
-func serveResubscriptionBaselineFixture(
+func serveStatusResubscriptionBoundaryFixture(
 	ctx context.Context,
 	listener net.Listener,
-	triggerNewPane <-chan struct{},
+	triggerStatusAndNewPane <-chan struct{},
 	snapshots, subscriptions *atomic.Int32,
 ) {
 	for {
@@ -535,7 +537,12 @@ func serveResubscriptionBaselineFixture(
 			case "session.snapshot":
 				number := snapshots.Add(1)
 				snapshot := stableProjectorSnapshot()
+				snapshot.Agents = []AgentInfo{{
+					AgentStatus: StatusWorking, PaneID: "w1:p1", TabID: "w1:t1", TerminalID: "term-1", WorkspaceID: "w1",
+				}}
 				if number > 2 {
+					snapshot.Agents[0].AgentStatus = StatusBlocked
+					snapshot.Agents[0].StateChangeSeq = 1
 					snapshot.Workspaces = append(snapshot.Workspaces, WorkspaceInfo{
 						ActiveTabID: "w2:t1", WorkspaceID: "w2", Number: 2, Label: "Temporary",
 					})
@@ -558,9 +565,9 @@ func serveResubscriptionBaselineFixture(
 					select {
 					case <-ctx.Done():
 						return
-					case <-triggerNewPane:
+					case <-triggerStatusAndNewPane:
 					}
-					if encoder.Encode(map[string]any{"event": "pane_created", "data": map[string]any{"type": "pane_created"}}) != nil {
+					if encoder.Encode(map[string]any{"event": "pane.agent_status_changed", "data": map[string]any{"type": "pane.agent_status_changed"}}) != nil {
 						return
 					}
 				}

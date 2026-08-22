@@ -109,7 +109,7 @@ func TestClientUsesSnapshotAndConfirmedSubscriptions(t *testing.T) {
 			serverDone <- err
 			return
 		}
-		if err := encoder.Encode(map[string]any{"event": "pane_agent_status_changed", "data": map[string]any{"type": "pane_agent_status_changed"}}); err != nil {
+		if err := encoder.Encode(map[string]any{"event": "pane.agent_status_changed", "data": map[string]any{"type": "pane.agent_status_changed"}}); err != nil {
 			serverDone <- err
 			return
 		}
@@ -126,7 +126,7 @@ func TestClientUsesSnapshotAndConfirmedSubscriptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if event.Event != "pane_agent_status_changed" {
+	if event.Event != "pane.agent_status_changed" {
 		t.Fatalf("event = %q", event.Event)
 	}
 	if err := <-serverDone; err != nil {

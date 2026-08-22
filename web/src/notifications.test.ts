@@ -41,6 +41,7 @@ class FakePlatform implements NotificationPlatform {
   permissionValue: NotificationPermission = "default";
   requestResult: NotificationPermission = "granted";
   requestCount = 0;
+  workerRefreshCount = 0;
   subscription: FakeSubscription | undefined;
   supportedValue = true;
 
@@ -55,6 +56,7 @@ class FakePlatform implements NotificationPlatform {
     this.permissionValue = this.requestResult;
     return this.requestResult;
   }
+  async refreshWorker(): Promise<void> { this.workerRefreshCount++; }
   async subscribe(): Promise<BrowserPushSubscription> {
     this.subscription = new FakeSubscription();
     return this.subscription;
@@ -109,6 +111,8 @@ function serviceWorkerHarness() {
   let opened = "";
   let shownBody = "";
   let shownDestination = "";
+  let claimed = 0;
+  let skipped = 0;
   const client = {
     url: "https://shepherdr.example/#terminal=old",
     async focus() { focused++; return client; },
@@ -116,7 +120,9 @@ function serviceWorkerHarness() {
   };
   const scope = {
     addEventListener(name: string, listener: Listener) { listeners.set(name, listener); },
+    async skipWaiting() { skipped++; },
     clients: {
+      async claim() { claimed++; },
       async matchAll() { return [client]; },
       async openWindow(destination: string) { opened = destination; return client; },
     },
@@ -133,6 +139,13 @@ function serviceWorkerHarness() {
     URL,
     URLSearchParams,
   });
+
+  async function lifecycle(name: "activate" | "install"): Promise<void> {
+    let work: Promise<unknown> | undefined;
+    listeners.get(name)?.({ waitUntil(value: Promise<unknown>) { work = value; } });
+    if (!work) throw new Error(`${name} handler did not register work`);
+    await work;
+  }
 
   async function push(payload: unknown): Promise<void> {
     let work: Promise<unknown> | undefined;
@@ -160,20 +173,24 @@ function serviceWorkerHarness() {
 
   return {
     click,
+    claimed: () => claimed,
     closed: () => closed,
     focused: () => focused,
     listenerNames: () => Array.from(listeners.keys()).sort().join(","),
+    lifecycle,
     navigated: () => navigated,
     opened: () => opened,
     push,
     shownBody: () => shownBody,
     shownDestination: () => shownDestination,
+    skipped: () => skipped,
   };
 }
 
 test("missing local setup hides the invitation and settings explain the CLI action without permission", async () => {
   const { controller, platform, root } = notificationView();
   await controller.init();
+  assert.equal(platform.workerRefreshCount, 1);
   assert.equal(root.querySelectorAll(".notification-invitation").length, 0);
 
   controller.openSettings();
@@ -295,7 +312,11 @@ test("exact notification route prefers valid current state over stale selection"
 
 test("push worker shows plain workspace names and safely handles click fallback", async () => {
   const worker = serviceWorkerHarness();
-  assert.equal(worker.listenerNames(), "notificationclick,push");
+  assert.equal(worker.listenerNames(), "activate,install,notificationclick,push");
+  await worker.lifecycle("install");
+  await worker.lifecycle("activate");
+  assert.equal(worker.skipped(), 1);
+  assert.equal(worker.claimed(), 1);
 
   await worker.push({
     destination: "/#terminal=w1%3Ap1&terminal_id=term-1",

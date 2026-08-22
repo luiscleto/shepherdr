@@ -233,13 +233,11 @@ func subscriptionCoversSnapshot(subscribed, candidate Snapshot) bool {
 }
 
 func semanticEvent(event string) bool {
-	// Herdr subscription selectors use dotted names, but streamed event envelopes
-	// use the schema's underscored EventKind values.
 	switch event {
 	case "workspace_created", "workspace_updated", "workspace_metadata_updated", "workspace_renamed", "workspace_moved", "workspace_reordered", "workspace_closed", "workspace_focused",
 		"worktree_created", "worktree_opened", "worktree_removed",
 		"tab_created", "tab_closed", "tab_renamed", "tab_moved", "tab_focused",
-		"pane_created", "pane_closed", "pane_updated", "pane_moved", "pane_exited", "pane_agent_detected", "pane_focused", "pane_agent_status_changed",
+		"pane_created", "pane_closed", "pane_updated", "pane_moved", "pane_exited", "pane_agent_detected", "pane_focused", "pane.agent_status_changed",
 		"layout_updated":
 		return true
 	default:
