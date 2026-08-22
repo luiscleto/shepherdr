@@ -33,6 +33,9 @@ self.addEventListener("notificationclick", (event) => {
 
 function notificationFor(value) {
   if (!value || typeof value !== "object") return fallbackNotice();
+  if ((value.kind === "workspace_opened" || value.kind === "workspace_closed") && value.destination !== "/") {
+    return fallbackNotice();
+  }
   const destination = safeDestination(value.destination);
   const workspaceName = usableWorkspaceName(value.workspace_name);
   if (value.kind === "workspace_opened") {

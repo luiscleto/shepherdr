@@ -408,6 +408,20 @@ test("named status pushes use exact Herdr status titles and workspace bodies", a
   }
 });
 
+test("invalid lifecycle destinations keep generic copy and do not expose workspace names", async () => {
+  const worker = serviceWorkerHarness();
+  for (const [kind, destination] of [
+    ["workspace_opened", "https://outside.example/terminal"],
+    ["workspace_closed", "/not-home"],
+  ] as const) {
+    await worker.push({ destination, kind, workspace_name: "Private workspace" });
+    assert.equal(worker.shownTitle(), "Shepherdr");
+    assert.equal(worker.shownBody(), "A workspace changed.");
+    assert.equal(worker.shownBody().includes("Private workspace"), false);
+    assert.equal(worker.shownDestination(), "/");
+  }
+});
+
 test("an unvalidated workspace name keeps generic status copy", async () => {
   const worker = serviceWorkerHarness();
   const destination = "/#terminal=w1%3Ap1&terminal_id=term-1";
