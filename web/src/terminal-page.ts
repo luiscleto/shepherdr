@@ -195,7 +195,10 @@ export class TerminalPage {
   #readerControls(reader: ReaderView, input: ReaderInputQueue): HTMLElement {
     const controls = element("nav", "terminal-command-bar");
     controls.setAttribute("aria-label", "Terminal commands");
-    this.#commandButtons.push(action("Write text", () => reader.showComposer(), "terminal-write-text"));
+    const message = action("Message", () => reader.showComposer(), "terminal-write-text");
+    message.setAttribute("aria-label", "Message");
+    message.title = "Message";
+    this.#commandButtons.push(message);
     const keys: Array<[string, string, string]> = [
       ["escape", "Esc", "Escape"],
       ["enter", "Enter", "Enter"],

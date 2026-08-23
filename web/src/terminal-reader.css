@@ -129,9 +129,17 @@
 }
 
 .reader-file-list {
-  display: grid;
+  display: flex;
   grid-column: 1 / -1;
+  min-width: 0;
+  max-width: 100%;
   gap: 0.35rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  padding-bottom: 0.15rem;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
 }
 
 .reader-file-list[hidden] {
@@ -139,13 +147,17 @@
 }
 
 .reader-file-chip {
+  position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  flex: 0 0 min(14rem, calc(100vw - 4.5rem));
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 0.45rem;
+  max-width: 100%;
   min-height: 44px;
+  overflow: hidden;
   border: 1px solid var(--line);
-  padding-inline-start: 0.45rem;
+  padding: 0 2.65rem 0 0.45rem;
   background: var(--paper-recessed);
   color: var(--ink);
   font-size: 0.82rem;
@@ -164,7 +176,10 @@
   background: var(--paper-raised);
 }
 
-.reader-file-chip button {
+.reader-file-remove {
+  position: absolute;
+  top: 0;
+  right: 0;
   min-width: 44px;
   min-height: 44px;
   border: 0;

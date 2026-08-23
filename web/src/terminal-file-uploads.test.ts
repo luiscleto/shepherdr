@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { Window } from "happy-dom";
@@ -68,6 +69,18 @@ async function chooseFiles(browser: Window, input: HTMLInputElement, files: File
   selectFiles(browser, input, files);
   await settleFilePreparation();
 }
+
+test("mobile attachments use a contained horizontal strip and the Reader action says Message", () => {
+  const styles = readFileSync(new URL("./terminal-reader.css", import.meta.url), "utf8");
+  assert.match(styles, /\.reader-file-list\s*\{[^}]*display:\s*flex;[^}]*max-width:\s*100%;[^}]*overflow-x:\s*auto;[^}]*overscroll-behavior-x:\s*contain;/s);
+  assert.match(styles, /\.reader-file-chip\s*\{[^}]*position:\s*relative;[^}]*flex:\s*0 0 min\([^;]+;[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\);[^}]*overflow:\s*hidden;/s);
+  assert.match(styles, /\.reader-file-remove\s*\{[^}]*position:\s*absolute;[^}]*right:\s*0;[^}]*min-width:\s*44px;[^}]*min-height:\s*44px;/s);
+
+  const terminalPage = readFileSync(new URL("./terminal-page.ts", import.meta.url), "utf8");
+  assert.match(terminalPage, /const message = action\("Message",[^;]+;/);
+  assert.match(terminalPage, /message\.setAttribute\("aria-label", "Message"\);\s*message\.title = "Message";/);
+  assert.doesNotMatch(terminalPage, /action\("Write text"/);
+});
 
 test("recognized-agent file controls keep drafts, removable chips, and scoped thumbnails", async (t) => {
   const { browser, host, revoked } = withFileBrowser(t);

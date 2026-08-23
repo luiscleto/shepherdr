@@ -1436,7 +1436,7 @@ button.terminal-row:hover {
   color: var(--accent);
 }
 
-.terminal-reader-page .reader-composer .reader-file-chip button {
+.terminal-reader-page .reader-composer .reader-file-remove {
   border: 0;
   background: transparent;
   color: var(--accent);
