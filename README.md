@@ -1,198 +1,140 @@
 # Shepherdr
 
-Shepherdr is a mobile-first web tool for viewing and managing Herdr. From a phone, you can see every real Herdr terminal, check which agents need attention, and open and use any current terminal. Shepherdr does not replace Herdr.
+Shepherdr is a runnable, mobile-first web interface for one local Herdr session. It shows Herdr's current workspaces, terminals, agents, and statuses; opens and controls exact terminals; manages workspaces and worktrees; sends per-browser notifications; and can stage files from a phone for an agent to open. Herdr remains the runtime authority.
 
-## Start Shepherdr
+## Requirements
 
-This build supports one local Herdr session, protects it with passkeys by default, and listens only on localhost.
+- Go 1.26 or later.
+- Node.js 20 or later and npm. Node 20 is the highest minimum required by the locked browser dependencies.
+- Herdr 0.8.0 (socket protocol 19), with the `herdr` executable on `PATH` and the intended local Herdr session available.
 
-Requirements:
+Run Shepherdr and Herdr as the same operating-system account. Terminal file paths are local paths on the machine running them; they are not remote or provider-native attachments.
 
-- Go 1.26 or later
-- Node.js and npm for the browser build
-- Herdr 0.8.0 (socket protocol 19)
-
-Build Shepherdr:
+## Build and start
 
 ```sh
 npm ci --prefix web
 npm run build --prefix web
-go build -o bin/shepherdr .
+go build -o ./shepherdr .
 ```
 
-On the first protected start, give Shepherdr its one lasting private HTTPS address:
+Shepherdr listens on `127.0.0.1:8787` by default and accepts only loopback listen addresses. Its default Herdr socket is the `herdr/herdr.sock` path under the platform user configuration directory, normally `~/.config/herdr/herdr.sock` on Linux. Select another absolute socket path when needed:
 
 ```sh
-./bin/shepherdr -public-origin https://shepherdr.example-private.net
+./shepherdr -herdr-socket /absolute/path/to/herdr.sock
 ```
 
-Use the exact address that browsers will open. Shepherdr saves it, prints a ten-minute setup link and terminal QR code, and will not reveal that bearer link again after a restart. Open the link on the computer or scan the QR code on a phone, give this device a name, then choose **Trust this device** to create the first passkey. A new browser cannot trust itself without one of these invitations.
+### Protected access (default)
 
-Later protected starts reuse the saved address:
+The first protected start needs the exact private HTTPS origin that browsers will open:
 
 ```sh
-./bin/shepherdr
+./shepherdr -public-origin https://shepherdr.example-private.net
 ```
 
-Or select the Unix socket for one other configured Herdr session:
+The origin must be a canonical lowercase HTTPS DNS name with no path. Shepherdr saves it, prints a ten-minute setup link and terminal QR code, and does not print that same bearer link again after restart. Open the link on the computer or scan the QR code on a phone, name the trusted sign-in, and choose **Trust this device** to create its passkey. A new browser cannot trust itself without an invitation.
+
+Later starts reuse the saved origin:
 
 ```sh
-./bin/shepherdr -herdr-socket /absolute/path/to/herdr.sock
+./shepherdr
 ```
 
-Protected sessions last 30 days by default without sliding extension. A new session can use a whole number from `1d` through `365d`, or `none` for a browser-session cookie with no Shepherdr clock deadline:
+Protected sessions last 30 days by default without sliding extension. Set the duration for newly created sessions to a whole number from `1d` through `365d`, or use `none` for a browser-session cookie with no Shepherdr clock deadline:
 
 ```sh
-./bin/shepherdr -session-lifetime 365d
-./bin/shepherdr -session-lifetime none
+./shepherdr -session-lifetime 365d
+./shepherdr -session-lifetime none
 ```
 
-The selected lifetime is saved for new sessions. Browsers may discard any cookie earlier because of shutdown, private browsing, site-data clearing, storage policy, or a lost profile.
+The choice is saved. A browser can still discard either kind of cookie earlier.
 
-To run explicitly without passkeys:
+To start explicitly without passkeys:
 
 ```sh
-./bin/shepherdr -no-sign-in
+./shepherdr -no-sign-in
 ```
 
-Home opens directly and shows **Sign-in is off.** Anyone who can reach Shepherdr can act as the operator in this mode.
+The interface shows **Sign-in is off.** Anyone who can reach Shepherdr can act as the operator in this mode.
 
-## Send files from a phone
+## Trusted sign-ins
 
-In a phone Terminal, **Add files** appears only while that exact terminal currently has a Herdr-recognized agent. The ordinary picker accepts arbitrary files. A person can remove pending files, send files without text, or add text before sending. Images may show a small browser-local thumbnail; the thumbnail URL is never uploaded or persisted. The sources offered by Files, camera, or photo-library pickers, multi-selection, and focus restoration depend on the phone and browser. Shepherdr does not force camera capture or claim that every source is available.
+While signed in, open **Settings**, then **Devices**, to list trusted sign-ins, invite another device, revoke a sign-in when another remains, or sign out this browser. Creating an invitation or revoking a sign-in asks for a passkey when the latest verification is more than five minutes old. A passkey can sync; its copies share one entry and are revoked together.
 
-Shepherdr stages opaque bytes on the machine where it runs, then sends one Terminal batch containing absolute local paths under this heading:
-
-```text
-User uploaded files:
-- /tmp/shepherdr-review-…/notes.txt
-- /tmp/shepherdr-review-…/diagram (1).svg
-```
-
-These are filesystem paths for the agent to open. They are not provider-native attachments, and Terminal acknowledgement does not prove that an agent, provider, or model read a file. Shepherdr and the Herdr agents must run as the same operating-system account. Workspace directories are owner-only `0700`; markers and uploaded files are `0600`.
-
-These examples show the available upload settings:
+Local access commands require Shepherdr to be stopped:
 
 ```sh
-./bin/shepherdr -upload-parent /absolute/staging/parent
-./bin/shepherdr -upload-limit 50MiB
-./bin/shepherdr -upload-limit none
+./shepherdr access invite
+./shepherdr access devices
+./shepherdr access revoke <trust-id>
+./shepherdr access reset
 ```
 
-`-upload-parent` defaults to the platform temporary directory, normally `/tmp` on Linux, and applies when a workspace upload directory is created. A previously recorded and verified workspace association continues to use its exact existing directory. `-upload-limit` is the total decoded file bytes in one send and defaults to `50MiB`; positive byte counts may use `KiB`, `MiB`, or `GiB`. In finite mode, the JSON body may contain the separately calculated base64 contribution of each file plus a fixed 1 MiB for names, text, target fields, and JSON structure. `none` removes both route bounds; the operator accepts that one request can consume large memory, transfer time, temporary storage, or available disk.
+Invitations expire after ten minutes. Revoke refuses to remove the final passkey. The destructive reset clears passkeys, sessions, invitations, and notification subscriptions while preserving the private origin and notification identity; the next protected start prints a new setup invitation.
 
-Files remain available for that workspace across agent exit, replacement, reconnect, and Shepherdr restart. When a complete Herdr state shows the workspace is gone, Shepherdr best-effort removes only its exactly recorded and marked directory; startup also reconciles recorded associations against the first complete workspace set. A failed cleanup stays recorded so a later startup can try again. Shepherdr does not scan the temporary directory or promise crash-perfect orphan cleanup.
+## Notifications
 
-Protected mode requires the existing valid session, exact Host and Origin, and JSON mutation boundary. Revocation cancels an in-flight request and waits for its rollback or unknown-result handling before releasing the session lease. In `-no-sign-in` mode, every browser that can reach Shepherdr retains operator authority.
-
-## Manage trusted sign-ins
-
-Stop Shepherdr before using local access commands. Create another ten-minute invitation and QR code with:
+Configure a real operator contact before a browser can enable Web Push:
 
 ```sh
-./bin/shepherdr access invite
+./shepherdr -vapid-contact mailto:you@example.com
 ```
 
-List trusted sign-ins and their opaque trust IDs:
+An absolute HTTPS website is also accepted. The contact, notification keys, and subscriptions are stored outside the repository. Later starts reuse them; supplying another valid contact updates it without changing the keys or subscriptions. The contact is shared with browser push providers as part of Web Push.
+
+Each browser or installed app manages its own choices under **Settings**. `blocked`, `done`, trusted sign-in added, and trusted sign-in removed start on; `working`, `idle`, `unknown`, workspace opened, and workspace closed start off. Android Chrome does not require installation. On iPhone or iPad, add Shepherdr to the Home Screen and open it there before enabling notifications.
+
+To clear the saved contact, notification keys, and all subscriptions without changing access state, stop Shepherdr and run:
 
 ```sh
-./bin/shepherdr access devices
+./shepherdr -reset-notifications
 ```
 
-Labels in this list are untrusted display text. A passkey may sync; synced copies share one row and are revoked together. Backup state is only the state last reported by that passkey at the displayed time.
+Then configure the contact and enable each browser again. Notifications are best effort and have no history or delivery guarantee.
 
-Revoke one trusted sign-in with:
+## Send files from Terminal
+
+On a phone, **Message** opens the Reader composer. **Add files** appears only while the exact terminal has a Herdr-recognized agent. The **Photos** and **Files** choices use the browser's ordinary pickers; **Files** accepts arbitrary files. The phone and browser decide which sources and multi-selection behavior are available. Pending cards can be removed, and files can be sent with or without message text.
+
+Shepherdr stages opaque bytes on its own machine and sends one Terminal batch containing absolute paths under **User uploaded files:**. These paths are for the agent to open. Terminal acknowledgement does not prove that an agent, provider, or model opened or read a file. Uploaded content, names, and paths are untrusted, and an upload can consume memory, disk, and transfer time.
+
+The staging parent defaults to the platform temporary directory, normally `/tmp` on Linux. The request limit is the total decoded file bytes in one send and defaults to `50MiB`:
 
 ```sh
-./bin/shepherdr access revoke <trust-id>
+./shepherdr -upload-parent /absolute/staging/parent
+./shepherdr -upload-limit 100MiB
+./shepherdr -upload-limit none
 ```
 
-Revoke refuses to remove the final passkey. If every passkey must be discarded, use the destructive local reset:
+Positive limits accept bytes or the `KiB`, `MiB`, and `GiB` suffixes. `none` removes Shepherdr's request bound and can exhaust available memory, time, or disk.
+
+One owner-only staging directory belongs to each workspace. Files remain across agent exit or replacement, reconnect, and Shepherdr restart. When a complete Herdr state shows that workspace has been removed, Shepherdr makes a best-effort attempt to delete only its recorded, verified directory; startup retries recorded cleanup after it receives a complete workspace set. It does not scan the temporary directory or promise crash-perfect cleanup.
+
+Treat the staging directory as temporary, operator-owned storage, not durable file history. The platform may clear it, a cleanup can fail, and an abnormal crash can leave an orphan. Shepherdr and the Herdr agents need the same account so the agent can read the owner-only files.
+
+## Private-network deployment
+
+Keep Shepherdr reachable only on a trusted private network containing only users and devices you are willing to give access to the machine running Herdr. Passkeys are an extra lock; they are not permission to publish Shepherdr publicly.
+
+The protected hostname is a lasting passkey boundary. Dedicate it to Shepherdr across every port, and always open that exact origin. Loopback, IP addresses, `localhost`, aliases, alternate ports, and forwarded host headers are not protected fallbacks.
+
+Tailscale Serve is one practical deployment. With Shepherdr using its default local port, configure the stable private HTTPS hostname as `-public-origin`, start Shepherdr, then publish the loopback service:
 
 ```sh
-./bin/shepherdr access reset
+tailscale serve 8787
 ```
 
-Access reset rotates the operator identity, clears passkeys, sessions, invitations, and notification subscriptions, and preserves the private origin and notification identity. It creates no invitation itself; the next protected start prints a new bootstrap invitation.
+Open the resulting private HTTPS address from another trusted tailnet device. Do not use Tailscale Funnel or any other public exposure.
 
-While signed in, open **Settings**, then **Devices**, to see the same trusted sign-ins. Device settings are hidden when sign-in is off. Viewing them needs a valid session. Creating an invitation or revoking a trusted sign-in asks for a passkey if the latest verification is more than five minutes old. **Sign out** invalidates only that browser session.
+## Product behavior
 
-## Turn on notifications
+Home groups only worktrees that Herdr identifies, shows every current terminal exactly once, and uses Herdr's status words unchanged: `working`, `blocked`, `idle`, `done`, and `unknown`. It offers current workspace creation, worktree creation, workspace close, and clean linked-checkout deletion without force. Terminal opens only the exact current target and never substitutes another terminal. If Herdr stops, restart it and Shepherdr reconnects automatically.
 
-Each Shepherdr installation needs a real operator contact before browsers can enable notifications. Start Shepherdr with either a `mailto:` address or an HTTPS website:
+Herdr output, agents, terminal content, repository files, uploaded files, attachments, pasted content, names, and identifiers are untrusted. Displaying them never grants Shepherdr authority.
 
-```sh
-./bin/shepherdr -vapid-contact mailto:you@example.com
-```
-
-The contact is saved outside the repository with the installation's notification keys and subscriptions. Later starts reuse it. Supplying a different valid contact updates the contact without changing notification keys or browser subscriptions. Browser push providers receive this operator contact as part of standard Web Push; it is not a Shepherdr project contact.
-
-Without a configured contact, Home and Terminal continue to work and Notifications settings explain the local setup command. After configuration, each browser or installed app enables and configures its own notifications from **Settings** on Home or Terminal. `blocked`, `done`, trusted sign-in added, and trusted sign-in removed start on; the other Herdr statuses and workspace opened or closed notices start off. Existing enabled subscriptions safely gain the two trusted-sign-in choices. When an older installation first turns on protected access, subscriptions without a trusted-sign-in owner become inactive and each browser must explicitly enable notifications again.
-
-A phone needs one stable private HTTPS address. Android Chrome does not require installation. On iPhone or iPad, add Shepherdr to the Home Screen and open it there before enabling notifications.
-
-To clear the saved contact, notification keys, and every browser subscription without changing passkeys or protected sessions, stop Shepherdr and run:
-
-```sh
-./bin/shepherdr -reset-notifications
-```
-
-Then configure `-vapid-contact` again and explicitly enable each browser again. Notifications are best effort: browsers and operating systems may delay, duplicate, or miss them, and Shepherdr keeps no notification history.
-
-## Keep it on a private network
-
-Always make Shepherdr reachable only on a trusted private network. A trusted private network contains only users and devices you are willing to give access to the machine running Herdr. Passkeys do not make public hosting supported.
-
-The protected hostname is a lasting passkey boundary. Dedicate that hostname to Shepherdr across every port; do not host another HTTPS service on it. Direct loopback, IP addresses, `localhost`, aliases, alternate ports, and forwarded host headers are not protected fallbacks.
-
-Tailscale is one practical way to do this:
-
-1. Choose the stable private HTTPS hostname that Tailscale will serve.
-2. Start Shepherdr with that exact `-public-origin`. Shepherdr refuses non-localhost listen addresses.
-3. Publish Shepherdr's local port with `tailscale serve <port>`.
-4. Open that exact private HTTPS address from another device on the same private network.
-
-Do not use `tailscale funnel`. Funnel makes the service public.
-
-## What it does
-
-- Show every current terminal under Herdr's workspace and tab structure.
-- Show agent identity and Herdr's working, blocked, idle, done, and unknown status when a terminal has an agent. Ordinary terminals have no invented status.
-- Show how many agents are working. When agents are blocked, show those same terminal rows in a filtered list without duplicating them on Home.
-- Filter the current Home locally by workspace, tab, terminal, or agent name without making another Herdr read or changing the global attention counts.
-- Keep a single-terminal workspace compact and make the whole terminal row the open action.
-- Keep a single-terminal worktree parent as a real open row with a separate disclosure action, and show compact nonzero status totals under its name.
-- Add small displayed-order numbers only to same-named single-terminal workspaces across Home or same-titled terminal rows in the same workspace and, when shown, tab. Matching titles in unrelated workspace/tab contexts stay unnumbered, and filtering never renumbers them.
-- Create a workspace at a freely entered directory, with `~` as the starting value and open repository paths as suggestions.
-- Create a worktree from a repository workspace or from an ordinary workspace's current directory. Herdr decides whether that directory is a valid Git source.
-- Close a workspace after showing the additional linked workspaces and nonzero agent counts that will also be affected.
-- Delete a clean linked-worktree checkout without force and without deleting its branch. Herdr refuses a checkout that has changes.
-- Open any current real Herdr terminal, whether or not it has an agent.
-- From a phone, send one text or shortcut batch, or, when a recognized agent is present, stage selected files locally and send their local filesystem paths in one batch. Terminal control is released after forwarding is acknowledged. See [Terminal direction](docs/terminal-direction.md).
-- Keep the last complete Home after a connection drops. Terminals are not openable until Shepherdr reconnects.
-- Send per-browser notifications that name the relevant Herdr workspace for selected status transitions and workspace openings or closings.
-- Open the exact current terminal from a status notification, or show **Terminal unavailable** when that exact terminal is gone.
-
-If Herdr stops, start it again and Shepherdr will reconnect automatically.
-
-Herdr output, names, IDs, agent content, terminal content, repository files, attachments, and pasted content are untrusted. Displaying them must never give them control over Shepherdr.
-
-## Checks
-
-```sh
-go test ./...
-npm test --prefix web
-npm run typecheck --prefix web
-npm run build --prefix web
-```
-
-## Product documents
+Current product and interface direction:
 
 - [Product direction](docs/north-star.md)
 - [Interface direction](docs/ui-direction.md)
-- [Terminal direction](docs/terminal-direction.md)
-- [Mobile Terminal file-upload architecture](docs/mobile-terminal-file-uploads-architecture-proposal.md)
-- [Notification architecture](docs/notification-architecture-proposal.md)
-- [Passkey access architecture](docs/passkey-device-architecture-proposal.md)
 
 Apache License 2.0.

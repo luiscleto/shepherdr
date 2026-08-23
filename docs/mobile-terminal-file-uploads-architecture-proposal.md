@@ -1,12 +1,12 @@
-# Mobile terminal file uploads architecture proposal
+# Mobile terminal file uploads architecture
 
-Status: approved
+Status: implemented and accepted technical direction
 
 Approved: 2026-08-23
 
 Date: 2026-08-23
 
-This proposal applies the human decisions in this review to the current Terminal and access architecture. Its only proposed evidence is `docs/mobile-terminal-attachments-discovery.md`. It does not add Chat, provider-native attachments, an agent-read claim, or another agent runtime.
+This direction records the implemented file-send behavior within the current Terminal and access architecture. `docs/mobile-terminal-attachments-discovery.md` remains historical pre-implementation evidence. The implementation does not add Chat, provider-native attachments, an agent-read claim, or another agent runtime.
 
 ## Decision status and scope
 
@@ -16,16 +16,16 @@ The human has approved these inputs:
 - Base64 JSON is the transport for this version. One configurable total decoded file-bytes limit applies per send: 50 MiB by default, with an explicit no-limit setting.
 - Cleanup is best effort. Files remain until the exact workspace is observed deleted; agent exit, replacement, status change, reconnect, or a topology gap does not clean them.
 - One owner-only directory belongs to each associated workspace. Shepherdr and the Herdr agents are assumed to use the same operating-system account.
-- The mobile composer permits file-only sends and shows familiar pending attachment chips. Selected images may have scoped browser-local thumbnails.
+- The mobile composer permits file-only sends and shows compact pending attachment cards in a horizontal strip. Selected images may have scoped browser-local thumbnails.
 - Files are staged on the machine running Shepherdr. Shepherdr sends their absolute local paths as terminal text and makes no provider-native attachment or agent-read claim.
 
-This proposal does not reopen those decisions. Exact CLI/configuration spellings, route name, state filename/schema, and final interface copy belong in the approved implementation brief and must be documented from what is actually implemented.
+This document does not reopen those decisions. The implemented operator settings are `-upload-parent` and `-upload-limit`; the exact route, state, and interface behavior below describe the current product.
 
 ## Small architecture
 
-Add one small upload manager to the existing Shepherdr process. Its lookup atomically returns one stable gate object for each exact Herdr workspace ID; that object remains in the manager for the process lifetime. A nullable association beneath the gate links the workspace to its directory. Cleanup may clear that association but never replaces or removes the gate. The durable side is a small owner-only association file mapping the ID to one exact absolute directory and its random ownership value. There is no agent record, agent epoch, topology generation, per-agent directory, global queue, quota service, cleanup worker, or durable browser draft.
+One small upload manager runs in the existing Shepherdr process. Its lookup atomically returns one stable gate object for each exact Herdr workspace ID; that object remains in the manager for the process lifetime. A nullable association beneath the gate links the workspace to its directory. Cleanup may clear that association but never replaces or removes the gate. The durable side is a small owner-only association file mapping the ID to one exact absolute directory and its random ownership value. There is no agent record, agent epoch, topology generation, per-agent directory, global queue, quota service, cleanup worker, or durable browser draft.
 
-The design relies narrowly on the current product's one configured Herdr session and that session's opaque workspace IDs. Herdr 0.8.0 workspace IDs are the best confirmed handle in this scope, but no durable Herdr server/session generation identity is confirmed. This proposal assumes an ID restored or returned by that one configured session continues to identify the same workspace for association purposes. It does not generalize the record across Herdr sessions or invent generation machinery. If that assumption later proves false, durable reuse needs a new human-approved design.
+The design relies narrowly on the current product's one configured Herdr session and that session's opaque workspace IDs. Herdr 0.8.0 workspace IDs are the best confirmed handle in this scope, but no durable Herdr server/session generation identity is confirmed. The implementation assumes an ID restored or returned by that one configured session continues to identify the same workspace for association purposes. It does not generalize the record across Herdr sessions or invent generation machinery. If that assumption later proves false, durable reuse needs a new human-approved design.
 
 ## The two coordinated operations
 
@@ -69,18 +69,18 @@ File creation and deletion stay beneath the verified directory and do not follow
 
 ## JSON route, limit, and access boundary
 
-Use one exact JSON mutation carrying the exact Terminal target, optional person text, untrusted filenames, and base64 file bytes. The one configurable limit is the sum of decoded file bytes in that send:
+One exact JSON mutation carries the exact Terminal target, optional person text, untrusted filenames, and base64 file bytes. The one configurable limit is the sum of decoded file bytes in that send:
 
 - default: 50 MiB;
 - explicit no-limit setting: no Shepherdr file-byte ceiling for that request.
 
-Do not add a separate per-file limit, file-count limit, active-storage quota, hard ceiling, process-wide concurrency limit, or admission scheduler. For finite mode, the recommended small transport allowance is 1 MiB for all non-base64 JSON bytes: target fields, person text, filenames after JSON escaping, keys, delimiters, and other structural metadata. For each file of decoded size `n`, its encoded contribution is calculated separately as `4 * ceil(n / 3)`, so every file's base64 padding is counted. A request is accepted only when decoded file bytes total at most 50 MiB and the HTTP body is no larger than the sum of those per-file encoded contributions plus the 1 MiB allowance. It may therefore fail at the transport boundary because names, count, text, or JSON structure exhaust the allowance even when decoded bytes remain below 50 MiB. This is an honest transport bound, not a file-count or quota system.
+There is no separate per-file limit, file-count limit, active-storage quota, hard ceiling, process-wide concurrency limit, or admission scheduler. Finite mode uses a fixed 1 MiB allowance for all non-base64 JSON bytes: target fields, person text, filenames after JSON escaping, keys, delimiters, and other structural metadata. For each file of decoded size `n`, its encoded contribution is calculated separately as `4 * ceil(n / 3)`, so every file's base64 padding is counted. A request is accepted only when decoded file bytes total at most the configured limit and the HTTP body is no larger than the sum of those per-file encoded contributions plus the 1 MiB allowance. It may therefore fail at the transport boundary because names, count, text, or JSON structure exhaust the allowance even when decoded bytes remain below the file-byte limit. This is an honest transport bound, not a file-count or quota system.
 
-An outer reader may use `4 * 50 MiB + 1 MiB` as a conservative absolute bound, followed by the exact per-file calculation. A streaming JSON/base64 decoder may enforce the same two counters with less buffering, but it does not remove or change the metadata allowance and is not required as another subsystem. Tests may configure a tiny decoded limit while keeping the fixed allowance; they need not allocate 50 MiB.
+The implemented bounded reader uses four times the configured decoded-byte limit plus 1 MiB as a conservative outer bound, followed by the exact per-file calculation. Tests may configure a tiny decoded limit while keeping the fixed allowance; they need not allocate 50 MiB.
 
 With no limit, both the decoded-byte limit and this upload route's metadata/body allowance are unbounded. The operator explicitly accepts that a request may consume large memory, temporary storage, transfer time, or all available disk. Ordinary decoding, filesystem, proxy, or operating-system failures remain possible and are reported as failures; this setting does not create a storage manager.
 
-The new route must be listed exactly in the deny-by-default route inventory. It keeps `Content-Type: application/json`, applicable body handling, and the existing mode-specific access rules:
+The route is listed exactly in the deny-by-default route inventory. It keeps `Content-Type: application/json`, applicable body handling, and the existing mode-specific access rules:
 
 - In protected mode, exact canonical Host and Origin, a valid session, and current route rules apply. Reuse the existing `SessionLease` and runtime cancellation semantics without another auth lifecycle. Body handling, staging, Terminal work, and rollback use the lease's runtime context. Revocation removes authority and cancels that context immediately, then waits for the handler to notice cancellation, stop or classify any possible forwarding, best-effort roll back when appropriate, and release the lease. The handler performs the existing pre-forward authority/cancellation check; a possible post-forward cancellation remains unknown rather than becoming success.
 - In `-no-sign-in` mode there is no authenticated session, credential owner, or protected-session lease. Every browser that can reach Shepherdr retains the approved operator authority, while the route continues to use that mode's existing Host/Origin boundary, exact classification, JSON type, target checks, and configured body handling. Do not import protected canonical-origin/session claims into this mode.
@@ -115,9 +115,9 @@ Herdr's acknowledgement proves only that terminal input was forwarded. The recog
 
 ## Mobile interface and honest failures
 
-Show **Add files** only while the exact current terminal currently displays a Herdr-recognized agent. Do not show a disabled placeholder on an ordinary terminal. The composer may send text, files, or both.
+The phone command is **Message**. Its composer shows the compact **Add files** icon only while the exact current terminal displays a Herdr-recognized agent; it does not show a disabled placeholder on an ordinary terminal. **Add files** offers **Photos** and **Files**, and the composer may send text, files, or both.
 
-Selected files stay in current page memory as ordinary email-style pending attachment chips with recognizable filename, size, and **Remove**. Selected browser-decodable images may also show a small local thumbnail from a scoped object URL. The required narrow content-security-policy change is to permit `blob:` for image sources only, for example by extending `img-src` rather than another directive. Revoke every object URL on removal, replacement, successful send, draft discard, or component teardown. No preview URL or file draft is persisted.
+Selected files are prepared in current page memory. **Preparing files…** keeps send unavailable until that work finishes. Prepared files appear as compact cards in a contained horizontal scrolling strip, with recognizable filename, size, an accessible compact remove icon, and a small local thumbnail for browser-decodable images. The narrow content-security policy permits `blob:` only for image sources. Every object URL is revoked on removal, replacement, successful send, draft discard, or component teardown. No preview URL or file draft is persisted.
 
 Use the ordinary file input behavior needed for arbitrary files. Camera, gallery, and Files choices, ordering, multi-select, returned metadata, and focus restoration remain browser/platform-dependent; do not force capture or claim that every phone offers every source.
 
@@ -133,16 +133,12 @@ Focused Go tests use small files and configurable tiny limits to cover marker-pl
 
 Memory-capped browser tests cover recognized-agent-only **Add files**, text-plus-files and file-only sends, attachment chips/removal, scoped image thumbnails and URL revocation, picker cancel, disconnect, definite failure, unknown result, and deliberate retry. Assertions compare primitive results rather than retaining live DOM objects.
 
-One production workflow on a real phone and real Herdr is the gate: select an actually offered image source and an arbitrary small file, inspect/remove/reselect, perform file-only and text-plus-file sends, verify exact local bytes and generated paths, exercise duplicate names, ordinary conflict and confirmed takeover, lose the recognized agent before a send, delete the workspace externally, restart for stale-record cleanup, and repeat the route once in protected and once in `-no-sign-in` mode. Record only sources and behavior the phone actually offered.
+The accepted production workflow on a real phone and real Herdr remains the check for affected changes: select an actually offered image source and an arbitrary small file, inspect/remove/reselect, perform file-only and text-plus-file sends, verify exact local bytes and generated paths, exercise duplicate names, ordinary conflict and confirmed takeover, lose the recognized agent before a send, delete the workspace externally, restart for stale-record cleanup, and repeat the route once in protected and once in `-no-sign-in` mode. Record only sources and behavior the phone actually offered.
 
 Do not add a large-file or memory stress suite, crash-perfect cleanup tests, a disk-full matrix, an elaborate filesystem-corruption matrix, or big Herdr mocks. Hostile filenames, control/delimiter rejection, opaque small content, and unrelated temp-directory preservation remain focused checks.
 
-## Contained implementation and documentation cutover
+## Ongoing acceptance guidance
 
-The orchestrator pins implementation to the exact commit containing the approved work brief and records that SHA in the Herdr dispatch.
+Keep the focused Go and memory-capped browser coverage above. Changes to mobile behavior also require production Shepherdr with real Herdr and a real phone. Preserve exact targeting, workspace-scoped synchronization, marker-and-record ownership, safe local paths, same-account access, normal rollback, best-effort workspace cleanup, protected and sign-in-off boundaries, finite and `none` limit behavior, file-only sends, browser-local thumbnails, and truthful acknowledgement language.
 
-Use one worker for the complete slice: association state and workspace gate, owned directory and rollback, bounded/no-limit JSON route, shared Terminal batch primitive, mobile chips/thumbnails, focused tests, and recorded real-phone/Herdr evidence. An independent reviewer verifies the approved behavior, access-mode wording and session cancellation, shared Terminal semantics, record/marker safety, workspace cleanup, prefix validation, and claimed evidence without fixing it. An integrator starts from the reviewed commit, resolves only in-scope composition, runs the repository gates, and records the exact integrated commit. Human acceptance of the real workflow gates the next wave.
-
-Documentation is part of that implementation cutover, not advance publication. Once the feature works, the implementation result must update README and the relevant current product, interface, Terminal, and access documentation with the exact implemented CLI/configuration names, platform-default upload root, 50 MiB/no-limit behavior, workspace file lifetime and best-effort cleanup, recognized-agent-only UI, file-only sends, image thumbnails/CSP behavior, observed mobile picker behavior, and the fact that Shepherdr sends local filesystem paths rather than provider-native attachments. Do not publish operator instructions before the working feature exists.
-
-This architecture is approved as the basis for an implementation brief. The workspace-scoped association, best-effort cleanup, JSON transport, 50 MiB/no-limit setting, fixed 1 MiB finite-mode metadata/JSON allowance, same-account file modes, file-only sends, and image thumbnails are decided. Streaming versus bounded buffering remains an implementation choice with the same observable limit.
+Acceptance records only picker sources and behavior the phone actually offered. It does not turn local paths into provider-native attachments or prove that an agent read a file.

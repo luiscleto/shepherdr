@@ -6,15 +6,15 @@ Approved simplification: 2026-08-20
 
 ## Scope
 
-This document covers Home and its current workspace actions. Terminal, mobile Terminal file sending, and per-browser notifications have separate approved direction. Sign-in and device trust have their boundary in the [approved passkey and device architecture](passkey-device-architecture-proposal.md); mobile file sending follows the [approved file-upload architecture](mobile-terminal-file-uploads-architecture-proposal.md).
+This document covers Home and its current workspace actions. Terminal, protected access and trusted devices, per-browser notifications, and mobile Terminal file sending have separate approved technical direction.
 
 The current shape is small:
 
 1. One configured Herdr 0.8.0 session owns the real workspaces, terminals, agents, statuses, and worktree actions.
-2. One Go process talks to Herdr, serves the embedded browser UI on `localhost`, and keeps only the latest complete Home in memory. The same process performs the work in `notification-architecture-proposal.md` and `mobile-terminal-file-uploads-architecture-proposal.md`, storing only their approved notification and exact workspace-upload association state outside the repository.
-3. The phone renders Home and opens the existing Terminal destination.
+2. One Go process talks to Herdr, serves the embedded browser UI on loopback, protects it with passkeys by default, and keeps only the latest complete Home in memory. The same process owns notification state and exact workspace-upload associations outside the repository.
+3. The phone renders Home, manages trusted sign-ins and notification choices, opens the accepted Terminal destination, and sends local file paths while a recognized agent is present.
 
-There is no Home database, stored grouping, second runtime, or public hosting support.
+There is no Home database, stored grouping, second runtime, or public hosting support. Protected access and uploads extend the same application boundary; they do not create another runtime or authority.
 
 ## What Herdr provides
 
@@ -93,11 +93,11 @@ Before an action, read current Herdr state and validate that exact target. Run o
 - **Close workspace** applies to any workspace Herdr can close. The confirmation shows additional linked workspaces and nonzero agent counts that will be affected.
 - **Delete checkout** applies only to a linked worktree checkout. It uses `force:false`, never deletes the branch, and reports a dirty refusal honestly.
 
-Displayed names, paths, branches, and browser-supplied values never choose the operation or grant authority. The exact current contract and acceptance record live in `wave-02-workspace-actions.md`; do not duplicate its internal details here or keep speculative machinery for later actions.
+Displayed names, paths, branches, and browser-supplied values never choose the operation or grant authority. Keep the current contract covered by focused tests and real Herdr workflows; do not keep speculative machinery for later actions.
 
-## Work order and acceptance
+## Ongoing acceptance guidance
 
-Home, Terminal, workspace management, and per-browser notifications have passed their respective gates. Future work starts only from a human-approved brief. Tests should be few and useful; the production executable against real Herdr and the real-phone workflow remain the acceptance gate.
+Tests should be few and useful. The production executable against real Herdr and the real-phone workflow remain the acceptance gate for affected behavior.
 
 Home must continue to prove:
 

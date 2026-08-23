@@ -1,16 +1,14 @@
-# Passkey sign-in and trusted-device architecture proposal
+# Passkey sign-in and trusted-device architecture
 
-Status: approved
+Status: implemented technical direction
 
 Approved: 2026-08-22
 
-Base: `fc8facb72f7a854b078f0b7ff6ffa273211d9fe2`
-
 ## Decision status and scope
 
-This proposal adds an access boundary to the existing one-Go-process, loopback-only, same-origin Shepherdr application. It does not change Herdr authority, Home, Terminal, workspace behavior, notification meaning, or the requirement for a trusted private network.
+This direction defines the implemented access boundary for the one-Go-process, loopback-only, same-origin Shepherdr application. It does not change Herdr authority, Home, Terminal, workspace behavior, notification meaning, or the requirement for a trusted private network.
 
-The human has approved the following inputs to this proposal:
+The human approved these inputs:
 
 - Passkeys are the recommended stronger mode. Sign-in does not make public hosting safe.
 - Trust is credential-scoped. A discoverable passkey may be device-bound or synced; all copies with the same credential ID share one Shepherdr trust and revocation record.
@@ -23,13 +21,13 @@ The human has approved the following inputs to this proposal:
 - Reset is destructive local administration: it preserves public-origin and VAPID identity configuration while clearing credentials, sessions, invitations, and notification subscriptions.
 - The implementation baseline is Go 1.26 with the current maintained `go-webauthn` release.
 
-In the rest of this document, **confirmed** describes repository or standards behavior, **proposed** fills in an implementation detail within those decisions, and **assumption** names a security boundary. The document itself remains a proposal; it does not approve an implementation brief.
+In the rest of this document, **confirmed** describes repository or standards behavior and **assumption** names a security boundary.
 
 Excluded are passwords, recovery codes, remote or self-service lost-device recovery, teams, roles, organizations, public hosting, hosted identity, attestation allowlists, authenticator-vendor policy, a second runtime, and Herdr protocol changes.
 
 ## Confirmed boundaries and platform behavior
 
-- **Current Shepherdr:** one Go process listens only on loopback, talks to one Herdr session, serves the embedded TypeScript application, bridges Home and Terminal WebSockets, performs workspace mutations, and owns local Web Push state. It currently has no authentication middleware.
+- **Current Shepherdr:** one Go process listens only on loopback, talks to one Herdr session, serves the embedded TypeScript application, protects application authority with passkeys by default, bridges Home and Terminal WebSockets, performs workspace and file-send mutations, and owns local Web Push state.
 - **Origin and RP ID:** WebAuthn credentials are scoped to an RP ID. The RP ID is a domain name without scheme or port; the server must verify both it and the expected browser origin. WebAuthn normally requires HTTPS. See [WebAuthn Level 3](https://www.w3.org/TR/webauthn-3/) and [Secure Contexts](https://www.w3.org/TR/secure-contexts/).
 - **Passkeys are not physical-device identity:** a backup-eligible credential may be synced or copied. Shepherdr cannot tell which physical copy asserted or selectively revoke one copy. See [WebAuthn credential backup state](https://www.w3.org/TR/webauthn-3/#sctn-credential-backup) and [FIDO passkey terminology](https://fidoalliance.org/passkeys/).
 - **Counters are a signal, not identity proof:** an authenticator may keep its counter at zero; a non-increasing counter can indicate a clone, malfunction, or race. See [WebAuthn signature-counter considerations](https://www.w3.org/TR/webauthn-3/#sctn-sign-counter).
@@ -39,7 +37,7 @@ Excluded are passwords, recovery codes, remote or self-service lost-device recov
 
 ## Smallest architecture
 
-Keep one Shepherdr process and its same-origin embedded UI. The Go listener remains loopback-only; the operator-owned private HTTPS proxy is the only protected browser entry. Add a small access manager, one versioned access-state file, native browser WebAuthn calls, and a maintained Go verifier. Do not add an identity service, database, second frontend origin, or authentication state to Herdr.
+Keep one Shepherdr process and its same-origin embedded UI. The Go listener remains loopback-only; the operator-owned private HTTPS proxy is the only protected browser entry. A small access manager, one versioned access-state file, native browser WebAuthn calls, and a maintained Go verifier provide the boundary. Do not add an identity service, database, second frontend origin, or authentication state to Herdr.
 
 One active WebAuthn credential record is one trusted “device” row. The UI may retain the familiar word **Devices**, but it must say that a passkey can sync and that all synced copies share this row. Revocation disables the credential ID in Shepherdr; it does not remove passkey copies from an authenticator or password manager. Backup eligibility is stored, while backup state is displayed as **last reported by this passkey** with its observation time, not as live provider or physical-device state.
 
@@ -51,7 +49,7 @@ With zero credentials, protected mode exposes only the fixed bootstrap/sign-in a
 
 First protected initialization is:
 
-    ./bin/shepherdr -public-origin https://shepherdr-host.example.ts.net
+    ./shepherdr -public-origin https://shepherdr-host.example.ts.net
 
 `-public-origin` is persisted after first initialization. Later starts may omit it; supplying a different value fails closed. There is no separate RP-ID flag. The RP ID is the canonical hostname.
 
@@ -73,7 +71,7 @@ The existing `-listen` loopback validation remains. Private DNS, TLS, Tailscale 
 
 ### Explicit sign-in-off mode
 
-    ./bin/shepherdr -no-sign-in
+    ./shepherdr -no-sign-in
 
 `-no-sign-in` applies only to that process start and is never persisted. It preserves current behavior and the visible **Sign-in is off** notice: every browser that reaches Shepherdr has operator authority. It does not erase access state. A later start without the flag returns to protected mode. Missing, corrupt, unsupported, or unsafe access state never falls back to sign-in-off mode.
 
@@ -81,10 +79,10 @@ The existing `-listen` loopback validation remains. Private DNS, TLS, Tailscale 
 
 ### Configurable session duration
 
-The proposed smallest spelling is:
+The implemented spelling is:
 
-    ./bin/shepherdr -session-lifetime 30d
-    ./bin/shepherdr -session-lifetime none
+    ./shepherdr -session-lifetime 30d
+    ./shepherdr -session-lifetime none
 
 The first protected initialization defaults to `30d`. The selected value is persisted, and omission on later starts reuses it. A supplied change affects sessions created or rotated afterward; existing sessions retain their issuance policy. Finite values use positive whole days; malformed, zero, negative, or overflowing values fail before listening. `none` means no Shepherdr clock-based expiry, not “stay signed in forever.”
 
@@ -96,10 +94,10 @@ If the process restarts while the invitation is still valid, the already printed
 
 The exact stopped-service commands are:
 
-    ./bin/shepherdr access invite
-    ./bin/shepherdr access devices
-    ./bin/shepherdr access revoke <trust-id>
-    ./bin/shepherdr access reset
+    ./shepherdr access invite
+    ./shepherdr access devices
+    ./shepherdr access revoke <trust-id>
+    ./shepherdr access reset
 
 - `access invite` creates a ten-minute single-use link and QR from the persisted origin.
 - `access devices` lists trust ID, untrusted label, creation and last-use times, backup eligibility, and last-reported backup state/time. It does not claim hardware, browser, location, or physical-device identity.
@@ -191,7 +189,7 @@ The application keeps `frame-ancestors 'none'`, `form-action 'none'`, no-referre
 
 ## Persistent state, locking, and crash invariants
 
-Add an owner-only versioned `access.json` beside existing Shepherdr configuration. It stores only:
+Shepherdr keeps an owner-only versioned `access.json` beside its other configuration. It stores only:
 
 - exact canonical public origin, derived RP ID, session-lifetime configuration, schema version, and random operator user handle;
 - trust ID, untrusted label, timestamps, and complete library credential record, including backup eligibility and last-reported backup state/time;
@@ -200,7 +198,7 @@ Add an owner-only versioned `access.json` beside existing Shepherdr configuratio
 
 Private keys and biometric data never reach Shepherdr. Raw session/invitation tokens and ceremony challenges are not persisted. There is no profile, password, email, recovery secret, hardware inventory, IP history, or general audit log.
 
-Create the configuration directory `0700` and state/lock files `0600`. Refuse symlinks, wrong ownership, non-regular or multiply linked files, unsafe permissions, oversized state, unsupported schema, unknown security-critical fields, and invalid records. Use a same-directory temporary file, file sync, atomic rename, and directory sync. Corruption or a failed migration prevents protected startup.
+The configuration directory is `0700` and state/lock files are `0600`. Shepherdr refuses symlinks, wrong ownership, non-regular or multiply linked files, unsafe permissions, oversized state, unsupported schema, unknown security-critical fields, and invalid records. It uses a same-directory temporary file, file sync, atomic rename, and directory sync. Corruption or a failed migration prevents protected startup.
 
 The lifetime service lock excludes CLI writers. Inside the process, one authority gate and deterministic store order cover access and notification changes:
 
@@ -220,32 +218,23 @@ Subscription creation/removal rechecks authority while holding the write lock. R
 
 ## Maintained library boundary
 
-Use [`github.com/go-webauthn/webauthn`](https://github.com/go-webauthn/webauthn) on Go 1.26 and pin the current reviewed maintained tag in the implementation brief. As of this revision, [`v0.17.4`](https://github.com/go-webauthn/webauthn/releases/tag/v0.17.4) is current; its [`go.mod`](https://github.com/go-webauthn/webauthn/blob/v0.17.4/go.mod) supports this baseline. It supplies relying-party ceremonies, discoverable/usernameless flows, storage types, backup flags, and a security process, but remains pre-v1, so upgrades require release-note and compatibility review.
+Shepherdr uses [`github.com/go-webauthn/webauthn`](https://github.com/go-webauthn/webauthn) `v0.17.4` on Go 1.26. It supplies relying-party ceremonies, discoverable/usernameless flows, storage types, backup flags, and a security process, but remains pre-v1, so upgrades require release-note and compatibility review.
 
 Use the standard browser API without a hosted SDK. Use a maintained QR encoder/terminal renderer such as [`github.com/mdp/qrterminal/v3`](https://github.com/mdp/qrterminal) rather than implementing QR encoding. Go `crypto/rand` and `crypto/sha256` are appropriate for opaque tokens and stored digests; they do not replace WebAuthn verification.
 
-## Migration and protected cutover
+## Protected default and hostname boundary
 
-The first release implementing this proposal changes an unflagged start to protected mode. An installation without access state must supply `-public-origin` or startup exits with the exact command required. An operator intentionally retaining present authority supplies `-no-sign-in` on every start.
+An unflagged start is protected. An installation without access state must supply `-public-origin` or startup exits with the exact command required. An operator intentionally running without sign-in supplies `-no-sign-in` on every start.
 
-No existing browser, private-network member, Herdr identity, cookie, Terminal, displayed content, or notification subscription becomes trusted. Preserve VAPID identity, but treat legacy subscriptions without a credential owner as inactive; after sign-in the browser must explicitly enable notifications again. Sign-in-off mode retains today's notification semantics without rewriting protected trust.
+No browser, private-network member, Herdr identity, cookie, Terminal, displayed content, or notification subscription becomes trusted implicitly. VAPID identity is preserved, but a legacy subscription without a credential owner is inactive and the browser must explicitly enable notifications again. Sign-in-off mode retains its notification semantics without rewriting protected trust.
 
-Origin/RP-ID changes cannot migrate existing passkeys. `access reset` deliberately preserves origin, so changing the private hostname is not an implicit reset side effect and has no supported first-slice workflow. It needs a separately reviewed local migration procedure. Lost passkeys can be replaced only through explicit machine-local authority; there is no remote/self-service recovery.
-
-There must be no partial protected cutover. Before the default changes, the first protected slice includes:
-
-- access-state migration, canonical origin, Go/library baseline, CLI administration, bootstrap, invitation, registration, sign-in/sign-out/reauthentication, configurable sessions, reset, and sign-in-off behavior;
-- the outer gate and commit-time authority checks for every current HTTP/JSON path listed above, both production Home and Terminal WebSockets, the optional Terminal lab, and every workspace/notification/subscription mutation;
-- notification ownership, cross-store crash behavior, push cutoff, socket closure, and Terminal child/control cleanup for every invalidation path; and
-- authenticated regressions for all existing Home, Terminal, workspace, notification, service-worker, and real Herdr workflows plus the desktop/Android protected flow.
-
-Internal commits may stage that work, but protected default is not reviewable or releasable until the complete route inventory and real gates pass together. There is no migration-only or device-management follow-up that leaves current authority partially protected.
+Origin or RP-ID changes cannot migrate existing passkeys. `access reset` deliberately preserves the origin, so changing the private hostname is not an implicit reset side effect and has no supported workflow. It requires separately approved local migration direction. Lost passkeys can be replaced only through explicit machine-local authority; there is no remote or self-service recovery.
 
 ## Risks
 
 - Invitation URLs are temporary bearer authority. Fragment transport reduces server/referrer exposure but not browser, extension, screen, clipboard, QR, terminal, or observer leakage.
 - Synced copies deliberately share one trust record. Credential revocation cannot target a physical copy or delete it from its provider.
-- A hostname loss makes passkeys unusable. There is no origin-change workflow in this slice.
+- A hostname loss makes passkeys unusable. There is no supported origin-change workflow.
 - A stolen session works until invalidation; `none` can make server-side duration indefinite. Browser protections and private networking reduce but do not eliminate compromise.
 - A push accepted before revocation may arrive after it. No push begins after the durable access cutoff.
 - A local same-account compromise and an operator's reverse-proxy/tailnet exposure mistakes are outside the application boundary.
@@ -267,15 +256,9 @@ Use the production executable, real Herdr, one desktop browser, and a real Andro
 - Migrate today's state. Confirm no implicit trust, VAPID identity preservation, legacy-subscription suppression, explicit notification re-enable, `-no-sign-in` current behavior/warning, protected return on restart, stopped-service CLI refusal while running, and corrupt-state fail-closed behavior.
 - Run stopped-service invite/list/revoke/reset. Confirm revoke refuses the final credential, reset clears exactly the approved state while preserving origin/VAPID identity, and only the next protected start creates a new bootstrap invitation.
 
-## Suggested implementation split after approval
+## Ongoing boundaries
 
-Use one worker for one complete protected-cutover slice. It may organize internal changes by store, ceremony, gate, and UI, but its deliverable is the full migration and every affected HTTP/JSON/WebSocket/workspace/notification/Home/Terminal path above. The first gate is a real desktop-link and Android-QR enrollment followed by authenticated Home, Terminal, workspace, notification, restart, revoke, reset, and sign-in-off workflows.
-
-An independent security reviewer verifies the exact route inventory, canonical-origin cases, ceremony/session bounds, atomic last-credential and commit-time checks, cross-store crash points, push cutoff, and socket/child cleanup. An integrator then runs the repository gates and repeats the production desktop/Android/Herdr workflow from the reviewed commit. No later wave starts from a worker branch, and this proposal does not approve any brief or integration.
-
-## Remaining assumptions and implementation details
-
-- The finite `-session-lifetime` upper bound and the user-facing wording for invalid values remain implementation-brief details; the accepted syntax, default, persistence, and `none` semantics are fixed above.
+- Finite `-session-lifetime` values are whole days from `1d` through `365d`; the default is `30d`, the choice is persisted for new sessions, and `none` keeps the accepted browser-session semantics above.
 - Platform ceremony screens and whether a test credential actually syncs depend on the desktop/Android authenticators. Acceptance must record observed behavior without inferring a provider or physical identity.
-- A future private-hostname/RP-ID migration procedure remains out of scope. Reset preserves the existing origin as approved.
-- Exact UI copy for the Devices explanation, last-reported backup state, bootstrap errors, and browser cookie loss still needs human UI review under `docs/ui-direction.md`; it cannot weaken the security behavior.
+- A private-hostname or RP-ID migration procedure remains out of scope. Reset preserves the existing origin.
+- Current Devices, invitation, sign-in, and browser-cookie-loss language follows `docs/ui-direction.md` and cannot weaken this security behavior.

@@ -1,8 +1,12 @@
 # Mobile terminal file uploads discovery
 
-Status: proposed evidence, not approved architecture or product direction
+Status: historical evidence, not current architecture or product direction
 
 Date: 2026-08-23
+
+Pre-implementation base: `335c0e87428034b05c5f5b19edf670523f119018`
+
+This document is retained as evidence from that exact base. Every observation described as “current” below refers to the pre-implementation base, not to the product now in this repository. Later approved direction and implementation resolved questions that intentionally remain open in this historical record.
 
 ## Answer in brief
 
