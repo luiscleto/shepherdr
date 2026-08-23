@@ -72,7 +72,7 @@ Provide one local `-reset-notifications` command-line action. The operator stops
 
 Subscription endpoints and keys are secrets and untrusted input. Keep them out of logs and source control. Require same-origin settings requests, strictly validate sizes and shapes, and ensure outbound push requests cannot reach local, private, link-local, or private-network addresses through redirects or name resolution. Use short request and response limits. Do not implement Web Push encryption or VAPID signing by hand.
 
-Include the relevant Herdr workspace name in every status, workspace-opened, and workspace-closed notice when one usable name identifies the event. Use the existing generic wording otherwise. Treat that name only as untrusted display text. Do not include agent names, repository or path data, terminal content, output, prompts, messages, or other content. Use a five-minute push expiry. One accepted request means only that the push service accepted it; do not say it was delivered. Do not retry an accepted, timed-out, or ambiguous send.
+Include the relevant Herdr workspace name in every status, workspace-opened, and workspace-closed notice when one usable name identifies the event. Use the existing generic wording otherwise. Treat that name only as untrusted display text. Do not include agent names, repository or path data, terminal content, output, prompts, or other content. Use a five-minute push expiry. One accepted request means only that the push service accepted it; do not say it was delivered. Do not retry an accepted, timed-out, or ambiguous send.
 
 A status payload contains only its event kind, Herdr workspace display name, exact Herdr status, minimum opaque pane and terminal identifiers, and a same-origin relative destination. A notification click reuses the existing application startup, connection handling, and exact Terminal validation, with no notification-specific wait or timeout. The display name never selects the destination. Open Terminal only when those identifiers resolve in current state. Otherwise use the existing **Terminal unavailable** path back to Home. Workspace notifications open Home.
 
@@ -98,7 +98,7 @@ Worker `wave03-notifications-worker` owns this end-to-end slice:
 
 Likely overlap is limited to the Home masthead, Terminal header, application startup, routing, embedded assets, and server configuration. The worker must not alter Terminal rendering, control, sending, history, lifecycle, or tests except for a focused assertion that the Notifications settings action and notification destination do not disturb them.
 
-Do not add authentication, trusted-device management, public hosting, Chat, message notifications, agent names or content beyond the approved workspace display name in pushes, a push-vendor account, provider-specific logic, a general event model, speculative later-work structure, or changes to Herdr.
+Do not add authentication, trusted-device management, public hosting, agent names or content beyond the approved workspace display name in pushes, a push-vendor account, provider-specific logic, a general event model, speculative later-work structure, or changes to Herdr.
 
 ## Tests and worker evidence
 

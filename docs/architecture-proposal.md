@@ -6,7 +6,7 @@ Approved simplification: 2026-08-20
 
 ## Scope
 
-This document covers Home and its current workspace actions. Terminal and per-browser notifications have separate approved direction. Sign-in and device trust are not implemented; their boundary is in the [approved passkey and device architecture](passkey-device-architecture-proposal.md). Chat remains later work.
+This document covers Home and its current workspace actions. Terminal and per-browser notifications have separate approved direction. Sign-in and device trust are not implemented; their boundary is in the [approved passkey and device architecture](passkey-device-architecture-proposal.md).
 
 The current shape is small:
 

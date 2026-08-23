@@ -235,4 +235,4 @@ Human acceptance gates the next wave.
 
 ## Excluded
 
-No force deletion, branch deletion, worktree rename or move, directory browser, configured roots, saved paths, custom Git cleanup or rollback, action queue or history, durable store, optimistic state, polling, authentication, notifications, Chat, Terminal changes, or public-hosting work.
+No force deletion, branch deletion, worktree rename or move, directory browser, configured roots, saved paths, custom Git cleanup or rollback, action queue or history, durable store, optimistic state, polling, authentication, notifications, Terminal changes, or public-hosting work.

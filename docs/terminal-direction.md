@@ -24,7 +24,7 @@ Shepherdr uses Herdr 0.8.0's existing snapshot, terminal read, observe, control,
 
 The server rechecks the exact pane and terminal identity for reads and sessions. Observation and control use separate Herdr child processes. Each stream starts with a full frame and accepts later frames only in order; a replacement starts a new sequence. Closing or replacing a browser session cancels and collects the exact child it started.
 
-The renderer comparison lab is development-only and unavailable without its explicit flag. Shepherdr has no durable terminal or conversation store and does not parse terminal output into Home, agent state, authorization, application actions, or Chat.
+The renderer comparison lab is development-only and unavailable without its explicit flag. Shepherdr has no durable terminal store and does not parse terminal output into Home, agent state, authorization, or application actions.
 
 Existing product scope, private-network requirements, and untrusted-content rules in `north-star.md` and `architecture-proposal.md` remain unchanged.
 

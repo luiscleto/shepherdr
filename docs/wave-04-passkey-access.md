@@ -29,7 +29,7 @@ The approved source of truth is [Passkey sign-in and trusted-device architecture
 - Notification subscriptions in protected mode belong to the authorizing passkey. Revocation and reset preserve the approved access-first cutoff, cleanup, restart, and explicit re-enable behavior. Sign-in-off keeps today's notification semantics.
 - Use Go 1.26 and reverify the current maintained `go-webauthn` release at implementation start before pinning it. Record the version and review; do not hand-roll WebAuthn or add a hosted identity service.
 
-Excluded are teams, roles, organizations, public hosting, remote recovery, Chat, a hosted identity provider, a second runtime, new Herdr interfaces, or changes to accepted Home, Terminal, workspace, and notification behavior.
+Excluded are teams, roles, organizations, public hosting, remote recovery, a hosted identity provider, a second runtime, new Herdr interfaces, or changes to accepted Home, Terminal, workspace, and notification behavior.
 
 ## One worker and internal checkpoints
 

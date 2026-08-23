@@ -52,7 +52,7 @@ Shepherdr compares consecutive, complete, validated Herdr snapshots during one u
 
 The first valid snapshot after Shepherdr starts, Herdr reconnects, or an event gap is only a new baseline. It sends nothing. This prevents false transitions but means real changes during the gap may be missed. Likewise, two complete reads may skip a fast intermediate status; Shepherdr does not invent it.
 
-For a burst of workspace openings or closings observed in one comparison, send one summary rather than a notification per workspace. When one usable workspace name identifies the summary, include it; otherwise use the existing generic fallback. Status transitions remain per exact terminal because each has a useful destination. Terminal output, messages, prompts, focus changes, renames, and ordering changes are not notification events.
+For a burst of workspace openings or closings observed in one comparison, send one summary rather than a notification per workspace. When one usable workspace name identifies the summary, include it; otherwise use the existing generic fallback. Status transitions remain per exact terminal because each has a useful destination. Terminal output, prompts, focus changes, renames, and ordering changes are not notification events.
 
 ## Per-browser settings and permission
 
@@ -95,7 +95,7 @@ The VAPID private key and subscription authentication values are secrets. The VA
 
 A subscription endpoint is an untrusted URL and a server-side request boundary. Accept only valid HTTPS endpoints, reject embedded credentials and fragments, do not follow redirects, resolve and reject local, private, link-local, and tailnet destinations, defend against DNS rebinding, and use tight request size and time limits. Use a maintained Web Push library for encryption and signing. These controls avoid turning subscription enrollment into SSRF while remaining independent of a particular push vendor.
 
-Payloads contain the event kind, the relevant Herdr workspace display name when usable, and the minimum opaque identifiers needed for a relative same-origin destination. The workspace name is untrusted display text only; it cannot select a route, target, control, or authority. Do not include agent names, repository paths, terminal text, agent output, prompts, messages, or other content. Push encryption protects payload content in transit, but the push provider still sees timing, frequency, and size, and the operating system may show text on a lock screen.
+Payloads contain the event kind, the relevant Herdr workspace display name when usable, and the minimum opaque identifiers needed for a relative same-origin destination. The workspace name is untrusted display text only; it cannot select a route, target, control, or authority. Do not include agent names, repository paths, terminal text, agent output, prompts, or other content. Push encryption protects payload content in transit, but the push provider still sees timing, frequency, and size, and the operating system may show text on a lock screen.
 
 Use a five-minute time to live. Do not retry after acceptance, timeout, or an ambiguous result; a retry queue would add duplicates and imply reliability the system does not have. A push-service acceptance response means only accepted for possible delivery. Restarts, reconnects, permission changes, expired subscriptions, and offline phones can cause missed events. Duplicate delivery is also possible. The interface should promise neither notification history nor offline replay.
 
@@ -120,7 +120,7 @@ These product and security choices are approved direction.
 
 Risks include missed or duplicate alerts, stale links, permission removal, lock-screen metadata, leaked secrets, SSRF, and confusing a subscription with device trust. The design cannot make Web Push reliable or prove delivery.
 
-Excluded are Chat or message notifications, passkeys, device-trust implementation, team accounts, hosted identity, public hosting, a push-vendor commitment, a second runtime, terminal parsing, a conversation store, a general event system, push history, delivery receipts, cross-device seen state, reliable offline replay, retry queues, offline application caching, and Herdr changes.
+Excluded are passkeys, device-trust implementation, team accounts, hosted identity, public hosting, a push-vendor commitment, a second runtime, terminal parsing, a general event system, push history, delivery receipts, cross-device seen state, reliable offline replay, retry queues, offline application caching, and Herdr changes.
 
 An inbox and dismissible banners should wait. Without stored history an inbox would be misleading; with stored history it would introduce retention, seen-state, deletion, and multi-browser questions. Banners become useful when the later suppression protocol is designed, not as an unrelated first-slice ornament.
 

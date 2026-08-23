@@ -4,7 +4,7 @@ Status: proposed
 
 This is a voice and interface guide, not a component library.
 
-The current runnable product includes Home, Terminal, workspace management, and per-browser notifications. Sign-in and device trust have approved direction but are not implemented. Chat remains later work.
+The current runnable product includes Home, Terminal, workspace management, and per-browser notifications. Sign-in and device trust have approved direction but are not implemented.
 
 ## Voice
 
@@ -165,7 +165,6 @@ All interactive targets are at least 44 by 44 CSS pixels. While an action is run
 ## Honesty and access
 
 - Show only actions and state that exist. No disabled future controls or placeholder chrome.
-- Do not add disabled or placeholder Chat controls.
 - Never claim success until Herdr or the service confirms it.
 - Never invent a more precise status than Herdr provides.
 - Make reconnecting, unavailable information, and interrupted actions visible.

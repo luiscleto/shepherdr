@@ -25,7 +25,7 @@ The human has approved the following inputs to this proposal:
 
 In the rest of this document, **confirmed** describes repository or standards behavior, **proposed** fills in an implementation detail within those decisions, and **assumption** names a security boundary. The document itself remains a proposal; it does not approve an implementation brief.
 
-Excluded are passwords, recovery codes, remote or self-service lost-device recovery, teams, roles, organizations, public hosting, hosted identity, Chat, attestation allowlists, authenticator-vendor policy, a second runtime, and Herdr protocol changes.
+Excluded are passwords, recovery codes, remote or self-service lost-device recovery, teams, roles, organizations, public hosting, hosted identity, attestation allowlists, authenticator-vendor policy, a second runtime, and Herdr protocol changes.
 
 ## Confirmed boundaries and platform behavior
 
@@ -197,7 +197,7 @@ Add an owner-only versioned `access.json` beside existing Shepherdr configuratio
 - hashed session tokens with credential owner, issuance policy, optional absolute expiry, and fresh-verification authorizer/time; and
 - hashed invitation tokens with actual issuer, issue/expiry/reservation/consumption state.
 
-Private keys and biometric data never reach Shepherdr. Raw session/invitation tokens and ceremony challenges are not persisted. There is no profile, password, email, recovery secret, hardware inventory, IP history, conversation store, or general audit log.
+Private keys and biometric data never reach Shepherdr. Raw session/invitation tokens and ceremony challenges are not persisted. There is no profile, password, email, recovery secret, hardware inventory, IP history, or general audit log.
 
 Create the configuration directory `0700` and state/lock files `0600`. Refuse symlinks, wrong ownership, non-regular or multiply linked files, unsafe permissions, oversized state, unsupported schema, unknown security-critical fields, and invalid records. Use a same-directory temporary file, file sync, atomic rename, and directory sync. Corruption or a failed migration prevents protected startup.
 

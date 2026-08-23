@@ -81,7 +81,6 @@ Implementation order and wave contents come later from approved architecture and
 - Use plain, human-readable language. Keep internal names and process language out of the interface and user-facing documents.
 - Show only actions and state that really exist. Do not add placeholder controls for possible future work.
 - Herdr remains the runtime authority. Do not quietly build a second agent runtime beside it.
-- Chat and any explicit agent-used messaging channel are later work. Until the human expands scope, do not design them, make Chat a live, parsed, scraped, or reconstructed view of terminal output, add a conversation store, or add Chat interface controls.
 - The current product uses only capabilities Herdr already exposes. Do not invent Herdr interfaces.
 - When sign-in is off, anyone who can reach Shepherdr has operator authority. A trusted private network includes only users and devices the human is willing to give access to the machine running Herdr.
 - Reaching Shepherdr must never be enough to trust a new device. Trust requires an already trusted authority or explicit local operator action. Do not choose the mechanism without human-approved architecture.

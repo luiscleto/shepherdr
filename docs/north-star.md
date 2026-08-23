@@ -4,7 +4,7 @@ Status: proposed
 
 Scope: the current product
 
-The current runnable product includes Home, Terminal, workspace management, and per-browser notifications. All four have passed their acceptance gates. Sign-in and device trust have approved architecture but are not implemented. Chat remains later work.
+The current runnable product includes Home, Terminal, workspace management, and per-browser notifications. All four have passed their acceptance gates. Sign-in and device trust have approved architecture but are not implemented.
 
 ## The promise
 
@@ -24,7 +24,7 @@ The broader product direction remains:
 6. Choose whether this browser or installed app receives blocked-agent notifications.
 7. Tap a blocked-agent notification and open that agent's terminal.
 
-The daily return path is short: open Shepherdr, see who is blocked, and reach that work. This is the product bar, not an implementation order. The current runnable product implements Home, Terminal, workspace management, and per-browser notifications. Sign-in and device trust are approved but unbuilt. Chat remains later work.
+The daily return path is short: open Shepherdr, see who is blocked, and reach that work. This is the product bar, not an implementation order. The current runnable product implements Home, Terminal, workspace management, and per-browser notifications. Sign-in and device trust are approved but unbuilt.
 
 ## Home and attention
 
@@ -102,7 +102,7 @@ Reconnects, restarts, offline devices, and interrupted actions must leave the pe
 
 Treat Herdr output, names, agents, terminal identities, terminal content, repository files, attachments, and pasted content as untrusted. Merely displaying that content must never give it Shepherdr application authority. A displayed identity cannot grant authority or redirect to other work.
 
-The current product uses only capabilities Herdr already exposes. Do not invent Herdr interfaces, reconstruct conversations from terminal output, or add a Shepherdr conversation store.
+The current product uses only capabilities Herdr already exposes. Do not invent Herdr interfaces.
 
 ## Outside this product
 
@@ -113,7 +113,6 @@ The current product uses only capabilities Herdr already exposes. Do not invent 
 - Team accounts, roles, and organizations.
 - Provider-specific handling for blocked prompts.
 - A replacement or second agent runtime beside Herdr.
-- A live, parsed, scraped, or reconstructed Chat view of terminal output. Any future Chat requires a deliberately designed agent-used channel.
 
 ## How we will know it works
 

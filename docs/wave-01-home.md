@@ -75,7 +75,7 @@ The worker should delete superseded refresh-state and candidate-retry machinery 
 
 Keep the existing internal current-snapshot information that the accepted Terminal target lookup needs, but do not change its contract or serialize its lifecycle to Home.
 
-Do not change, test, or re-accept Terminal code or behavior. Do not add workspace actions, auth, devices, notifications, Chat, persistence, new Herdr requests, dependencies without a current need, or structure for later work.
+Do not change, test, or re-accept Terminal code or behavior. Do not add workspace actions, auth, devices, notifications, persistence, new Herdr requests, dependencies without a current need, or structure for later work.
 
 ## Tests and evidence
 
