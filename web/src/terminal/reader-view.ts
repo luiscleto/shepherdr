@@ -130,23 +130,20 @@ export class ReaderView {
     this.#addFiles.type = "button";
     this.#addFiles.className = "reader-add-files reader-icon-button";
     setIconButton(this.#addFiles, "Add files", "paperclip");
-    this.#addFiles.setAttribute("aria-haspopup", "menu");
     this.#addFiles.setAttribute("aria-expanded", "false");
     this.#addFiles.hidden = true;
     this.#fileMenu = document.createElement("div");
     this.#fileMenu.className = "reader-file-menu";
     this.#fileMenu.hidden = true;
-    this.#fileMenu.setAttribute("role", "menu");
+    this.#fileMenu.setAttribute("role", "group");
     this.#fileMenu.setAttribute("aria-label", "Add files from");
     this.#photoChoice = document.createElement("button");
     this.#photoChoice.type = "button";
     this.#photoChoice.textContent = "Photos";
-    this.#photoChoice.setAttribute("role", "menuitem");
     setControlLabel(this.#photoChoice, "Choose photos");
     this.#fileChoice = document.createElement("button");
     this.#fileChoice.type = "button";
     this.#fileChoice.textContent = "Files";
-    this.#fileChoice.setAttribute("role", "menuitem");
     setControlLabel(this.#fileChoice, "Choose files");
     this.#fileMenu.append(this.#photoChoice, this.#fileChoice);
     this.#fileList = document.createElement("div");
@@ -219,7 +216,7 @@ export class ReaderView {
     this.#fileMenuDismiss = (event) => {
       const target = event.target as Node | null;
       if (target && (this.#fileMenu.contains(target) || this.#addFiles.contains(target))) return;
-      this.#closeFileMenu(false);
+      this.#closeFileMenu(true);
     };
     this.#addFiles.addEventListener("click", () => {
       if (this.#fileMenu.hidden) this.#openFileMenu();
@@ -229,6 +226,12 @@ export class ReaderView {
       if (event.key !== "Escape") return;
       event.preventDefault();
       this.#closeFileMenu(true);
+    });
+    this.#fileMenu.addEventListener("focusout", (event) => {
+      if (this.#fileMenu.hidden) return;
+      const next = event.relatedTarget as Node | null;
+      if (next && (this.#fileMenu.contains(next) || this.#addFiles.contains(next))) return;
+      this.#closeFileMenu(next === null);
     });
     this.#photoChoice.addEventListener("click", () => this.#openFileInput(this.#photoInput));
     this.#fileChoice.addEventListener("click", () => this.#openFileInput(this.#fileInput));
@@ -342,9 +345,12 @@ export class ReaderView {
   }
 
   setFileSelectionAvailable(available: boolean): void {
+    const active = this.#host.ownerDocument.activeElement;
+    const attachmentFocus = active !== null && (this.#addFiles.contains(active) || this.#fileMenu.contains(active));
+    if (!available) this.#closeFileMenu(false);
     this.#fileSelectionAvailable = available;
     this.#addFiles.hidden = !available;
-    if (!available) this.#closeFileMenu(false);
+    if (!available && attachmentFocus) this.#restoreComposerFocus();
     this.#syncSubmit();
   }
 
@@ -368,7 +374,9 @@ export class ReaderView {
 
   hideComposer(): void {
     if (!this.#collapsibleComposer || this.#submissionActive) return;
+    const active = this.#host.ownerDocument.activeElement as HTMLElement | null;
     this.#closeFileMenu(false);
+    if (active && this.#composer.contains(active)) active.blur();
     this.#composer.hidden = true;
     this.#input.blur();
     if (!this.#sendAvailable) this.#input.disabled = true;
@@ -507,7 +515,7 @@ export class ReaderView {
   }
 
   #openFileInput(input: HTMLInputElement): void {
-    this.#closeFileMenu(false);
+    this.#closeFileMenu(true);
     input.click();
   }
 
@@ -549,6 +557,15 @@ export class ReaderView {
 
   #restoreFileActionFocus(): void {
     if (!this.#composer.hidden && !this.#addFiles.hidden && !this.#addFiles.disabled) this.#addFiles.focus();
+  }
+
+  #restoreComposerFocus(): void {
+    if (this.#composer.hidden) return;
+    if (!this.#input.disabled) {
+      this.#input.focus();
+      return;
+    }
+    if (this.#closeComposer && !this.#closeComposer.disabled) this.#closeComposer.focus();
   }
 
   #clearPendingFiles(): void {

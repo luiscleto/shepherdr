@@ -162,8 +162,11 @@ test("mobile composer icons and picker choices gate real file preparation", asyn
   const choices = Array.from(menu.querySelectorAll("button")) as HTMLButtonElement[];
   assert.equal(menu.hidden, false);
   assert.equal(add.getAttribute("aria-expanded"), "true");
+  assert.equal(add.hasAttribute("aria-haspopup"), false);
+  assert.equal(menu.getAttribute("role"), "group");
   assert.deepEqual(choices.map((button) => button.textContent), ["Photos", "Files"]);
-  assert.equal(browser.document.activeElement, choices[0]);
+  assert.equal(choices.every((button) => button.hasAttribute("role") === false), true);
+  assert.equal(browser.document.activeElement === choices[0], true);
 
   const photoInput = host.querySelector(".reader-photo-input") as HTMLInputElement;
   const fileInput = host.querySelector(".reader-file-input") as HTMLInputElement;
@@ -174,17 +177,31 @@ test("mobile composer icons and picker choices gate real file preparation", asyn
   choices[0].click();
   assert.equal(photoPickerOpened, 1);
   assert.equal(menu.hidden, true);
+  assert.equal(browser.document.activeElement === add, true, "a picker choice must move focus out of the hidden group");
   photoInput.dispatchEvent(new browser.Event("cancel"));
   assert.equal(textarea.value, "keep this draft");
-  assert.equal(browser.document.activeElement, add, "picker cancel must restore focus to the paperclip");
+  assert.equal(browser.document.activeElement === add, true, "picker cancel must restore focus to the paperclip");
 
   add.click();
   menu.dispatchEvent(new browser.KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
   assert.equal(menu.hidden, true);
-  assert.equal(browser.document.activeElement, add, "Escape dismissal must restore focus");
+  assert.equal(browser.document.activeElement === add, true, "Escape dismissal must restore focus");
+  add.click();
+  choices[1].focus();
+  send.focus();
+  assert.equal(menu.hidden, true, "natural focus navigation must dismiss the source group");
+  assert.equal(browser.document.activeElement === send, true);
   add.click();
   textarea.dispatchEvent(new browser.Event("pointerdown", { bubbles: true }));
   assert.equal(menu.hidden, true, "an outside pointer must dismiss the source menu");
+  assert.equal(menu.contains(browser.document.activeElement), false);
+
+  add.click();
+  reader.setFileSelectionAvailable(false);
+  assert.equal(menu.hidden, true);
+  assert.equal(add.hidden, true);
+  assert.equal(browser.document.activeElement === textarea, true, "availability loss must move focus to the surviving editor");
+  reader.setFileSelectionAvailable(true);
 
   let filePickerOpened = 0;
   Object.defineProperty(fileInput, "click", { configurable: true, value: () => filePickerOpened += 1 });
