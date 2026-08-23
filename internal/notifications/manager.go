@@ -60,7 +60,7 @@ func (m *Manager) ObserveSnapshot(snapshot herdr.Snapshot, baseline bool) {
 	events := m.evaluator.Observe(snapshot, baseline)
 	m.evaluatorMu.Unlock()
 	for _, event := range events {
-		m.logger.Info("Notification candidate observed")
+		m.logger.Info("Notification candidate observed", notificationLogFields(event)...)
 		m.enqueue(event)
 	}
 }
@@ -154,18 +154,20 @@ func (m *Manager) RemoveOwned(endpoint, trustID string) (bool, error) {
 
 func (m *Manager) TrustedSignInAdded(label string) {
 	label = notificationTrustLabel(label)
-	m.logger.Info("Trusted sign-in added", "label", displayTrustLabel(label))
-	m.enqueue(Event{Kind: EventTrustedSignInAdded, Destination: "/", TrustLabel: label})
+	event := Event{Kind: EventTrustedSignInAdded, Destination: "/", TrustLabel: label}
+	m.logger.Info("Trusted sign-in added", notificationLogFields(event)...)
+	m.enqueue(event)
 }
 
 func (m *Manager) RemoveTrustSubscriptions(trustID, label string) error {
 	label = notificationTrustLabel(label)
+	event := Event{Kind: EventTrustedSignInRemoved, Destination: "/", TrustLabel: label}
 	if err := m.store.RemoveTrustSubscriptions(trustID); err != nil {
-		m.logger.Error("Trusted sign-in removed, but notification cleanup failed", "label", displayTrustLabel(label))
+		m.logger.Error("Trusted sign-in removed, but notification cleanup failed", notificationLogFields(event)...)
 		return err
 	}
-	m.logger.Info("Trusted sign-in removed", "label", displayTrustLabel(label))
-	m.enqueue(Event{Kind: EventTrustedSignInRemoved, Destination: "/", TrustLabel: label})
+	m.logger.Info("Trusted sign-in removed", notificationLogFields(event)...)
+	m.enqueue(event)
 	return nil
 }
 
@@ -199,10 +201,10 @@ func (m *Manager) enqueue(event Event) {
 	event.pending = &m.pending
 	select {
 	case m.events <- event:
-		m.logger.Info("Notification candidate enqueued")
+		m.logger.Info("Notification candidate enqueued", notificationLogFields(event)...)
 	default:
 		m.pending.Done()
-		m.logger.Info("Notification candidate dropped")
+		m.logger.Info("Notification candidate dropped", notificationLogFields(event)...)
 	}
 }
 
@@ -235,15 +237,32 @@ func (m *Manager) deliverEvent(ctx context.Context, event Event) {
 		}
 		switch outcome {
 		case sendAccepted:
-			m.logger.Info("Push service accepted notification")
+			m.logger.Info("Push service accepted notification", notificationLogFields(event)...)
 		case sendFailed:
-			m.logger.Info("Notification push failed")
+			m.logger.Info("Notification push failed", notificationLogFields(event)...)
 		case sendGone:
-			m.logger.Info("Push service reports subscription gone")
+			m.logger.Info("Push service reports subscription gone", notificationLogFields(event)...)
 			if _, err := m.store.Remove(subscription.Endpoint); err != nil {
-				m.logger.Warn("Could not remove an expired notification subscription")
+				m.logger.Warn("Could not remove an expired notification subscription", notificationLogFields(event)...)
 			}
 		}
+	}
+}
+
+func notificationLogFields(event Event) []any {
+	fields := []any{"event_kind", string(event.Kind)}
+	switch event.Kind {
+	case EventStatus:
+		return append(fields,
+			"workspace_name", event.WorkspaceName,
+			"herdr_status", string(event.Status),
+		)
+	case EventWorkspaceOpened, EventWorkspaceClosed:
+		return append(fields, "workspace_name", event.WorkspaceName)
+	case EventTrustedSignInAdded, EventTrustedSignInRemoved:
+		return append(fields, "trusted_sign_in_label", displayTrustLabel(event.TrustLabel))
+	default:
+		return fields
 	}
 }
 

@@ -130,11 +130,25 @@ func TestAccessChangeNotificationsUseLabelsAndExcludeRemovedTrust(t *testing.T) 
 		removed[0].event.TrustLabel != "Phone <b>" || removed[0].event.Destination != "/" {
 		t.Fatalf("removed sends=%+v", removed)
 	}
+	manager.TrustedSignInAdded("  ")
+	manager.WaitPending()
+	if generic := sender.take(); len(generic) != 1 || generic[0].event.TrustLabel != "" {
+		t.Fatalf("generic-label sends=%+v", generic)
+	}
 	logged := logs.String()
-	for _, report := range []string{"Trusted sign-in added", "Trusted sign-in removed", "Tablet <script>", "Phone <b>"} {
-		if !strings.Contains(logged, report) {
-			t.Errorf("running-service report omitted %q: %s", report, logged)
-		}
+	for _, entry := range []struct {
+		message string
+		fields  []string
+	}{
+		{"Trusted sign-in added", []string{"event_kind=trusted_sign_in_added", `trusted_sign_in_label="Tablet <script>"`}},
+		{"Notification candidate enqueued", []string{"event_kind=trusted_sign_in_added", `trusted_sign_in_label="Tablet <script>"`}},
+		{"Push service accepted notification", []string{"event_kind=trusted_sign_in_added", `trusted_sign_in_label="Tablet <script>"`}},
+		{"Trusted sign-in removed", []string{"event_kind=trusted_sign_in_removed", `trusted_sign_in_label="Phone <b>"`}},
+		{"Notification candidate enqueued", []string{"event_kind=trusted_sign_in_removed", `trusted_sign_in_label="Phone <b>"`}},
+		{"Push service accepted notification", []string{"event_kind=trusted_sign_in_removed", `trusted_sign_in_label="Phone <b>"`}},
+		{"Trusted sign-in added", []string{"event_kind=trusted_sign_in_added", `trusted_sign_in_label="Trusted sign-in"`}},
+	} {
+		requireLogEntry(t, logged, entry.message, entry.fields...)
 	}
 	for _, secret := range []string{removedTrust, remainingTrust, "https://push.example/removed", "https://push.example/remaining"} {
 		if strings.Contains(logged, secret) {
@@ -260,7 +274,7 @@ func TestProtectedRevocationWaitsForPreCutoffPushAndPreventsANewSend(t *testing.
 	}
 }
 
-func TestDeliveryDiagnosticsReportQueueAndPushOutcomesWithoutPrivateData(t *testing.T) {
+func TestDeliveryDiagnosticsReportStatusFieldsWithoutPrivateData(t *testing.T) {
 	store, err := OpenStore(t.TempDir()+"/notifications.json", "mailto:operator@example.com")
 	if err != nil {
 		t.Fatal(err)
@@ -292,24 +306,82 @@ func TestDeliveryDiagnosticsReportQueueAndPushOutcomesWithoutPrivateData(t *test
 	}
 
 	got := logs.String()
-	for _, message := range []string{
-		"Notification candidate observed",
-		"Notification candidate enqueued",
-		"Notification candidate dropped",
-		"Push service accepted notification",
-		"Notification push failed",
-		"Push service reports subscription gone",
+	for _, entry := range []struct {
+		message string
+		fields  []string
+	}{
+		{"Notification candidate observed", []string{"event_kind=status", `workspace_name="Workspace w1"`, "herdr_status=blocked"}},
+		{"Notification candidate enqueued", []string{"event_kind=status", `workspace_name="Workspace w1"`, "herdr_status=blocked"}},
+		{"Notification candidate dropped", []string{"event_kind=status", `workspace_name="Workspace w1"`, "herdr_status=done"}},
+		{"Push service accepted notification", []string{"event_kind=status", `workspace_name="Private workspace"`, "herdr_status=blocked"}},
+		{"Notification push failed", []string{"event_kind=status", `workspace_name="Private workspace"`, "herdr_status=blocked"}},
+		{"Push service reports subscription gone", []string{"event_kind=status", `workspace_name="Private workspace"`, "herdr_status=blocked"}},
 	} {
-		if !strings.Contains(got, message) {
-			t.Errorf("diagnostics omitted %q: %s", message, got)
-		}
+		requireLogEntry(t, got, entry.message, entry.fields...)
 	}
 	for _, private := range []string{
-		"Workspace w1", "Private workspace", "w1:p1", "term-1", "private-pane", "private-terminal",
+		"w1:p1", "term-1", "private-pane", "private-terminal",
 		"private-destination", subscription.Endpoint, subscription.Keys.Auth, subscription.Keys.P256dh,
 	} {
 		if strings.Contains(got, private) {
 			t.Errorf("diagnostics exposed private value %q: %s", private, got)
 		}
 	}
+}
+
+func TestDeliveryDiagnosticsReportWorkspaceFieldsAndEmptyBurstName(t *testing.T) {
+	store, err := OpenStore(t.TempDir()+"/notifications.json", "mailto:operator@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logs strings.Builder
+	manager := NewManager(store, slog.New(slog.NewTextHandler(&logs, nil)))
+	base := herdr.WorkspaceInfo{WorkspaceID: "secret-base", Label: "Base"}
+	temporary := herdr.WorkspaceInfo{WorkspaceID: "secret-temporary", Label: "Temporary <script>"}
+	one := herdr.WorkspaceInfo{WorkspaceID: "secret-one", Label: "One"}
+	two := herdr.WorkspaceInfo{WorkspaceID: "secret-two", Label: "Two"}
+
+	manager.ObserveSnapshot(herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{base}}, true)
+	manager.ObserveSnapshot(herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{base, temporary}}, false)
+	manager.ObserveSnapshot(herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{base}}, false)
+	manager.ObserveSnapshot(herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{base, one, two}}, false)
+
+	got := logs.String()
+	for _, entry := range []struct {
+		message string
+		fields  []string
+	}{
+		{"Notification candidate observed", []string{"event_kind=workspace_opened", `workspace_name="Temporary <script>"`}},
+		{"Notification candidate enqueued", []string{"event_kind=workspace_opened", `workspace_name="Temporary <script>"`}},
+		{"Notification candidate observed", []string{"event_kind=workspace_closed", `workspace_name="Temporary <script>"`}},
+		{"Notification candidate enqueued", []string{"event_kind=workspace_closed", `workspace_name="Temporary <script>"`}},
+		{"Notification candidate observed", []string{"event_kind=workspace_opened", `workspace_name=""`}},
+	} {
+		requireLogEntry(t, got, entry.message, entry.fields...)
+	}
+	for _, secret := range []string{"secret-base", "secret-temporary", "secret-one", "secret-two"} {
+		if strings.Contains(got, secret) {
+			t.Errorf("workspace diagnostics exposed identifier %q: %s", secret, got)
+		}
+	}
+}
+
+func requireLogEntry(t *testing.T, logs, message string, fields ...string) {
+	t.Helper()
+	for _, line := range strings.Split(logs, "\n") {
+		if !strings.Contains(line, `msg="`+message+`"`) {
+			continue
+		}
+		matched := true
+		for _, field := range fields {
+			if !strings.Contains(line, field) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return
+		}
+	}
+	t.Errorf("diagnostics omitted message %q with fields %v: %s", message, fields, logs)
 }
