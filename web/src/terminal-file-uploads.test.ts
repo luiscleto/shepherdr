@@ -6,7 +6,7 @@ import { Window } from "happy-dom";
 
 import { readerActionAvailability, type ReaderInputState } from "./terminal/reader-availability";
 import { sendTerminalFiles, uploadStateAfterLastFileRemoved } from "./terminal/file-uploads";
-import { ReaderView } from "./terminal/reader-view";
+import { ReaderView, readerMessageAction } from "./terminal/reader-view";
 
 class TestIntersectionObserver {
   readonly root = null;
@@ -70,16 +70,42 @@ async function chooseFiles(browser: Window, input: HTMLInputElement, files: File
   await settleFilePreparation();
 }
 
-test("mobile attachments use a contained horizontal strip and the Reader action says Message", () => {
-  const styles = readFileSync(new URL("./terminal-reader.css", import.meta.url), "utf8");
-  assert.match(styles, /\.reader-file-list\s*\{[^}]*display:\s*flex;[^}]*max-width:\s*100%;[^}]*overflow-x:\s*auto;[^}]*overscroll-behavior-x:\s*contain;/s);
-  assert.match(styles, /\.reader-file-chip\s*\{[^}]*position:\s*relative;[^}]*flex:\s*0 0 min\([^;]+;[^}]*grid-template-columns:\s*auto minmax\(0, 1fr\);[^}]*overflow:\s*hidden;/s);
-  assert.match(styles, /\.reader-file-remove\s*\{[^}]*position:\s*absolute;[^}]*right:\s*0;[^}]*min-width:\s*44px;[^}]*min-height:\s*44px;/s);
+function cssRule(source: string, selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`${escaped}\\s*\\{([^}]*)\\}`).exec(source)?.[1] ?? "";
+}
 
-  const terminalPage = readFileSync(new URL("./terminal-page.ts", import.meta.url), "utf8");
-  assert.match(terminalPage, /const message = action\("Message",[^;]+;/);
-  assert.match(terminalPage, /message\.setAttribute\("aria-label", "Message"\);\s*message\.title = "Message";/);
-  assert.doesNotMatch(terminalPage, /action\("Write text"/);
+test("mobile attachments use a contained horizontal strip and the Reader action says Message", (t) => {
+  const styles = readFileSync(new URL("./terminal-reader.css", import.meta.url), "utf8");
+  const list = cssRule(styles, ".reader-file-list");
+  assert.match(list, /display:\s*flex/);
+  assert.match(list, /max-width:\s*100%/);
+  assert.match(list, /overflow-x:\s*auto/);
+  assert.match(list, /overscroll-behavior-x:\s*contain/);
+  const chip = cssRule(styles, ".reader-file-chip");
+  assert.match(chip, /position:\s*relative/);
+  assert.match(chip, /flex:\s*0 0 min\(/);
+  assert.match(chip, /grid-template-columns:\s*auto minmax\(0, 1fr\)/);
+  assert.match(chip, /overflow:\s*hidden/);
+  const remove = cssRule(styles, ".reader-file-remove");
+  assert.match(remove, /position:\s*absolute/);
+  assert.match(remove, /right:\s*0/);
+  assert.match(remove, /min-width:\s*44px/);
+  assert.match(remove, /min-height:\s*44px/);
+  const removeFocus = cssRule(styles, ".reader-file-remove:focus-visible");
+  assert.match(removeFocus, /outline:\s*0/);
+  assert.match(removeFocus, /box-shadow:\s*inset\s+0\s+0\s+0\s+3px/);
+  assert.match(removeFocus, /#b85c32/i);
+
+  const { browser } = withFileBrowser(t);
+  let opened = false;
+  const message = readerMessageAction(() => opened = true);
+  assert.equal(message.textContent, "Message");
+  assert.equal(message.getAttribute("aria-label"), "Message");
+  assert.equal(message.title, "Message");
+  assert.equal(message.className, "terminal-write-text");
+  message.dispatchEvent(new browser.Event("click", { bubbles: true }));
+  assert.equal(opened, true);
 });
 
 test("recognized-agent file controls keep drafts, removable chips, and scoped thumbnails", async (t) => {

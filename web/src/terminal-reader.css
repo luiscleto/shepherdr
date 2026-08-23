@@ -187,6 +187,11 @@
   color: var(--accent);
 }
 
+.reader-file-remove:focus-visible {
+  outline: 0;
+  box-shadow: inset 0 0 0 3px #b85c32;
+}
+
 .reader-composer textarea {
   box-sizing: border-box;
   width: 100%;

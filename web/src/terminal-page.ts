@@ -6,7 +6,7 @@ import { sendTerminalFiles, uploadStateAfterLastFileRemoved } from "./terminal/f
 import { nextTerminalOwnership, terminalOwnershipAction, type TerminalOwnership } from "./terminal/ownership";
 import { readerActionAvailability, type ReaderInputState } from "./terminal/reader-availability";
 import { ReaderInputQueue } from "./terminal/reader-input";
-import { ReaderView } from "./terminal/reader-view";
+import { ReaderView, readerMessageAction } from "./terminal/reader-view";
 import { TerminalSession } from "./terminal/session";
 import { XTermAdapter } from "./terminal/xterm-adapter";
 
@@ -195,10 +195,7 @@ export class TerminalPage {
   #readerControls(reader: ReaderView, input: ReaderInputQueue): HTMLElement {
     const controls = element("nav", "terminal-command-bar");
     controls.setAttribute("aria-label", "Terminal commands");
-    const message = action("Message", () => reader.showComposer(), "terminal-write-text");
-    message.setAttribute("aria-label", "Message");
-    message.title = "Message";
-    this.#commandButtons.push(message);
+    this.#commandButtons.push(readerMessageAction(() => reader.showComposer()));
     const keys: Array<[string, string, string]> = [
       ["escape", "Esc", "Escape"],
       ["enter", "Enter", "Enter"],

@@ -34,6 +34,16 @@ export function pauseReaderLiveRefresh(atLatest: boolean, hasSelection: boolean)
   return !atLatest || hasSelection;
 }
 
+export function readerMessageAction(run: () => void): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "terminal-write-text";
+  button.textContent = "Message";
+  setControlLabel(button, "Message");
+  button.addEventListener("click", run);
+  return button;
+}
+
 export class ReaderView {
   #addFiles: HTMLButtonElement;
   #abort: AbortController | undefined;
