@@ -2,7 +2,7 @@ import { terminalKeySequences, terminalSubmission } from "./terminal-input";
 import { settingsAction } from "./settings-action";
 import type { TerminalDimensions } from "./terminal/adapter";
 import { terminalReaderForDevice } from "./terminal/device";
-import { sendTerminalFiles } from "./terminal/file-uploads";
+import { sendTerminalFiles, uploadStateAfterLastFileRemoved } from "./terminal/file-uploads";
 import { nextTerminalOwnership, terminalOwnershipAction, type TerminalOwnership } from "./terminal/ownership";
 import { readerActionAvailability, type ReaderInputState } from "./terminal/reader-availability";
 import { ReaderInputQueue } from "./terminal/reader-input";
@@ -140,6 +140,14 @@ export class TerminalPage {
       onNewOutput: (available) => {
         this.#newOutput = available;
         this.#renderStatus();
+      },
+      onPendingFilesEmpty: () => {
+        const nextState = uploadStateAfterLastFileRemoved(this.#uploadState);
+        if (nextState === this.#uploadState) return;
+        this.#uploadState = nextState;
+        this.#reader?.clearInputRecovery();
+        this.#syncReaderActions();
+        this.#renderReaderStatus();
       },
       onStatus: (message) => this.#setStatus(message),
       onSubmit: (text, files) => {

@@ -3,8 +3,8 @@ import test from "node:test";
 
 import { Window } from "happy-dom";
 
-import { readerActionAvailability } from "./terminal/reader-availability";
-import { sendTerminalFiles } from "./terminal/file-uploads";
+import { readerActionAvailability, type ReaderInputState } from "./terminal/reader-availability";
+import { sendTerminalFiles, uploadStateAfterLastFileRemoved } from "./terminal/file-uploads";
 import { ReaderView } from "./terminal/reader-view";
 
 class TestIntersectionObserver {
@@ -122,6 +122,57 @@ test("recognized-agent file controls keep drafts, removable chips, and scoped th
   chooseFiles(browser, input, [image]);
   reader.destroy();
   assert.deepEqual(revoked, ["blob:http://localhost/preview-1", "blob:http://localhost/preview-2"]);
+});
+
+test("removing the last recovery file restores text, shortcuts, and file selection", (t) => {
+  const { browser, host } = withFileBrowser(t);
+  for (const stable of ["ready", "requesting", "forwarding"] as const) {
+    assert.equal(uploadStateAfterLastFileRemoved(stable), stable, `${stable} is not file recovery`);
+  }
+  for (const recovery of ["failed", "occupied", "uncertain"] as const) {
+    let uploadState: ReaderInputState = recovery;
+    let reader: ReaderView;
+    reader = new ReaderView(host, {
+      onLog: () => undefined,
+      onPendingFilesEmpty: () => {
+        const nextState = uploadStateAfterLastFileRemoved(uploadState);
+        if (nextState === uploadState) return;
+        uploadState = nextState;
+        reader.clearInputRecovery();
+        reader.setActionAvailability(readerActionAvailability(true, uploadState));
+        reader.setFileSelectionAvailable(uploadState === "ready");
+      },
+      onStatus: () => undefined,
+      onSubmit: () => true,
+    }, { collapsibleComposer: true, endpoint: "/api/terminal/read" });
+    reader.setActionAvailability(readerActionAvailability(true, "ready"));
+    reader.setFileSelectionAvailable(true);
+    reader.showComposer();
+    const textarea = host.querySelector("textarea") as HTMLTextAreaElement;
+    textarea.value = `keep ${recovery} text`;
+    textarea.dispatchEvent(new browser.Event("input", { bubbles: true }));
+    const fileInput = host.querySelector('input[type="file"]') as HTMLInputElement;
+    chooseFiles(browser, fileInput, [new browser.File(["file"], `${recovery}.txt`) as unknown as File]);
+    reader.filesSending();
+    if (recovery === "failed") reader.inputFailed("Files were not sent.", () => undefined);
+    else if (recovery === "occupied") reader.inputOccupied("Controlled elsewhere.", () => undefined);
+    else reader.inputUncertain("Delivery uncertain.", () => undefined);
+    reader.setActionAvailability(readerActionAvailability(true, recovery));
+    reader.setFileSelectionAvailable(false);
+
+    const remove = host.querySelector(`button[aria-label="Remove ${recovery}.txt"]`) as HTMLButtonElement;
+    remove.click();
+    assert.equal(uploadState, "ready");
+    assert.equal(textarea.value, `keep ${recovery} text`, `${recovery} removal must preserve typed text`);
+    assert.equal((host.querySelector(".reader-send-feedback") as HTMLDivElement).hidden, true);
+    const add = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Add files") as HTMLButtonElement;
+    assert.equal(add.hidden, false);
+    assert.equal(add.disabled, false);
+    const sendText = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Send text") as HTMLButtonElement;
+    assert.equal(sendText.disabled, false);
+    assert.equal(readerActionAvailability(true, uploadState).send, true, `${recovery} removal must restore shortcut sending`);
+    reader.destroy();
+  }
 });
 
 test("file-only and combined sends use base64 JSON and only deliberate takeover retries", async (t) => {

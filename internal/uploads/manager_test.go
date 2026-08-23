@@ -256,9 +256,14 @@ func TestPartialStageFailureRemovesEarlierRequestFiles(t *testing.T) {
 
 func TestUnsafeUnicodeIsRemovedFromNamesAndRejectedFromTerminalPaths(t *testing.T) {
 	for name, character := range map[string]string{
-		"format":              "\u202e",
+		"bidi mark":           "\u200e",
+		"bidi override":       "\u202e",
+		"bidi isolate":        "\u2066",
+		"byte order mark":     "\ufeff",
 		"line separator":      "\u2028",
 		"paragraph separator": "\u2029",
+		"word joiner":         "\u2060",
+		"zero width space":    "\u200b",
 	} {
 		if got := safeBasename("left" + character + "right.txt"); got != "leftright.txt" {
 			t.Errorf("%s filename = %q", name, got)
@@ -269,6 +274,17 @@ func TestUnsafeUnicodeIsRemovedFromNamesAndRejectedFromTerminalPaths(t *testing.
 	}
 	if got := safeBasename("résumé_日本語.txt"); got != "résumé_日本語.txt" {
 		t.Fatalf("ordinary Unicode filename = %q", got)
+	}
+	for name, filename := range map[string]string{
+		"zero width joiner":     "क्\u200dष.txt",
+		"zero width non-joiner": "می\u200cخواهم.txt",
+	} {
+		if got := safeBasename(filename); got != filename {
+			t.Errorf("%s filename = %q, want %q", name, got, filename)
+		}
+		if err := ValidatePathText(filepath.Join("/tmp", filename)); err != nil {
+			t.Errorf("%s terminal path was rejected: %v", name, err)
+		}
 	}
 }
 

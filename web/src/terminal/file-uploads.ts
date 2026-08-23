@@ -1,3 +1,5 @@
+import type { ReaderInputState } from "./reader-availability";
+
 export interface TerminalFileTarget {
   paneID: string;
   terminalID: string;
@@ -14,6 +16,10 @@ export interface TerminalFileOutcome {
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 const results = new Set<TerminalFileResult>(["forwarded", "not_sent", "occupied", "unknown"]);
+
+export function uploadStateAfterLastFileRemoved(state: ReaderInputState): ReaderInputState {
+  return state === "failed" || state === "occupied" || state === "uncertain" ? "ready" : state;
+}
 
 export async function sendTerminalFiles(
   target: TerminalFileTarget,

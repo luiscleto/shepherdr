@@ -426,7 +426,13 @@ func closeOwnedDirectory(directory *ownedDirectory) {
 }
 
 func unsafePathRune(character rune) bool {
-	return unicode.IsControl(character) || unicode.Is(unicode.Cf, character) || character == '\u2028' || character == '\u2029'
+	if unicode.IsControl(character) || character == '\u2028' || character == '\u2029' {
+		return true
+	}
+	if character == '\u200c' || character == '\u200d' {
+		return false
+	}
+	return unicode.Is(unicode.Cf, character)
 }
 
 func ValidatePathText(value string) error {

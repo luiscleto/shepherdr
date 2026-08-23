@@ -11,6 +11,7 @@ interface ReaderSnapshot extends TerminalDimensions {
 interface ReaderEvents {
   onLog(event: string, detail?: unknown): void;
   onNewOutput?(available: boolean): void;
+  onPendingFilesEmpty?(): void;
   onStatus(message: string): void;
   onSubmit(text: string, files: readonly File[]): boolean;
 }
@@ -367,6 +368,12 @@ export class ReaderView {
     }, undefined);
   }
 
+  clearInputRecovery(): void {
+    this.#sendFeedback.hidden = true;
+    this.#retryAction = undefined;
+    this.#takeoverAction = undefined;
+  }
+
   connectionReset(): void {
     this.pauseLiveRefresh();
     this.#generation = undefined;
@@ -435,6 +442,7 @@ export class ReaderView {
     const [removed] = this.#pendingFiles.splice(index, 1);
     this.#revokePreview(removed?.preview);
     this.#renderPendingFiles();
+    if (this.#pendingFiles.length === 0) this.#events.onPendingFilesEmpty?.();
   }
 
   #revokePreview(preview?: string): void {
