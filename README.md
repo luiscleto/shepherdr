@@ -71,7 +71,7 @@ User uploaded files:
 
 These are filesystem paths for the agent to open. They are not provider-native attachments, and Terminal acknowledgement does not prove that an agent, provider, or model read a file. Shepherdr and the Herdr agents must run as the same operating-system account. Workspace directories are owner-only `0700`; markers and uploaded files are `0600`.
 
-Two start flags configure this feature:
+These examples show the available upload settings:
 
 ```sh
 ./bin/shepherdr -upload-parent /absolute/staging/parent
@@ -168,7 +168,7 @@ Do not use `tailscale funnel`. Funnel makes the service public.
 - Close a workspace after showing the additional linked workspaces and nonzero agent counts that will also be affected.
 - Delete a clean linked-worktree checkout without force and without deleting its branch. Herdr refuses a checkout that has changes.
 - Open any current real Herdr terminal, whether or not it has an agent.
-- From a phone, send one text or shortcut batch, or send arbitrary files to a recognized agent as local filesystem paths, and release control after Terminal forwarding is acknowledged. See [Terminal direction](docs/terminal-direction.md).
+- From a phone, send one text or shortcut batch, or, when a recognized agent is present, stage selected files locally and send their local filesystem paths in one batch. Terminal control is released after forwarding is acknowledged. See [Terminal direction](docs/terminal-direction.md).
 - Keep the last complete Home after a connection drops. Terminals are not openable until Shepherdr reconnects.
 - Send per-browser notifications that name the relevant Herdr workspace for selected status transitions and workspace openings or closings.
 - Open the exact current terminal from a status notification, or show **Terminal unavailable** when that exact terminal is gone.

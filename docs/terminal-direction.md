@@ -1,6 +1,6 @@
 # Shepherdr terminal direction
 
-Status: approved current behavior; base Terminal integrated at `03d64421fe3c02d2d9203d3823d214a525619fcc`; Wave 05 file sending awaits independent review and the human phone gate
+Status: approved current behavior; base Terminal integrated at `03d64421fe3c02d2d9203d3823d214a525619fcc`; Wave 05 file sending has completed technical review and awaits the human phone gate
 
 This document records the human's direct terminal R&D decisions. It supersedes older terminal architecture and interface claims, including `wave-01-human-gate-correction.md`. The Home and workspace-management direction remains unchanged.
 
@@ -18,7 +18,7 @@ While the exact current terminal has a Herdr-recognized agent, the phone compose
 
 On send, Shepherdr stages opaque bytes in the exact workspace's owner-only local directory and prefixes the Terminal text with **User uploaded files:** plus one absolute path per line. Duplicate basenames use ` (1)`, ` (2)`, and so on before the extension. The path list is terminal input, not an attachment envelope. Acknowledgement means the input was forwarded; it does not prove that an agent, provider, or model opened or read a file.
 
-File send uses the same ordinary or confirmed-takeover control and release semantics as phone text. The server rechecks the exact workspace, tab, pane, terminal, and recognized-agent observation after taking the workspace gate and again immediately before forwarding. Herdr 0.8.0 cannot atomically bind that observation to the later terminal write, so the recognized agent can still exit in the final interval. A definite pre-forward failure best-effort removes that request's files. A post-forward unknown result retains them and requires a deliberate new send; there is no automatic retry.
+File send uses the same ordinary or confirmed-takeover control and release semantics as phone text. If the exact target or recognized agent is gone before Terminal input is handed off, Shepherdr sends nothing and best-effort removes that request's files. If handing off cannot be confirmed, Shepherdr preserves the files and requires a deliberate new send; there is no automatic retry.
 
 On a desktop, Terminal uses the full terminal renderer. It observes first and can keep control for interactive use until the person chooses **Release**. Takeover remains confirmed, and release leaves observation running.
 
@@ -28,7 +28,7 @@ Connection and input messages describe the terminal connection, not the agent's 
 
 Shepherdr uses Herdr 0.8.0's existing snapshot, terminal read, observe, control, input acknowledgement, release, and takeover capabilities. Herdr remains authoritative for the terminal process, output, and control.
 
-The server rechecks the exact pane and terminal identity for reads and sessions. Observation and control use separate Herdr child processes. Each stream starts with a full frame and accepts later frames only in order; a replacement starts a new sequence. Closing or replacing a browser session cancels and collects the exact child it started. The file route shares the same guarded Terminal batch writer, acknowledgement boundary, release, conflict, takeover, cancellation, and unknown-result classification rather than adding another control state machine.
+The server rechecks the exact pane and terminal identity for reads and sessions. Observation and control use separate Herdr child processes. Each stream starts with a full frame and accepts later frames only in order; a replacement starts a new sequence. Closing or replacing a browser session cancels and collects the exact child it started. The file route shares the same guarded Terminal batch writer, acknowledgement boundary, release, conflict, takeover, cancellation, and unknown-result classification rather than adding another control state machine. After acquiring the per-workspace gate, it rechecks the exact workspace, tab, pane, terminal, and recognized agent immediately before the terminal write. Herdr 0.8.0 cannot bind that observation atomically to the write, so the recognized agent can still exit in the final interval.
 
 One stable gate per exact workspace ID coordinates only upload/send and workspace-deletion cleanup. Files remain through agent exit, replacement, reconnect, and Shepherdr restart. After a complete published Herdr state observes the workspace missing, one best-effort cleanup waits for any send and removes only the exact directory whose durable association and marker match. Startup reconciles recorded associations against its first complete workspace set. There are no timers, cleanup workers, scans, quotas, file-count limits, per-file limits, or agent-lifecycle records.
 
@@ -44,7 +44,7 @@ Status: **PASS**
 
 The human gate confirmed mobile rendering, sending, native selection, scrolling and loading older output, continued live output, and shortcut commands.
 
-Wave 05 file-send status: **PENDING HUMAN GATE**. Automated capped browser tests, focused Go tests, production asset embedding, and a bounded real-Herdr preflight support the worker result but do not establish phone picker sources, real staged-byte/path behavior, takeover, target loss, cleanup, restart, or protected/`-no-sign-in` acceptance on a real phone.
+Wave 05 file-send status: **PENDING HUMAN GATE**. Automated capped browser tests, focused Go tests, production asset embedding, and a bounded real-Herdr preflight provide technical evidence but do not establish phone picker sources, real staged-byte/path behavior, takeover, target loss, cleanup, restart, or protected/`-no-sign-in` acceptance on a real phone.
 
 ## Ongoing acceptance guidance
 

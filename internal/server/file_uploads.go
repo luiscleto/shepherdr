@@ -124,7 +124,7 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 		message = "The input was handed to the connection, but forwarding could not be confirmed. Check the terminal before sending it again."
 	case uploads.NotSent:
 		status = http.StatusConflict
-		message = "Files were not sent. Check that this terminal still has an agent, then try again."
+		message = "Files were not sent. Try again."
 	}
 	if sendErr != nil {
 		s.terminal.logger.Error("terminal file send stopped", "workspace", initial.workspace, "result", result, "error", sendErr)
@@ -137,7 +137,7 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 	}
 }
 
-var errUploadTooLarge = errors.New("files were not sent because this upload is larger than the configured limit")
+var errUploadTooLarge = errors.New("The selected files exceed the send limit. Remove files or choose smaller ones.")
 
 func readTerminalFileRequest(request *http.Request, limit uploads.Limit) (terminalFileRequest, []uploads.File, error) {
 	var body []byte

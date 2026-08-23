@@ -4,7 +4,7 @@ Status: proposed
 
 Scope: the current product
 
-The current runnable product includes Home, Terminal with local file sending, workspace management, and per-browser notifications. The earlier four product areas have passed their acceptance gates; the Terminal file-send addition still requires its Wave 05 real-phone gate. Sign-in and device trust have approved architecture but are not implemented.
+The current runnable product includes Home, Terminal with local file sending, workspace management, and per-browser notifications. Terminal file sending is implemented and still awaits its real-phone acceptance check. Sign-in and device trust have approved architecture but are not implemented.
 
 ## The promise
 
