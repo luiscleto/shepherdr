@@ -270,9 +270,16 @@ test("Devices is reached inside Settings only when sign-in is protected", async 
   assert.equal(buttonWithText(root, "Notifications").getAttribute("aria-expanded"), "false");
   assert.equal(buttonWithText(root, "Devices").getAttribute("aria-expanded"), "false");
   assert.equal(root.textContent?.includes("Trusted sign-in controls"), false);
+  buttonWithText(root, "Notifications").click();
+  const scrolledPanel = root.querySelector<HTMLElement>(".notification-panel");
+  if (scrolledPanel) scrolledPanel.scrollTop = 240;
   buttonWithText(root, "Devices").click();
   assert.equal(opened, 1);
+  assert.equal(buttonWithText(root, "Notifications").getAttribute("aria-expanded"), "true");
   assert.equal(buttonWithText(root, "Devices").getAttribute("aria-expanded"), "true");
+  assert.equal(root.querySelector<HTMLElement>(".notification-panel")?.scrollTop, 240);
+  assert.equal(window.document.activeElement?.getAttribute("data-settings-section"), "devices");
+  assert.equal(window.document.activeElement?.getAttribute("aria-expanded"), "true");
   assert.equal(root.textContent?.includes("Trusted sign-in controls"), true);
   assert.equal(root.querySelector(".notification-panel") !== null, true);
   assert.equal(root.querySelector(".access-layer") === null, true);

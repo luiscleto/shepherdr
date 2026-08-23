@@ -395,6 +395,7 @@ export class NotificationsController {
 
   #renderSettings(message?: string): void {
     if (!this.#dialogOpen) return;
+    const scrollTop = this.#root.querySelector<HTMLElement>(".notification-panel")?.scrollTop ?? 0;
     const layer = element(this.#document, "div", "notification-layer");
     const panel = element(this.#document, "section", "notification-panel");
     panel.setAttribute("role", "dialog");
@@ -522,6 +523,7 @@ export class NotificationsController {
       if (event.key === "Escape") this.#closeSettings();
     });
     this.#root.replaceChildren(layer);
+    panel.scrollTop = scrollTop;
     if (devicesHost) this.#openDevices?.(devicesHost, () => this.#closeSettings());
     const sectionToFocus = this.#focusSection;
     this.#focusSection = undefined;
