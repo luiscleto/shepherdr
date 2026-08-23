@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { Window } from "happy-dom";
 
-import { AccessController, hasInvitationFragment, invitationToken } from "./access.ts";
+import { AccessController, hasInvitationFragment, invitationToken, suggestedDeviceLabel } from "./access.ts";
 import { HomeView } from "./home-view.ts";
 
 const validInvitation = "A".repeat(43);
@@ -50,9 +50,11 @@ test("sign-in, trust labeling, and unusable invitations use the approved small s
   assert.equal(host.querySelector("h1")?.textContent, "Trust this device");
   assert.equal(host.querySelector("input")?.getAttribute("maxlength"), "160");
   assert.equal(host.querySelector("input")?.hasAttribute("required"), true);
-  assert.equal(host.querySelector<HTMLInputElement>("input")?.value, "");
-  assert.equal(host.querySelector(".access-field > span")?.textContent, "Short label");
-  assert.equal(host.querySelector(".access-field-help")?.textContent, "Use a name you will recognize in Devices. Not an account.");
+  assert.equal(host.querySelector<HTMLInputElement>("input")?.value, suggestedDeviceLabel(window.navigator));
+  assert.equal(host.querySelector(".access-field > span")?.textContent, "Give this device a name");
+  assert.equal(host.querySelector(".access-field-help") === null, true);
+  assert.equal(suggestedDeviceLabel({ platform: "Win32" }), "Windows device");
+  assert.equal(suggestedDeviceLabel({ userAgentData: { platform: "Android" } }), "Android device");
 
   controller.renderTrust(host, "");
   assert.equal(
@@ -83,7 +85,11 @@ test("Trust keeps local passkey cancellation retryable but removes a server-reje
     };
     Object.defineProperty(globalThis, "navigator", {
       configurable: true,
-      value: { credentials: { create: async () => { throw new Error("canceled"); } } },
+      value: {
+        credentials: {
+          create: async () => { throw new window.DOMException("timed out", "NotAllowedError"); },
+        },
+      },
     });
     try {
       controller.renderTrust(host, validInvitation);
@@ -102,8 +108,44 @@ test("Trust keeps local passkey cancellation retryable but removes a server-reje
     }
     assert.equal(requests, 1);
     assert.equal(host.querySelector(".access-feedback")?.textContent, "Passkey not created. Try again.");
+    assert.equal(host.textContent?.includes("timed out"), false);
     assert.equal(host.querySelectorAll("input").length, 1);
     assert.equal(Array.from(host.querySelectorAll("button")).some((button) => button.textContent === "Trust this device"), true);
+  });
+
+  await t.test("existing credential", async () => {
+    const window = new Window();
+    const host = window.document.createElement("main");
+    window.document.body.append(host);
+    const controller = new AccessController(host, accessActions());
+    const originalFetch = globalThis.fetch;
+    const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    globalThis.fetch = async () => jsonResponse({ publicKey: { challenge: "", user: { id: "" } } });
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: {
+        credentials: {
+          create: async () => { throw new window.DOMException("credential exists", "InvalidStateError"); },
+        },
+      },
+    });
+    try {
+      controller.renderTrust(host, validInvitation);
+      buttonWithText(host, "Trust this device").click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalNavigator) {
+        Object.defineProperty(globalThis, "navigator", originalNavigator);
+      } else {
+        Reflect.deleteProperty(globalThis, "navigator");
+      }
+    }
+    assert.equal(
+      host.querySelector(".access-feedback")?.textContent,
+      "Remove this device’s old Shepherdr passkey, then try again.",
+    );
+    assert.equal(host.textContent?.includes("credential exists"), false);
   });
 
   await t.test("server invitation rejection", async () => {
@@ -147,6 +189,8 @@ test("Trust requires a human label before beginning the passkey ceremony", async
   };
   try {
     controller.renderTrust(host, validInvitation);
+    const label = host.querySelector<HTMLInputElement>('input[name="device-label"]');
+    if (label) label.value = "";
     buttonWithText(host, "Trust this device").click();
     await new Promise((resolve) => setTimeout(resolve, 0));
   } finally {
@@ -176,12 +220,11 @@ test("Devices confines hostile labels and omits Revoke for the final trusted sig
     }],
   });
   try {
-    await controller.openDevices();
+    await controller.openDevices(root, () => root.replaceChildren());
   } finally {
     globalThis.fetch = originalFetch;
   }
 
-  assert.equal(root.querySelector("h2")?.textContent, "Devices");
   assert.equal(root.querySelector(".device-row strong")?.textContent, "Phone <img src=x onerror=alert(1)>");
   assert.equal(root.querySelectorAll("img").length, 0);
   assert.equal(Array.from(root.querySelectorAll("button")).some((button) => button.textContent === "Revoke"), false);
@@ -217,7 +260,7 @@ test("Devices offers Revoke only when another trusted sign-in remains", async ()
     })),
   });
   try {
-    await controller.openDevices();
+    await controller.openDevices(root, () => root.replaceChildren());
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -259,7 +302,7 @@ test("browser invitations render a square image QR", async () => {
       }],
     });
   try {
-    await controller.openDevices();
+    await controller.openDevices(root, () => root.replaceChildren());
     buttonWithText(root, "Trust another device").click();
     await new Promise((resolve) => setTimeout(resolve, 0));
   } finally {
@@ -306,7 +349,7 @@ test("Sign out stays truthful on failure and closes only after confirmation", as
         });
       };
       try {
-        await controller.openDevices();
+        await controller.openDevices(root, () => root.replaceChildren());
         const signOut = Array.from(root.querySelectorAll("button")).find((button) => button.textContent === "Sign out");
         signOut?.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -315,7 +358,6 @@ test("Sign out stays truthful on failure and closes only after confirmation", as
       }
       assert.equal(postAttempted, true);
       assert.equal(signedOut, 0);
-      assert.equal(root.querySelector("h2")?.textContent, "Devices");
       assert.equal(root.querySelector(".access-feedback")?.textContent, "Could not sign out. Try again.");
       assert.equal(Array.from(root.querySelectorAll("button")).some((button) => button.textContent === "Sign out"), true);
     });
@@ -347,7 +389,7 @@ test("Sign out stays truthful on failure and closes only after confirmation", as
         }],
       });
     try {
-      await controller.openDevices();
+      await controller.openDevices(root, () => root.replaceChildren());
       const signOut = Array.from(root.querySelectorAll("button")).find((button) => button.textContent === "Sign out");
       signOut?.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -405,12 +447,12 @@ test("Home keeps one Settings action and no separate Devices header action", () 
   view.render({ ...model, signInOff: true });
   assert.equal(app.querySelector(".quiet")?.textContent, "Sign-in is off.");
   assert.equal((app.querySelector(".quiet") as HTMLElement | null)?.hidden, false);
-  assert.equal(app.querySelector(".home-devices"), null);
+  assert.equal(app.querySelector(".home-devices") === null, true);
   assert.equal(app.querySelectorAll(".settings-action").length, 1);
 
   view.render({ ...model, signInOff: false });
   assert.equal((app.querySelector(".quiet") as HTMLElement | null)?.hidden, true);
-  assert.equal(app.querySelector(".home-devices"), null);
+  assert.equal(app.querySelector(".home-devices") === null, true);
   assert.equal(app.querySelectorAll(".settings-action").length, 1);
 });
 

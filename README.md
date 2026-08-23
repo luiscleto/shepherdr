@@ -26,7 +26,7 @@ On the first protected start, give Shepherdr its one lasting private HTTPS addre
 ./bin/shepherdr -public-origin https://shepherdr.example-private.net
 ```
 
-Use the exact address that browsers will open. Shepherdr saves it, prints a ten-minute setup link and terminal QR code, and will not reveal that bearer link again after a restart. Open the link on the computer or scan the QR code on a phone, enter a short label you will recognize, then choose **Trust this device** to create the first passkey. A new browser cannot trust itself without one of these invitations.
+Use the exact address that browsers will open. Shepherdr saves it, prints a ten-minute setup link and terminal QR code, and will not reveal that bearer link again after a restart. Open the link on the computer or scan the QR code on a phone, give this device a name, then choose **Trust this device** to create the first passkey. A new browser cannot trust itself without one of these invitations.
 
 Later protected starts reuse the saved address:
 

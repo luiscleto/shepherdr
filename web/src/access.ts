@@ -74,12 +74,35 @@ export function hasInvitationFragment(hash: string): boolean {
   return Array.from(new URLSearchParams(hash.slice(1)).keys()).some((key) => key === "trust");
 }
 
+interface NavigatorPlatformInformation {
+  platform?: string;
+  userAgent?: string;
+  userAgentData?: { platform?: string };
+}
+
+export function suggestedDeviceLabel(information?: NavigatorPlatformInformation): string {
+  const hint = `${information?.userAgentData?.platform ?? ""} ${information?.platform ?? ""} ${information?.userAgent ?? ""}`;
+  if (/Android/i.test(hint)) return "Android device";
+  if (/Windows|Win32|Win64/i.test(hint)) return "Windows device";
+  if (/iPad|iPhone|iPod|\biOS\b/i.test(hint)) return "iOS device";
+  if (/CrOS/i.test(hint)) return "ChromeOS device";
+  if (/Mac/i.test(hint)) return "Mac device";
+  if (/Linux/i.test(hint)) return "Linux device";
+  return "This device";
+}
+
 export class AccessController {
   readonly #actions: AccessActions;
   readonly #document: Document;
   readonly #root: HTMLElement;
   #busy = false;
-  #returnFocus: HTMLElement | undefined;
+  #closeDeviceSettings: (() => void) | undefined;
+  #deviceHost: HTMLElement | undefined;
+  #deviceLoadGeneration = 0;
+  #deviceLoading = false;
+  #deviceMessage: string | undefined;
+  #devices: DevicesResponse | undefined;
+  #invitation: InvitationResponse | undefined;
 
   constructor(root: HTMLElement, actions: AccessActions) {
     this.#root = root;
@@ -132,17 +155,13 @@ export class AccessController {
     const panel = this.#panel("Shepherdr", "Trust this device");
     panel.append(element(this.#document, "p", undefined, "Create a passkey to trust this browser."));
     const label = element(this.#document, "label", "access-field");
-    label.append(
-      element(this.#document, "span", undefined, "Short label"),
-      element(this.#document, "span", "access-field-help", "Use a name you will recognize in Devices. Not an account."),
-    );
+    label.append(element(this.#document, "span", undefined, "Give this device a name"));
     const input = element(this.#document, "input");
     input.name = "device-label";
     input.maxLength = 160;
     input.required = true;
     input.autocomplete = "off";
-    input.placeholder = "For example, personal phone";
-    input.value = currentLabel;
+    input.value = currentLabel || suggestedDeviceLabel(this.#document.defaultView?.navigator);
     label.append(input);
     const trust = action(this.#document, "Trust this device", () => void this.#trust(host, token, input.value), "access-primary");
     panel.append(label, trust);
@@ -150,29 +169,47 @@ export class AccessController {
     host.replaceChildren(panel);
   }
 
-  async openDevices(returnFocus?: HTMLElement): Promise<void> {
-    if (this.#busy) return;
-    const HTMLElementConstructor = this.#document.defaultView?.HTMLElement;
-    this.#returnFocus = returnFocus ?? (
-      HTMLElementConstructor && this.#document.activeElement instanceof HTMLElementConstructor
-        ? this.#document.activeElement
-        : undefined
-    );
-    this.#renderDevices(undefined, "Loading trusted sign-ins…");
+  async openDevices(host: HTMLElement, closeSettings: () => void): Promise<void> {
+    this.#deviceHost = host;
+    this.#closeDeviceSettings = closeSettings;
+    this.#renderDeviceSettings();
+    if (this.#devices || this.#deviceLoading) return;
+    const generation = this.#deviceLoadGeneration;
+    this.#deviceLoading = true;
+    this.#deviceMessage = "Loading trusted sign-ins…";
+    this.#renderDeviceSettings();
     try {
       const devices = await accessRequest<DevicesResponse>("/api/devices", "GET");
-      this.#renderDevices(devices);
+      if (generation !== this.#deviceLoadGeneration) return;
+      this.#devices = devices;
+      this.#deviceMessage = undefined;
+      this.#renderDeviceSettings();
     } catch (error) {
+      if (generation !== this.#deviceLoadGeneration) return;
       if (error instanceof AccessRequestError && error.status === 401) {
-        this.#closeDevices();
+        this.#closeDeviceSettings?.();
         this.#actions.onSignedOut();
         return;
       }
-      this.#renderDevices(undefined, "Could not load trusted sign-ins. Try again.");
+      this.#deviceMessage = "Could not load trusted sign-ins. Try again.";
+      this.#renderDeviceSettings();
+    } finally {
+      if (generation === this.#deviceLoadGeneration) this.#deviceLoading = false;
     }
   }
 
+  closeDevices(): void {
+    this.#deviceLoadGeneration++;
+    this.#deviceLoading = false;
+    this.#deviceMessage = undefined;
+    this.#devices = undefined;
+    this.#invitation = undefined;
+    this.#deviceHost = undefined;
+    this.#closeDeviceSettings = undefined;
+  }
+
   close(): void {
+    this.closeDevices();
     this.#root.replaceChildren();
   }
 
@@ -213,6 +250,11 @@ export class AccessController {
         this.renderTrust(host, "");
         return;
       }
+      const DOMExceptionConstructor = this.#document.defaultView?.DOMException;
+      if (DOMExceptionConstructor && error instanceof DOMExceptionConstructor && error.name === "InvalidStateError") {
+        this.renderTrust(host, token, "Remove this device’s old Shepherdr passkey, then try again.", label);
+        return;
+      }
       this.renderTrust(host, token, "Passkey not created. Try again.", label);
     }
   }
@@ -239,28 +281,22 @@ export class AccessController {
     }
   }
 
-  #renderDevices(devices?: DevicesResponse, message?: string): void {
-    const layer = element(this.#document, "div", "access-layer");
-    const panel = element(this.#document, "section", "access-devices-panel");
-    panel.setAttribute("role", "dialog");
-    panel.setAttribute("aria-modal", "true");
-    panel.setAttribute("aria-labelledby", "devices-title");
-    panel.tabIndex = -1;
-    const heading = element(this.#document, "h2", undefined, "Devices");
-    heading.id = "devices-title";
-    const close = action(this.#document, "Close", () => this.#closeDevices(), "access-close");
-    const header = element(this.#document, "header", "access-panel-header");
-    header.append(heading, close);
-    panel.append(
-      header,
-      element(
-        this.#document,
-        "p",
-        "access-scope",
-        "A passkey may sync. Its copies share one trusted sign-in here and are revoked together.",
-      ),
-    );
-    if (message) panel.append(element(this.#document, "p", "access-feedback", message));
+  #renderDeviceSettings(): void {
+    const host = this.#deviceHost;
+    if (!host) return;
+    if (this.#invitation) {
+      this.#renderInvitation(host, this.#invitation);
+      return;
+    }
+    const content = element(this.#document, "div", "access-devices");
+    content.append(element(
+      this.#document,
+      "p",
+      "access-scope",
+      "A passkey may sync. Its copies share one trusted sign-in here and are revoked together.",
+    ));
+    if (this.#deviceMessage) content.append(element(this.#document, "p", "access-feedback", this.#deviceMessage));
+    const devices = this.#devices;
     if (devices) {
       const list = element(this.#document, "ul", "device-list");
       for (const device of devices.devices) {
@@ -288,94 +324,89 @@ export class AccessController {
         action(this.#document, "Trust another device", () => void this.#createInvitation(devices), "access-primary"),
         action(this.#document, "Sign out", () => void this.#signOut(devices)),
       );
-      panel.append(list);
+      content.append(list);
       if (!devices.can_revoke) {
-        panel.append(element(
+        content.append(element(
           this.#document,
           "p",
           "access-scope",
           "This is the last trusted sign-in. To clear all access, stop Shepherdr and reset it on the machine.",
         ));
       }
-      panel.append(actions);
+      content.append(actions);
     }
-    layer.append(panel);
-    this.#root.replaceChildren(layer);
-    panel.focus();
+    host.replaceChildren(content);
   }
 
   async #createInvitation(devices: DevicesResponse): Promise<void> {
     if (this.#busy) return;
     this.#busy = true;
-    this.#renderDevices(devices, "Waiting for your passkey…");
+    this.#deviceMessage = "Waiting for your passkey…";
+    this.#renderDeviceSettings();
     try {
       const invitation = await this.#freshMutation(() =>
         accessRequest<InvitationResponse>("/api/devices/invitations", "POST", {})
       );
       this.#busy = false;
-      this.#renderInvitation(invitation);
+      this.#invitation = invitation;
+      this.#deviceMessage = undefined;
+      this.#renderDeviceSettings();
     } catch (error) {
       this.#busy = false;
       if (error instanceof AccessRequestError && error.status === 401) {
-        this.#closeDevices();
+        this.#closeDeviceSettings?.();
         this.#actions.onSignedOut();
         return;
       }
-      this.#renderDevices(devices, "An invitation could not be created. Try again.");
+      this.#deviceMessage = "An invitation could not be created. Try again.";
+      this.#renderDeviceSettings();
     }
   }
 
-  #renderInvitation(invitation: InvitationResponse): void {
-    const layer = element(this.#document, "div", "access-layer");
-    const panel = element(this.#document, "section", "access-devices-panel access-invitation-panel");
-    panel.setAttribute("role", "dialog");
-    panel.setAttribute("aria-modal", "true");
-    const heading = element(this.#document, "h2", undefined, "Trust another device");
-    const close = action(this.#document, "Close", () => this.#closeDevices(), "access-close");
-    const header = element(this.#document, "header", "access-panel-header");
-    header.append(heading, close);
+  #renderInvitation(host: HTMLElement, invitation: InvitationResponse): void {
+    const content = element(this.#document, "div", "access-invitation");
     const link = element(this.#document, "code", "access-invitation-link", invitation.link);
     const qr = element(this.#document, "img", "access-qr");
     qr.src = invitation.qr;
     qr.alt = "Invitation QR code";
     qr.width = 320;
     qr.height = 320;
-    panel.append(
-      header,
+    content.append(
+      element(this.#document, "h4", undefined, "Trust another device"),
       element(this.#document, "p", undefined, "Open this link on that device, or scan the QR code. It expires in ten minutes."),
       link,
       action(this.#document, "Copy link", () => void navigator.clipboard?.writeText(invitation.link)),
       qr,
     );
-    layer.append(panel);
-    this.#root.replaceChildren(layer);
-    panel.tabIndex = -1;
-    panel.focus();
+    host.replaceChildren(content);
   }
 
   async #revoke(device: Device, devices: DevicesResponse): Promise<void> {
     if (this.#busy || !devices.can_revoke) return;
     if (!window.confirm("Revoke " + trustedSignInLabel(device.label) + "? Its passkey copies will no longer open Shepherdr.")) return;
     this.#busy = true;
-    this.#renderDevices(devices, "Waiting for your passkey…");
+    this.#deviceMessage = "Waiting for your passkey…";
+    this.#renderDeviceSettings();
     try {
       await this.#freshMutation(() => accessRequest("/api/devices/revoke", "POST", { trust_id: device.trust_id }));
       this.#busy = false;
       if (device.trust_id === devices.current_trust_id) {
-        this.#closeDevices();
+        this.#closeDeviceSettings?.();
         this.#actions.onSignedOut();
         return;
       }
-      const updated = await accessRequest<DevicesResponse>("/api/devices", "GET");
-      this.#renderDevices(updated, "Trusted sign-in revoked.");
+      this.#devices = await accessRequest<DevicesResponse>("/api/devices", "GET");
+      this.#deviceMessage = "Trusted sign-in revoked.";
+      this.#renderDeviceSettings();
     } catch (error) {
       this.#busy = false;
       if (error instanceof AccessRequestError && error.status === 401) {
-        this.#closeDevices();
+        this.#closeDeviceSettings?.();
         this.#actions.onSignedOut();
         return;
       }
-      this.#renderDevices(devices, "This trusted sign-in could not be revoked. Try again.");
+      this.#deviceMessage = "This trusted sign-in could not be revoked. Try again.";
+      this.#renderDeviceSettings();
     }
   }
 
@@ -386,18 +417,13 @@ export class AccessController {
       await accessRequest("/api/auth/sign-out", "POST", {});
     } catch {
       this.#busy = false;
-      this.#renderDevices(devices, "Could not sign out. Try again.");
+      this.#deviceMessage = "Could not sign out. Try again.";
+      this.#renderDeviceSettings();
       return;
     }
     this.#busy = false;
-    this.#closeDevices();
+    this.#closeDeviceSettings?.();
     this.#actions.onSignedOut();
-  }
-
-  #closeDevices(): void {
-    this.#root.replaceChildren();
-    this.#returnFocus?.focus({ preventScroll: true });
-    this.#returnFocus = undefined;
   }
 
   #panel(eyebrow: string, heading: string): HTMLElement {

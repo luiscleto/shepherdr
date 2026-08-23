@@ -187,40 +187,6 @@ button:disabled {
   color: var(--ink-muted);
 }
 
-.access-layer {
-  position: fixed;
-  z-index: 80;
-  display: grid;
-  inset: 0;
-  place-items: end center;
-  overflow-y: auto;
-  background: rgba(33, 31, 29, 0.42);
-  padding: max(1rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
-}
-
-.access-devices-panel {
-  width: min(100%, 38rem);
-  max-height: calc(100dvh - 2rem);
-  overflow: auto;
-  border: 1px solid var(--line-strong);
-  border-radius: 5px;
-  background: var(--paper-raised);
-  box-shadow: 0 12px 30px rgba(33, 31, 29, 0.24);
-  padding: 1.1rem;
-}
-
-.access-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.access-close {
-  border: 0;
-  color: var(--accent);
-}
-
 .access-scope {
   margin: 0.85rem 0 1rem;
   color: var(--ink-muted);
@@ -1291,14 +1257,55 @@ button.terminal-row:hover {
   margin-bottom: 0;
 }
 
-.settings-section h3 {
-  margin-bottom: 0.35rem;
+.settings-section {
+  border-bottom: 1px solid var(--line);
 }
 
 .settings-section + .settings-section {
-  border-top: 1px solid var(--line);
-  margin-top: 1rem;
-  padding-top: 1rem;
+  margin-top: 0;
+}
+
+.settings-section h3 {
+  margin: 0;
+}
+
+.settings-section-toggle {
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 750;
+  padding: 0.7rem 0;
+  text-align: left;
+}
+
+.settings-section-toggle::after {
+  content: "+";
+  color: var(--ink-muted);
+  font-size: 1.2rem;
+  font-weight: 500;
+}
+
+.settings-section-toggle[aria-expanded="true"]::after {
+  content: "−";
+}
+
+.settings-section-content {
+  padding: 0.25rem 0 1rem;
+}
+
+.settings-section-content > :last-child {
+  margin-bottom: 0;
+}
+
+.access-invitation h4 {
+  margin-bottom: 0.35rem;
 }
 
 .notification-close {

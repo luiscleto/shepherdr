@@ -201,7 +201,10 @@ test("missing local setup hides the invitation and settings explain the CLI acti
   controller.openSettings();
   await settle();
   assert.equal(root.querySelector("h2")?.textContent, "Settings");
-  assert.equal(root.querySelector("h3")?.textContent, "Notifications aren't set up");
+  assert.equal(buttonWithText(root, "Notifications").getAttribute("aria-expanded"), "false");
+  assert.equal(root.textContent?.includes("-vapid-contact"), false);
+  buttonWithText(root, "Notifications").click();
+  assert.equal(buttonWithText(root, "Notifications").getAttribute("aria-expanded"), "true");
   assert.match(root.textContent ?? "", /On the machine running Shepherdr, start it with -vapid-contact and a contact email or website\./);
   assert.equal(platform.requestCount, 0);
   assert.equal(root.querySelectorAll(".notification-primary").length, 0);
@@ -243,11 +246,11 @@ test("Devices is reached inside Settings only when sign-in is protected", async 
   const { api, controller, root, window } = notificationView();
   api.configValue = { contact: "mailto:operator@example.com", public_key: "public", setup: true };
   let opened = 0;
-  let returnedFocus: HTMLElement | undefined;
-  controller.setDeviceSettingsHandler((focus) => {
+  let closed = 0;
+  controller.setDeviceSettingsHandler((host) => {
     opened++;
-    returnedFocus = focus;
-  });
+    host.append(window.document.createTextNode("Trusted sign-in controls"));
+  }, () => { closed++; });
   await controller.init();
 
   const settingsAction = window.document.createElement("button");
@@ -256,7 +259,7 @@ test("Devices is reached inside Settings only when sign-in is protected", async 
   controller.setDeviceSettingsAvailable(false);
   controller.openSettings();
   await settle();
-  assert.equal(root.querySelector(".settings-devices"), null);
+  assert.equal(root.querySelector(".settings-devices") === null, true);
   buttonWithText(root, "Close").click();
 
   settingsAction.focus();
@@ -264,10 +267,19 @@ test("Devices is reached inside Settings only when sign-in is protected", async 
   controller.openSettings();
   await settle();
   assert.equal(root.querySelector(".settings-devices h3")?.textContent, "Devices");
-  buttonWithText(root, "Open devices").click();
+  assert.equal(buttonWithText(root, "Notifications").getAttribute("aria-expanded"), "false");
+  assert.equal(buttonWithText(root, "Devices").getAttribute("aria-expanded"), "false");
+  assert.equal(root.textContent?.includes("Trusted sign-in controls"), false);
+  buttonWithText(root, "Devices").click();
   assert.equal(opened, 1);
-  assert.equal(returnedFocus === settingsAction, true);
-  assert.equal(root.childElementCount, 0);
+  assert.equal(buttonWithText(root, "Devices").getAttribute("aria-expanded"), "true");
+  assert.equal(root.textContent?.includes("Trusted sign-in controls"), true);
+  assert.equal(root.querySelector(".notification-panel") !== null, true);
+  assert.equal(root.querySelector(".access-layer") === null, true);
+  buttonWithText(root, "Close").click();
+  assert.equal(closed, 1);
+  assert.equal(window.document.activeElement === settingsAction, true);
+  assert.equal(root.querySelector(".notification-panel") === null, true);
 });
 
 test("denied permission shows browser guidance without subscribing", async () => {

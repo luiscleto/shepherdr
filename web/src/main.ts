@@ -88,7 +88,10 @@ const accessController = new AccessController(accessNode, {
   onSignedIn: accessSignedIn,
   onSignedOut: accessSignedOut,
 });
-notifications.setDeviceSettingsHandler((returnFocus) => void accessController.openDevices(returnFocus));
+notifications.setDeviceSettingsHandler(
+  (host, closeSettings) => void accessController.openDevices(host, closeSettings),
+  () => accessController.closeDevices(),
+);
 const homeView = new HomeView(app, {
   isHomeActive: homeInterfaceActive,
   onFocusPane: (paneID) => {

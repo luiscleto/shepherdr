@@ -171,7 +171,11 @@ export class NotificationsController {
   #dismissedForVisit = false;
   #events = { ...defaultNotificationEvents };
   #devicesAvailable = false;
-  #openDevices: ((returnFocus?: HTMLElement) => void) | undefined;
+  #devicesExpanded = false;
+  #notificationsExpanded = false;
+  #openDevices: ((host: HTMLElement, closeSettings: () => void) => void) | undefined;
+  #closeDevices: (() => void) | undefined;
+  #focusSection: "devices" | "notifications" | undefined;
   #returnFocus: HTMLElement | undefined;
   #subscription: BrowserPushSubscription | undefined;
 
@@ -199,11 +203,19 @@ export class NotificationsController {
     await workerRefresh;
   }
 
-  setDeviceSettingsHandler(open: (returnFocus?: HTMLElement) => void): void {
+  setDeviceSettingsHandler(
+    open: (host: HTMLElement, closeSettings: () => void) => void,
+    close: () => void,
+  ): void {
     this.#openDevices = open;
+    this.#closeDevices = close;
   }
 
   setDeviceSettingsAvailable(available: boolean): void {
+    if (!available && this.#devicesExpanded) {
+      this.#devicesExpanded = false;
+      this.#closeDevices?.();
+    }
     this.#devicesAvailable = available;
     if (this.#dialogOpen) this.#renderSettings();
   }
@@ -213,13 +225,19 @@ export class NotificationsController {
     this.#returnFocus = HTMLElementConstructor && this.#document.activeElement instanceof HTMLElementConstructor
       ? this.#document.activeElement
       : undefined;
+    this.#notificationsExpanded = false;
+    this.#devicesExpanded = false;
     this.#dialogOpen = true;
-    this.#renderSettings("Loading notification settings…");
+    this.#renderSettings();
     void this.#loadSettings();
   }
 
   #closeSettings(): void {
     this.#dialogOpen = false;
+    this.#notificationsExpanded = false;
+    const devicesWereExpanded = this.#devicesExpanded;
+    this.#devicesExpanded = false;
+    if (devicesWereExpanded) this.#closeDevices?.();
     this.#render();
     this.#returnFocus?.focus({ preventScroll: true });
     this.#returnFocus = undefined;
@@ -253,6 +271,7 @@ export class NotificationsController {
   async #turnOn(): Promise<void> {
     if (this.#busy) return;
     this.#busy = true;
+    this.#notificationsExpanded = true;
     let permission: NotificationPermission;
     try {
       permission = await this.#platform.requestPermission();
@@ -389,79 +408,109 @@ export class NotificationsController {
     header.append(heading, close);
     panel.append(header);
     const notificationSection = element(this.#document, "section", "settings-section");
-    const notificationHeading = element(this.#document, "h3", undefined, "Notifications");
-    notificationSection.append(
-      notificationHeading,
-      element(this.#document, "p", "notification-scope", "These settings apply only to this browser or installed app."),
+    const notificationHeading = element(this.#document, "h3");
+    const notificationToggle = action(
+      this.#document,
+      "Notifications",
+      () => this.#toggleSection("notifications"),
+      "settings-section-toggle",
     );
+    notificationToggle.setAttribute("aria-expanded", String(this.#notificationsExpanded));
+    notificationToggle.setAttribute("aria-controls", "settings-notifications-content");
+    notificationToggle.dataset.settingsSection = "notifications";
+    notificationHeading.append(notificationToggle);
+    notificationSection.append(notificationHeading);
 
-    const config = this.#config;
-    if (!config) {
-      notificationSection.append(element(this.#document, "p", undefined, message ?? "Loading notification settings…"));
-    } else if (config.unavailable) {
-      notificationHeading.textContent = "Notifications unavailable";
-      notificationSection.append(element(this.#document, "p", undefined, "Check Shepherdr on the machine where it is running."));
-    } else if (!config.setup) {
-      notificationHeading.textContent = "Notifications aren't set up";
-      const setup = element(this.#document, "p");
-      setup.append(
-        "On the machine running Shepherdr, start it with ",
-        element(this.#document, "code", undefined, "-vapid-contact"),
-        " and a contact email or website.",
-      );
-      notificationSection.append(setup);
-    } else if (this.#platform.iosBrowserTab()) {
-      notificationSection.append(element(this.#document, "p", undefined, "Add Shepherdr to your Home Screen, then open it there."));
-    } else if (!this.#platform.supported()) {
-      notificationSection.append(element(
+    if (this.#notificationsExpanded) {
+      const notificationContent = element(this.#document, "div", "settings-section-content");
+      notificationContent.id = "settings-notifications-content";
+      notificationContent.append(element(
         this.#document,
         "p",
-        undefined,
-        "Notifications aren't available in this browser.",
+        "notification-scope",
+        "These settings apply only to this browser or installed app.",
       ));
-    } else if (this.#platform.permission() === "denied") {
-      notificationSection.append(element(
-        this.#document,
-        "p",
-        undefined,
-        "Notifications are blocked in this browser. Allow them in browser settings.",
-      ));
-    } else if (!this.#subscription) {
-      const turnOn = action(this.#document, "Turn on notifications", () => void this.#turnOn(), "notification-primary");
-      turnOn.disabled = this.#busy;
-      notificationSection.append(
-        element(this.#document, "p", undefined, message ?? "Choose which events matter after notifications are on."),
-        turnOn,
-      );
-    } else {
-      const form = element(this.#document, "form", "notification-form");
-      const fields = element(this.#document, "fieldset");
-      fields.append(element(this.#document, "legend", undefined, "Notify me when"));
-      for (const [name, label] of eventChoices) fields.append(eventCheckbox(this.#document, name, label, this.#events[name]));
-      const buttons = element(this.#document, "div", "notification-form-actions");
-      const save = action(this.#document, "Save", () => undefined, "notification-primary");
-      save.type = "submit";
-      buttons.append(save, action(this.#document, "Turn off notifications", () => void this.#turnOff()));
-      form.append(fields, buttons);
-      for (const control of Array.from(form.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button"))) {
-        control.disabled = this.#busy;
+
+      const config = this.#config;
+      if (!config) {
+        notificationContent.append(element(this.#document, "p", undefined, message ?? "Loading notification settings…"));
+      } else if (config.unavailable) {
+        notificationContent.append(element(this.#document, "p", undefined, "Notifications unavailable. Check Shepherdr on the machine where it is running."));
+      } else if (!config.setup) {
+        const setup = element(this.#document, "p");
+        setup.append(
+          "Notifications aren't set up. On the machine running Shepherdr, start it with ",
+          element(this.#document, "code", undefined, "-vapid-contact"),
+          " and a contact email or website.",
+        );
+        notificationContent.append(setup);
+      } else if (this.#platform.iosBrowserTab()) {
+        notificationContent.append(element(this.#document, "p", undefined, "Add Shepherdr to your Home Screen, then open it there."));
+      } else if (!this.#platform.supported()) {
+        notificationContent.append(element(
+          this.#document,
+          "p",
+          undefined,
+          "Notifications aren't available in this browser.",
+        ));
+      } else if (this.#platform.permission() === "denied") {
+        notificationContent.append(element(
+          this.#document,
+          "p",
+          undefined,
+          "Notifications are blocked in this browser. Allow them in browser settings.",
+        ));
+      } else if (!this.#subscription) {
+        const turnOn = action(this.#document, "Turn on notifications", () => void this.#turnOn(), "notification-primary");
+        turnOn.disabled = this.#busy;
+        notificationContent.append(
+          element(this.#document, "p", undefined, message ?? "Choose which events matter after notifications are on."),
+          turnOn,
+        );
+      } else {
+        const form = element(this.#document, "form", "notification-form");
+        const fields = element(this.#document, "fieldset");
+        fields.append(element(this.#document, "legend", undefined, "Notify me when"));
+        for (const [name, label] of eventChoices) fields.append(eventCheckbox(this.#document, name, label, this.#events[name]));
+        const buttons = element(this.#document, "div", "notification-form-actions");
+        const save = action(this.#document, "Save", () => undefined, "notification-primary");
+        save.type = "submit";
+        buttons.append(save, action(this.#document, "Turn off notifications", () => void this.#turnOff()));
+        form.append(fields, buttons);
+        for (const control of Array.from(form.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button"))) {
+          control.disabled = this.#busy;
+        }
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          void this.#save(form);
+        });
+        notificationContent.append(form);
+        if (message) notificationContent.append(element(this.#document, "p", "notification-feedback", message));
       }
-      form.addEventListener("submit", (event) => {
-        event.preventDefault();
-        void this.#save(form);
-      });
-      notificationSection.append(form);
-      if (message) notificationSection.append(element(this.#document, "p", "notification-feedback", message));
+      notificationSection.append(notificationContent);
     }
 
     panel.append(notificationSection);
+    let devicesHost: HTMLElement | undefined;
     if (this.#devicesAvailable && this.#openDevices) {
       const devicesSection = element(this.#document, "section", "settings-section settings-devices");
-      devicesSection.append(
-        element(this.#document, "h3", undefined, "Devices"),
-        element(this.#document, "p", "notification-scope", "View trusted sign-ins, create an invitation, or sign out."),
-        action(this.#document, "Open devices", () => this.#openDeviceSettings()),
+      const devicesHeading = element(this.#document, "h3");
+      const devicesToggle = action(
+        this.#document,
+        "Devices",
+        () => this.#toggleSection("devices"),
+        "settings-section-toggle",
       );
+      devicesToggle.setAttribute("aria-expanded", String(this.#devicesExpanded));
+      devicesToggle.setAttribute("aria-controls", "settings-devices-content");
+      devicesToggle.dataset.settingsSection = "devices";
+      devicesHeading.append(devicesToggle);
+      devicesSection.append(devicesHeading);
+      if (this.#devicesExpanded) {
+        devicesHost = element(this.#document, "div", "settings-section-content");
+        devicesHost.id = "settings-devices-content";
+        devicesSection.append(devicesHost);
+      }
       panel.append(devicesSection);
     }
 
@@ -473,15 +522,25 @@ export class NotificationsController {
       if (event.key === "Escape") this.#closeSettings();
     });
     this.#root.replaceChildren(layer);
-    panel.focus({ preventScroll: true });
+    if (devicesHost) this.#openDevices?.(devicesHost, () => this.#closeSettings());
+    const sectionToFocus = this.#focusSection;
+    this.#focusSection = undefined;
+    if (sectionToFocus) {
+      panel.querySelector<HTMLButtonElement>(`[data-settings-section="${sectionToFocus}"]`)?.focus({ preventScroll: true });
+    } else {
+      panel.focus({ preventScroll: true });
+    }
   }
 
-  #openDeviceSettings(): void {
-    const returnFocus = this.#returnFocus;
-    this.#dialogOpen = false;
-    this.#returnFocus = undefined;
-    this.#root.replaceChildren();
-    this.#openDevices?.(returnFocus);
+  #toggleSection(section: "devices" | "notifications"): void {
+    if (section === "notifications") {
+      this.#notificationsExpanded = !this.#notificationsExpanded;
+    } else {
+      this.#devicesExpanded = !this.#devicesExpanded;
+      if (!this.#devicesExpanded) this.#closeDevices?.();
+    }
+    this.#focusSection = section;
+    this.#renderSettings();
   }
 }
 
