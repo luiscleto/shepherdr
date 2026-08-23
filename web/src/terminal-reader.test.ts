@@ -158,9 +158,8 @@ test("an open Reader composer remains the same local editor across observer reco
   }, { collapsibleComposer: true, endpoint: "/api/terminal/read" });
   const composer = host.querySelector(".reader-composer") as HTMLDivElement;
   const input = composer.querySelector("textarea") as HTMLTextAreaElement;
-  const buttons = Array.from(composer.querySelectorAll("button")) as HTMLButtonElement[];
-  const send = buttons.find((button) => button.textContent === "Send text")!;
-  const close = buttons.find((button) => button.textContent === "Close")!;
+  const send = composer.querySelector('button[aria-label="Send text"]') as HTMLButtonElement;
+  const close = composer.querySelector('button[aria-label="Close composer"]') as HTMLButtonElement;
 
   reader.setActionAvailability(readerActionAvailability(true, "ready"));
   reader.showComposer();

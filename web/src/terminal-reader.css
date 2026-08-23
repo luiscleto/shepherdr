@@ -43,13 +43,89 @@
 }
 
 .reader-composer {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: start;
   gap: 0.4rem;
+  min-width: 0;
   border-top: 1px solid var(--line-strong);
   padding: 0.4rem;
   background: var(--paper-raised);
+}
+
+.reader-action-rail {
+  display: grid;
+  grid-column: 2;
+  grid-row: 1;
+  gap: 0.35rem;
+}
+
+.reader-composer .reader-icon-button {
+  display: grid;
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  place-items: center;
+  padding: 0;
+}
+
+.reader-icon-button svg {
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
+}
+
+.reader-composer-close {
+  position: absolute;
+  z-index: 2;
+  top: 0.4rem;
+  right: calc(44px + 0.8rem);
+}
+
+.reader-file-menu {
+  position: absolute;
+  z-index: 3;
+  top: 0.4rem;
+  right: calc(44px + 0.8rem);
+  display: grid;
+  width: min(10rem, calc(100% - 4rem));
+  max-width: calc(100% - 0.8rem);
+  max-height: calc(100dvh - 0.8rem);
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--paper-raised);
+  box-shadow: 0 8px 22px #241f1c2e;
+  padding: 0.2rem;
+}
+
+.reader-file-menu[hidden] {
+  display: none;
+}
+
+.reader-file-menu button {
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  background: var(--paper-raised);
+  color: var(--ink);
+  text-align: left;
+}
+
+.reader-file-menu button:hover,
+.reader-file-menu button:focus-visible {
+  background: var(--paper-recessed);
+}
+
+.reader-file-preparing {
+  grid-column: 1 / -1;
+  color: var(--accent);
+  font-size: 0.82rem;
+}
+
+.reader-file-preparing[hidden] {
+  display: none;
 }
 
 .reader-file-list {
@@ -97,8 +173,11 @@
 }
 
 .reader-composer textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: calc(88px + 0.35rem);
   min-width: 0;
-  padding: 0.55rem;
+  padding: 0.55rem 3rem 0.55rem 0.55rem;
   border: 1px solid var(--line-strong);
   border-radius: 3px;
   background: var(--paper-recessed);

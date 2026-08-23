@@ -1,5 +1,6 @@
 import { renderANSI } from "./ansi-dom";
 import type { TerminalDimensions } from "./adapter";
+import { prepareTerminalFiles } from "./file-uploads";
 import type { ReaderActionAvailability } from "./reader-availability";
 
 interface ReaderSnapshot extends TerminalDimensions {
@@ -41,9 +42,15 @@ export class ReaderView {
   #composer: HTMLDivElement;
   #dimensions: TerminalDimensions = { cols: 80, rows: 24 };
   #events: ReaderEvents;
+  #fileChoice: HTMLButtonElement;
   #fileInput: HTMLInputElement;
   #fileList: HTMLDivElement;
+  #fileMenu: HTMLDivElement;
+  #fileMenuDismiss: (event: Event) => void;
+  #filePreparation = 0;
+  #filePreparationStatus: HTMLSpanElement;
   #fileSelectionAvailable = false;
+  #filesPreparing = false;
   #historyLines = historyPageLines;
   #historyRefreshPending = false;
   #host: HTMLElement;
@@ -56,6 +63,8 @@ export class ReaderView {
   #output: HTMLDivElement;
   #pane = "";
   #pendingFiles: Array<{ file: File; preview?: string }> = [];
+  #photoChoice: HTMLButtonElement;
+  #photoInput: HTMLInputElement;
   #submissionActive = false;
   #refreshTimer: number | undefined;
   #refreshQueued: { force: boolean; preserveTop: boolean } | undefined;
@@ -109,19 +118,54 @@ export class ReaderView {
     this.#fileInput = document.createElement("input");
     this.#fileInput.type = "file";
     this.#fileInput.multiple = true;
+    this.#fileInput.className = "reader-file-input";
     this.#fileInput.hidden = true;
+    this.#photoInput = document.createElement("input");
+    this.#photoInput.type = "file";
+    this.#photoInput.accept = "image/*";
+    this.#photoInput.multiple = true;
+    this.#photoInput.className = "reader-photo-input";
+    this.#photoInput.hidden = true;
     this.#addFiles = document.createElement("button");
     this.#addFiles.type = "button";
-    this.#addFiles.className = "reader-add-files";
-    this.#addFiles.textContent = "Add files";
+    this.#addFiles.className = "reader-add-files reader-icon-button";
+    setIconButton(this.#addFiles, "Add files", "paperclip");
+    this.#addFiles.setAttribute("aria-haspopup", "menu");
+    this.#addFiles.setAttribute("aria-expanded", "false");
     this.#addFiles.hidden = true;
+    this.#fileMenu = document.createElement("div");
+    this.#fileMenu.className = "reader-file-menu";
+    this.#fileMenu.hidden = true;
+    this.#fileMenu.setAttribute("role", "menu");
+    this.#fileMenu.setAttribute("aria-label", "Add files from");
+    this.#photoChoice = document.createElement("button");
+    this.#photoChoice.type = "button";
+    this.#photoChoice.textContent = "Photos";
+    this.#photoChoice.setAttribute("role", "menuitem");
+    setControlLabel(this.#photoChoice, "Choose photos");
+    this.#fileChoice = document.createElement("button");
+    this.#fileChoice.type = "button";
+    this.#fileChoice.textContent = "Files";
+    this.#fileChoice.setAttribute("role", "menuitem");
+    setControlLabel(this.#fileChoice, "Choose files");
+    this.#fileMenu.append(this.#photoChoice, this.#fileChoice);
     this.#fileList = document.createElement("div");
     this.#fileList.className = "reader-file-list";
     this.#fileList.setAttribute("aria-label", "Pending files");
     this.#fileList.hidden = true;
     this.#send = document.createElement("button");
     this.#send.type = "button";
-    this.#send.textContent = "Send text";
+    this.#send.className = "reader-send reader-icon-button";
+    setIconButton(this.#send, "Send text", "send");
+    const actionRail = document.createElement("div");
+    actionRail.className = "reader-action-rail";
+    actionRail.append(this.#addFiles, this.#send);
+    this.#filePreparationStatus = document.createElement("span");
+    this.#filePreparationStatus.className = "reader-file-preparing";
+    this.#filePreparationStatus.hidden = true;
+    this.#filePreparationStatus.setAttribute("role", "status");
+    this.#filePreparationStatus.setAttribute("aria-live", "polite");
+    this.#filePreparationStatus.textContent = "Preparing files…";
     this.#sendFeedback = document.createElement("div");
     this.#sendFeedback.className = "reader-send-feedback";
     this.#sendFeedback.hidden = true;
@@ -133,18 +177,18 @@ export class ReaderView {
     this.#takeoverSend.type = "button";
     this.#takeoverSend.textContent = "Take over and send";
     this.#sendFeedback.append(this.#sendFeedbackMessage, this.#retrySend, this.#takeoverSend);
-    this.#composer.append(this.#input, this.#addFiles, this.#send);
+    this.#composer.append(this.#input, actionRail);
     if (this.#collapsibleComposer) {
       const close = document.createElement("button");
       close.type = "button";
-      close.className = "reader-composer-close";
-      close.textContent = "Close";
+      close.className = "reader-composer-close reader-icon-button";
+      setIconButton(close, "Close composer", "close");
       close.addEventListener("click", () => this.hideComposer());
       this.#closeComposer = close;
       this.#composer.append(close);
       this.#composer.hidden = true;
     }
-    this.#composer.append(this.#fileInput, this.#fileList);
+    this.#composer.append(this.#fileMenu, this.#fileInput, this.#photoInput, this.#filePreparationStatus, this.#fileList);
     host.replaceChildren(this.#scroll, this.#composer, this.#sendFeedback);
 
     this.#intersectionObserver = new IntersectionObserver((entries) => {
@@ -172,14 +216,24 @@ export class ReaderView {
     document.addEventListener("selectionchange", this.#selectionChange);
     this.#retrySend.addEventListener("click", () => this.#retryAction?.());
     this.#takeoverSend.addEventListener("click", () => this.#takeoverAction?.());
-    this.#addFiles.addEventListener("click", () => this.#fileInput.click());
-    this.#fileInput.addEventListener("change", () => {
-      const selected = Array.from(this.#fileInput.files ?? []);
-      this.#fileInput.value = "";
-      if (selected.length === 0) return;
-      for (const file of selected) this.#addPendingFile(file);
-      this.#renderPendingFiles();
+    this.#fileMenuDismiss = (event) => {
+      const target = event.target as Node | null;
+      if (target && (this.#fileMenu.contains(target) || this.#addFiles.contains(target))) return;
+      this.#closeFileMenu(false);
+    };
+    this.#addFiles.addEventListener("click", () => {
+      if (this.#fileMenu.hidden) this.#openFileMenu();
+      else this.#closeFileMenu(true);
     });
+    this.#fileMenu.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      this.#closeFileMenu(true);
+    });
+    this.#photoChoice.addEventListener("click", () => this.#openFileInput(this.#photoInput));
+    this.#fileChoice.addEventListener("click", () => this.#openFileInput(this.#fileInput));
+    this.#bindFileInput(this.#photoInput);
+    this.#bindFileInput(this.#fileInput);
     this.#input.addEventListener("input", () => this.#syncSubmit());
     this.#send.addEventListener("click", () => {
       if (!this.#canSubmit() || !this.#events.onSubmit(this.#input.value, this.pendingFiles())) return;
@@ -279,7 +333,7 @@ export class ReaderView {
     this.#sendAvailable = availability.send;
     const keepOpenForEditing = this.#collapsibleComposer && !this.#composer.hidden && !availability.observerReady;
     this.#input.disabled = this.#submissionActive || !availability.send && !keepOpenForEditing;
-    this.#addFiles.disabled = this.#submissionActive || !availability.send;
+    this.#addFiles.disabled = this.#submissionActive || this.#filesPreparing || !availability.send;
     if (this.#closeComposer) this.#closeComposer.disabled = this.#submissionActive;
     this.#retrySend.disabled = !availability.recover;
     this.#takeoverSend.disabled = !availability.recover;
@@ -290,6 +344,7 @@ export class ReaderView {
   setFileSelectionAvailable(available: boolean): void {
     this.#fileSelectionAvailable = available;
     this.#addFiles.hidden = !available;
+    if (!available) this.#closeFileMenu(false);
     this.#syncSubmit();
   }
 
@@ -313,6 +368,7 @@ export class ReaderView {
 
   hideComposer(): void {
     if (!this.#collapsibleComposer || this.#submissionActive) return;
+    this.#closeFileMenu(false);
     this.#composer.hidden = true;
     this.#input.blur();
     if (!this.#sendAvailable) this.#input.disabled = true;
@@ -409,6 +465,8 @@ export class ReaderView {
   }
 
   destroy(): void {
+    this.#filePreparation++;
+    this.#closeFileMenu(false);
     this.#pane = "";
     this.#terminalID = undefined;
     this.#generation = undefined;
@@ -430,6 +488,67 @@ export class ReaderView {
       preview = url.createObjectURL(file);
     }
     this.#pendingFiles.push({ file, preview });
+  }
+
+  #bindFileInput(input: HTMLInputElement): void {
+    input.addEventListener("change", () => {
+      const selected = Array.from(input.files ?? []);
+      input.value = "";
+      if (selected.length === 0) {
+        this.#restoreFileActionFocus();
+        return;
+      }
+      void this.#prepareFiles(selected);
+    });
+    input.addEventListener("cancel", () => {
+      input.value = "";
+      this.#restoreFileActionFocus();
+    });
+  }
+
+  #openFileInput(input: HTMLInputElement): void {
+    this.#closeFileMenu(false);
+    input.click();
+  }
+
+  #openFileMenu(): void {
+    if (this.#addFiles.disabled || this.#addFiles.hidden || this.#filesPreparing) return;
+    this.#fileMenu.hidden = false;
+    this.#addFiles.setAttribute("aria-expanded", "true");
+    this.#host.ownerDocument.addEventListener("pointerdown", this.#fileMenuDismiss, true);
+    this.#photoChoice.focus();
+  }
+
+  #closeFileMenu(restoreFocus: boolean): void {
+    if (this.#fileMenu.hidden) return;
+    this.#fileMenu.hidden = true;
+    this.#addFiles.setAttribute("aria-expanded", "false");
+    this.#host.ownerDocument.removeEventListener("pointerdown", this.#fileMenuDismiss, true);
+    if (restoreFocus) this.#restoreFileActionFocus();
+  }
+
+  async #prepareFiles(files: readonly File[]): Promise<void> {
+    const preparation = ++this.#filePreparation;
+    this.#filesPreparing = true;
+    this.#filePreparationStatus.hidden = false;
+    this.#addFiles.disabled = true;
+    this.#syncSubmit();
+    try {
+      await prepareTerminalFiles(files);
+      if (preparation !== this.#filePreparation) return;
+      for (const file of files) this.#addPendingFile(file);
+    } finally {
+      if (preparation !== this.#filePreparation) return;
+      this.#filesPreparing = false;
+      this.#filePreparationStatus.hidden = true;
+      this.#addFiles.disabled = this.#submissionActive || !this.#sendAvailable;
+      this.#renderPendingFiles();
+      this.#restoreFileActionFocus();
+    }
+  }
+
+  #restoreFileActionFocus(): void {
+    if (!this.#composer.hidden && !this.#addFiles.hidden && !this.#addFiles.disabled) this.#addFiles.focus();
   }
 
   #clearPendingFiles(): void {
@@ -471,9 +590,9 @@ export class ReaderView {
       detail.textContent = `${pending.file.name || "file"} · ${formatFileSize(pending.file.size)}`;
       const remove = document.createElement("button");
       remove.type = "button";
-      remove.textContent = "Remove";
+      remove.className = "reader-file-remove reader-icon-button";
       remove.disabled = this.#submissionActive;
-      remove.setAttribute("aria-label", `Remove ${pending.file.name || "file"}`);
+      setIconButton(remove, `Remove ${pending.file.name || "file"}`, "close");
       remove.addEventListener("click", () => this.#removePendingFile(index));
       chip.append(detail, remove);
       this.#fileList.append(chip);
@@ -482,7 +601,7 @@ export class ReaderView {
   }
 
   #canSubmit(): boolean {
-    return !this.#submissionActive && this.#sendAvailable && (this.#input.value.length > 0 || this.#pendingFiles.length > 0) &&
+    return !this.#submissionActive && !this.#filesPreparing && this.#sendAvailable && (this.#input.value.length > 0 || this.#pendingFiles.length > 0) &&
       (this.#pendingFiles.length === 0 || this.#fileSelectionAvailable);
   }
 
@@ -495,7 +614,8 @@ export class ReaderView {
 
   #syncSubmit(): void {
     this.#send.disabled = !this.#canSubmit();
-    this.#send.textContent = this.#pendingFiles.length > 0 ? "Send" : "Send text";
+    const label = this.#pendingFiles.length === 0 ? "Send text" : this.#input.value.length === 0 ? "Send files" : "Send text and files";
+    setControlLabel(this.#send, label);
   }
 
   #hasSelection(): boolean {
@@ -549,6 +669,34 @@ export class ReaderView {
     else if (followBottom) this.#scroll.scrollTop = this.#scroll.scrollHeight;
     else this.#scroll.scrollTop = oldTop;
   }
+}
+
+type ReaderIcon = "close" | "paperclip" | "send";
+
+function setControlLabel(button: HTMLButtonElement, label: string): void {
+  button.setAttribute("aria-label", label);
+  button.title = label;
+}
+
+function setIconButton(button: HTMLButtonElement, label: string, iconName: ReaderIcon): void {
+  setControlLabel(button, label);
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("focusable", "false");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("stroke", "currentColor");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-linejoin", "round");
+  icon.setAttribute("stroke-width", "2");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", ({
+    close: "M18 6 6 18M6 6l12 12",
+    paperclip: "m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5",
+    send: "M22 2 11 13M22 2l-7 20-4-9-9-4 20-7Z",
+  } satisfies Record<ReaderIcon, string>)[iconName]);
+  icon.append(path);
+  button.replaceChildren(icon);
 }
 
 function formatFileSize(size: number): string {

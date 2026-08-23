@@ -54,13 +54,22 @@ function withFileBrowser(t: test.TestContext): { browser: Window; host: HTMLElem
   return { browser, host, revoked };
 }
 
-function chooseFiles(browser: Window, input: HTMLInputElement, files: File[]): void {
+function selectFiles(browser: Window, input: HTMLInputElement, files: File[]): void {
   Object.defineProperty(input, "files", { configurable: true, value: files });
   input.dispatchEvent(new browser.Event("change", { bubbles: true }));
   Object.defineProperty(input, "files", { configurable: true, value: [] });
 }
 
-test("recognized-agent file controls keep drafts, removable chips, and scoped thumbnails", (t) => {
+async function settleFilePreparation(): Promise<void> {
+  for (let step = 0; step < 5; step += 1) await Promise.resolve();
+}
+
+async function chooseFiles(browser: Window, input: HTMLInputElement, files: File[]): Promise<void> {
+  selectFiles(browser, input, files);
+  await settleFilePreparation();
+}
+
+test("recognized-agent file controls keep drafts, removable chips, and scoped thumbnails", async (t) => {
   const { browser, host, revoked } = withFileBrowser(t);
   const submissions: Array<{ files: number; text: string }> = [];
   const reader = new ReaderView(host, {
@@ -73,8 +82,8 @@ test("recognized-agent file controls keep drafts, removable chips, and scoped th
   }, { collapsibleComposer: true, endpoint: "/api/terminal/read" });
   reader.setActionAvailability(readerActionAvailability(true, "ready"));
   reader.showComposer();
-  const add = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Add files") as HTMLButtonElement;
-  const input = host.querySelector('input[type="file"]') as HTMLInputElement;
+  const add = host.querySelector('button[aria-label="Add files"]') as HTMLButtonElement;
+  const input = host.querySelector(".reader-file-input") as HTMLInputElement;
   const textarea = host.querySelector("textarea") as HTMLTextAreaElement;
   textarea.value = "keep this text";
   assert.equal(add.hidden, true, "an ordinary terminal must not show a placeholder file action");
@@ -87,7 +96,7 @@ test("recognized-agent file controls keep drafts, removable chips, and scoped th
 
   const image = new browser.File(["image"], "photo.png", { type: "image/png" }) as unknown as File;
   const documentFile = new browser.File(["notes"], "notes.txt", { type: "text/plain" }) as unknown as File;
-  chooseFiles(browser, input, [image, documentFile]);
+  await chooseFiles(browser, input, [image, documentFile]);
   assert.equal(host.querySelectorAll(".reader-file-chip").length, 2);
   assert.match(host.querySelector(".reader-file-list")?.textContent ?? "", /photo\.png · 5 B/);
   assert.match(host.querySelector(".reader-file-list")?.textContent ?? "", /notes\.txt · 5 B/);
@@ -103,12 +112,12 @@ test("recognized-agent file controls keep drafts, removable chips, and scoped th
   assert.equal(host.querySelectorAll(".reader-file-chip").length, 1);
   assert.deepEqual(revoked, ["blob:http://localhost/preview-1"]);
 
-  const send = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Send") as HTMLButtonElement;
+  const send = host.querySelector('button[aria-label="Send text and files"]') as HTMLButtonElement;
   send.click();
   assert.deepEqual(submissions, [{ files: 1, text: "keep this text" }]);
   reader.filesSending();
   const pendingRemove = host.querySelector('.reader-file-chip button[aria-label="Remove notes.txt"]') as HTMLButtonElement;
-  const close = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Close") as HTMLButtonElement;
+  const close = host.querySelector('button[aria-label="Close composer"]') as HTMLButtonElement;
   assert.equal(pendingRemove.disabled, true, "the captured batch must not change while it is being sent");
   assert.equal(close.disabled, true);
   pendingRemove.click();
@@ -119,12 +128,102 @@ test("recognized-agent file controls keep drafts, removable chips, and scoped th
   assert.equal(reader.pendingFiles().length, 1, "definite failure must preserve the pending file");
   reader.inputUncertain("Check the terminal.", () => undefined);
   assert.equal(reader.pendingFiles().length, 1, "unknown result must preserve the pending file");
-  chooseFiles(browser, input, [image]);
+  await chooseFiles(browser, input, [image]);
   reader.destroy();
   assert.deepEqual(revoked, ["blob:http://localhost/preview-1", "blob:http://localhost/preview-2"]);
 });
 
-test("removing the last recovery file restores text, shortcuts, and file selection", (t) => {
+test("mobile composer icons and picker choices gate real file preparation", async (t) => {
+  const { browser, host } = withFileBrowser(t);
+  const reader = new ReaderView(host, {
+    onLog: () => undefined,
+    onStatus: () => undefined,
+    onSubmit: () => true,
+  }, { collapsibleComposer: true, endpoint: "/api/terminal/read" });
+  reader.setActionAvailability(readerActionAvailability(true, "ready"));
+  reader.setFileSelectionAvailable(true);
+  reader.showComposer();
+
+  const textarea = host.querySelector("textarea") as HTMLTextAreaElement;
+  const add = host.querySelector('button[aria-label="Add files"]') as HTMLButtonElement;
+  const send = host.querySelector('button[aria-label="Send text"]') as HTMLButtonElement;
+  const close = host.querySelector('button[aria-label="Close composer"]') as HTMLButtonElement;
+  for (const [button, label] of [[add, "Add files"], [send, "Send text"], [close, "Close composer"]] as const) {
+    assert.equal(button.textContent, "", `${label} must remain icon-only`);
+    assert.equal(button.title, label);
+    assert.equal(button.querySelector("svg")?.getAttribute("aria-hidden"), "true");
+  }
+
+  textarea.value = "keep this draft";
+  textarea.dispatchEvent(new browser.Event("input", { bubbles: true }));
+  assert.equal(send.disabled, false);
+  add.click();
+  const menu = host.querySelector(".reader-file-menu") as HTMLDivElement;
+  const choices = Array.from(menu.querySelectorAll("button")) as HTMLButtonElement[];
+  assert.equal(menu.hidden, false);
+  assert.equal(add.getAttribute("aria-expanded"), "true");
+  assert.deepEqual(choices.map((button) => button.textContent), ["Photos", "Files"]);
+  assert.equal(browser.document.activeElement, choices[0]);
+
+  const photoInput = host.querySelector(".reader-photo-input") as HTMLInputElement;
+  const fileInput = host.querySelector(".reader-file-input") as HTMLInputElement;
+  assert.equal(photoInput.accept, "image/*");
+  assert.equal(fileInput.accept, "");
+  let photoPickerOpened = 0;
+  Object.defineProperty(photoInput, "click", { configurable: true, value: () => photoPickerOpened += 1 });
+  choices[0].click();
+  assert.equal(photoPickerOpened, 1);
+  assert.equal(menu.hidden, true);
+  photoInput.dispatchEvent(new browser.Event("cancel"));
+  assert.equal(textarea.value, "keep this draft");
+  assert.equal(browser.document.activeElement, add, "picker cancel must restore focus to the paperclip");
+
+  add.click();
+  menu.dispatchEvent(new browser.KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+  assert.equal(menu.hidden, true);
+  assert.equal(browser.document.activeElement, add, "Escape dismissal must restore focus");
+  add.click();
+  textarea.dispatchEvent(new browser.Event("pointerdown", { bubbles: true }));
+  assert.equal(menu.hidden, true, "an outside pointer must dismiss the source menu");
+
+  let filePickerOpened = 0;
+  Object.defineProperty(fileInput, "click", { configurable: true, value: () => filePickerOpened += 1 });
+  add.click();
+  choices[1].click();
+  assert.equal(filePickerOpened, 1);
+  let finishRead: ((value: ArrayBuffer) => void) | undefined;
+  const reading = new Promise<ArrayBuffer>((resolve) => finishRead = resolve);
+  const file = new browser.File(["notes"], "notes.txt", { type: "text/plain" }) as unknown as File;
+  Object.defineProperty(file, "arrayBuffer", { configurable: true, value: () => reading });
+  selectFiles(browser, fileInput, [file]);
+  const preparing = host.querySelector(".reader-file-preparing") as HTMLSpanElement;
+  assert.equal(preparing.hidden, false);
+  assert.equal(preparing.textContent, "Preparing files…");
+  assert.equal(preparing.getAttribute("role"), "status");
+  assert.equal(preparing.getAttribute("aria-live"), "polite");
+  assert.equal(send.disabled, true, "existing text must not bypass file preparation");
+  assert.equal(host.querySelectorAll(".reader-file-chip").length, 0);
+
+  finishRead?.(new Uint8Array([1, 2, 3]).buffer);
+  await settleFilePreparation();
+  assert.equal(preparing.hidden, true);
+  assert.equal(host.querySelectorAll(".reader-file-chip").length, 1);
+  assert.equal(send.disabled, false);
+  assert.equal(send.getAttribute("aria-label"), "Send text and files");
+  assert.equal(send.title, "Send text and files");
+  textarea.value = "";
+  textarea.dispatchEvent(new browser.Event("input", { bubbles: true }));
+  assert.equal(send.disabled, false, "a prepared file must enable file-only send");
+  assert.equal(send.getAttribute("aria-label"), "Send files");
+  assert.equal(send.title, "Send files");
+  const remove = host.querySelector('button[aria-label="Remove notes.txt"]') as HTMLButtonElement;
+  assert.equal(remove.textContent, "");
+  assert.equal(remove.title, "Remove notes.txt");
+  assert.equal(remove.querySelector("svg")?.getAttribute("aria-hidden"), "true");
+  reader.destroy();
+});
+
+test("removing the last recovery file restores text, shortcuts, and file selection", async (t) => {
   const { browser, host } = withFileBrowser(t);
   for (const stable of ["ready", "requesting", "forwarding"] as const) {
     assert.equal(uploadStateAfterLastFileRemoved(stable), stable, `${stable} is not file recovery`);
@@ -151,8 +250,8 @@ test("removing the last recovery file restores text, shortcuts, and file selecti
     const textarea = host.querySelector("textarea") as HTMLTextAreaElement;
     textarea.value = `keep ${recovery} text`;
     textarea.dispatchEvent(new browser.Event("input", { bubbles: true }));
-    const fileInput = host.querySelector('input[type="file"]') as HTMLInputElement;
-    chooseFiles(browser, fileInput, [new browser.File(["file"], `${recovery}.txt`) as unknown as File]);
+    const fileInput = host.querySelector(".reader-file-input") as HTMLInputElement;
+    await chooseFiles(browser, fileInput, [new browser.File(["file"], `${recovery}.txt`) as unknown as File]);
     reader.filesSending();
     if (recovery === "failed") reader.inputFailed("Files were not sent.", () => undefined);
     else if (recovery === "occupied") reader.inputOccupied("Controlled elsewhere.", () => undefined);
@@ -165,10 +264,10 @@ test("removing the last recovery file restores text, shortcuts, and file selecti
     assert.equal(uploadState, "ready");
     assert.equal(textarea.value, `keep ${recovery} text`, `${recovery} removal must preserve typed text`);
     assert.equal((host.querySelector(".reader-send-feedback") as HTMLDivElement).hidden, true);
-    const add = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Add files") as HTMLButtonElement;
+    const add = host.querySelector('button[aria-label="Add files"]') as HTMLButtonElement;
     assert.equal(add.hidden, false);
     assert.equal(add.disabled, false);
-    const sendText = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Send text") as HTMLButtonElement;
+    const sendText = host.querySelector('button[aria-label="Send text"]') as HTMLButtonElement;
     assert.equal(sendText.disabled, false);
     assert.equal(readerActionAvailability(true, uploadState).send, true, `${recovery} removal must restore shortcut sending`);
     reader.destroy();

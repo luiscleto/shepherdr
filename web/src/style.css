@@ -1424,7 +1424,10 @@ button.terminal-row:hover {
   border-color: var(--ink);
   background: var(--ink);
   color: var(--paper-raised);
-  padding-inline: 0.55rem;
+}
+
+.terminal-reader-page .reader-composer .reader-icon-button {
+  padding: 0;
 }
 
 .terminal-reader-page .reader-composer .reader-add-files {
@@ -1437,6 +1440,13 @@ button.terminal-row:hover {
   border: 0;
   background: transparent;
   color: var(--accent);
+}
+
+.terminal-reader-page .reader-composer .reader-file-menu button {
+  border: 0;
+  background: var(--paper-raised);
+  color: var(--ink);
+  padding-inline: 0.65rem;
 }
 
 .terminal-reader-page .reader-send-feedback button {

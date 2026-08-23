@@ -16,9 +16,20 @@ export interface TerminalFileOutcome {
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 const results = new Set<TerminalFileResult>(["forwarded", "not_sent", "occupied", "unknown"]);
+const preparedFileData = new WeakMap<File, Promise<string>>();
 
 export function uploadStateAfterLastFileRemoved(state: ReaderInputState): ReaderInputState {
   return state === "failed" || state === "occupied" || state === "uncertain" ? "ready" : state;
+}
+
+export async function prepareTerminalFiles(files: readonly File[]): Promise<void> {
+  await Promise.all(files.map(async (file) => {
+    try {
+      await terminalFileData(file);
+    } catch {
+      // Preserve selection; the existing send path will retry the read and report a definite failure if needed.
+    }
+  }));
 }
 
 export async function sendTerminalFiles(
@@ -34,7 +45,7 @@ export async function sendTerminalFiles(
     encoded = [];
     for (const file of files) {
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-      encoded.push({ data: bytesToBase64(new Uint8Array(await file.arrayBuffer())), name: file.name });
+      encoded.push({ data: await terminalFileData(file), name: file.name });
     }
   } catch (error) {
     if (signal.aborted) throw error;
@@ -80,6 +91,17 @@ export async function sendTerminalFiles(
       result: "unknown",
     };
   }
+}
+
+function terminalFileData(file: File): Promise<string> {
+  const prepared = preparedFileData.get(file);
+  if (prepared) return prepared;
+  const preparation = file.arrayBuffer().then((value) => bytesToBase64(new Uint8Array(value)));
+  preparedFileData.set(file, preparation);
+  void preparation.catch(() => {
+    if (preparedFileData.get(file) === preparation) preparedFileData.delete(file);
+  });
+  return preparation;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
