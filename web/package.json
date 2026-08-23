@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --minify --outfile=dist/app.js && esbuild src/terminal-lab.ts --bundle --minify --outfile=dist/terminal-lab.js && esbuild src/terminal-lab.css --bundle --minify --outfile=dist/terminal-lab.css && cp src/index.html src/terminal-lab.html src/manifest.webmanifest src/service-worker.js src/icon.svg src/icon-192.png src/icon-512.png src/apple-touch-icon.png dist/ && cp node_modules/@wterm/ghostty/wasm/ghostty-vt.wasm dist/ghostty-vt.wasm",
+    "build": "node --max-old-space-size=512 scripts/build.mjs",
     "test": "node --max-old-space-size=512 --import tsx --test src/*.test.ts",
     "test:home": "node --max-old-space-size=512 --import tsx --test src/browser-state.test.ts src/home-actions.test.ts src/home-connection.test.ts src/home-model.test.ts src/home-parser.test.ts src/workspace-actions.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "node --max-old-space-size=512 node_modules/typescript/bin/tsc --noEmit"
   },
   "devDependencies": {
     "esbuild": "0.25.9",

@@ -28,7 +28,7 @@ Exact paths and raw errors appear only when they help the person act. IDs and in
 The current product has two main screens:
 
 - **Home** — see every current workspace and terminal, with agent status and attention when an agent is present.
-- **Terminal** — read one exact current terminal and send text or shortcuts when needed.
+- **Terminal** — read one exact current terminal and send text or shortcuts when needed; when a recognized agent is present, select files to send as local paths.
 
 Workspace management uses small sheets from Home rather than another main screen. Notification settings are reached from Home or Terminal.
 
@@ -119,6 +119,12 @@ On a phone, use Reader for stable reading, browser selection, text entry, and te
 
 During a temporary disconnect, an already-open Reader text composer stays open and locally editable, preserving its draft, selection, and focus. **Send** and remote shortcuts are unavailable until recovery. Reconnecting does not reopen or refocus a composer the person closed or unfocused.
 
+Inside the phone composer, show **Add files** only while the exact current terminal has a Herdr-recognized agent. Do not leave a disabled file placeholder on an ordinary terminal. Use the ordinary arbitrary-file picker without forcing camera capture. The platform decides which Files, camera, or photo-library sources it offers, whether multiple selection is available, and how focus returns.
+
+Pending files use compact familiar rows with recognizable filename, size, and **Remove**. A browser-decodable image may show a small local thumbnail. Keep pending files and text through picker cancel, temporary disconnect, definite not-sent results, and unknown results. A person may send files without text. After confirmed forwarding, clear the text and pending files; after an unknown result, tell the person to check the terminal before deliberately sending again. Do not retry automatically.
+
+File language stays local and truthful: Shepherdr sends filesystem paths through Terminal. Do not say the files were attached to a provider, delivered to a model, or read by an agent.
+
 The exact phone sending and takeover rules, desktop behavior, and current acceptance record live in `terminal-direction.md`. Do not duplicate them in interface copy.
 
 ## Notifications
@@ -159,6 +165,7 @@ All interactive targets are at least 44 by 44 CSS pixels. While an action is run
 - Keep the main actions within thumb reach without covering content.
 - Make interactive targets at least 44 by 44 CSS pixels.
 - Respect safe areas, browser controls, and device rotation.
+- Keep pending file rows dense enough for a narrow phone while preserving 44-by-44 **Add files** and **Remove** targets.
 - Preserve Home reading, scroll, focus, and expansion state when temporarily filtering or leaving and returning.
 - Use wider screens to reveal useful context, not merely stretch the phone layout.
 

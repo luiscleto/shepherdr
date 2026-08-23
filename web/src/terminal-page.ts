@@ -2,6 +2,7 @@ import { terminalKeySequences, terminalSubmission } from "./terminal-input";
 import { settingsAction } from "./settings-action";
 import type { TerminalDimensions } from "./terminal/adapter";
 import { terminalReaderForDevice } from "./terminal/device";
+import { sendTerminalFiles } from "./terminal/file-uploads";
 import { nextTerminalOwnership, terminalOwnershipAction, type TerminalOwnership } from "./terminal/ownership";
 import { readerActionAvailability, type ReaderInputState } from "./terminal/reader-availability";
 import { ReaderInputQueue } from "./terminal/reader-input";
@@ -14,6 +15,7 @@ export interface TerminalPageTarget {
   paneID: string;
   terminalID: string;
   title: string;
+  workspaceID: string;
 }
 
 interface TerminalPageOptions {
@@ -63,16 +65,21 @@ export class TerminalPage {
   #readerInput: ReaderInputQueue | undefined;
   #readerMode: boolean;
   #readerTextQueued = false;
+  #uploadAbort: AbortController | undefined;
+  #uploadAttempt = 0;
+  #uploadState: ReaderInputState = "ready";
   #status: HTMLSpanElement;
   #surface: HTMLDivElement;
   #title: HTMLHeadingElement;
   #xterm: XTermAdapter | undefined;
+  #workspaceID: string;
 
   constructor(host: HTMLElement, target: TerminalPageTarget, options: TerminalPageOptions) {
     this.#host = host;
     this.#agentStatus = target.agentStatus;
     this.paneID = target.paneID;
     this.terminalID = target.terminalID;
+    this.#workspaceID = target.workspaceID;
     this.#readerMode = terminalReaderForDevice();
 
     const header = element("header", "terminal-header");
@@ -101,6 +108,7 @@ export class TerminalPage {
     this.#title.textContent = title;
     this.#surface.setAttribute("aria-label", title);
     this.#agentStatus = agentStatus;
+    this.#syncReaderActions();
     this.#renderStatus();
   }
 
@@ -116,6 +124,9 @@ export class TerminalPage {
     controller?.disconnect();
     this.#readerInput?.clearTarget();
     this.#readerInput = undefined;
+    this.#uploadAttempt++;
+    this.#uploadAbort?.abort();
+    this.#uploadAbort = undefined;
     this.#reader?.destroy();
     this.#reader = undefined;
     this.#xterm?.destroy();
@@ -131,7 +142,11 @@ export class TerminalPage {
         this.#renderStatus();
       },
       onStatus: (message) => this.#setStatus(message),
-      onSubmit: (text) => {
+      onSubmit: (text, files) => {
+        if (files.length > 0) {
+          void this.#sendFiles(false);
+          return true;
+        }
         const queued = this.#readerInput?.enqueueBatch(terminalSubmission(text)) ?? false;
         if (queued) this.#readerTextQueued = true;
         return queued;
@@ -197,8 +212,12 @@ export class TerminalPage {
 
   #syncReaderActions(): void {
     if (!this.#readerMode) return;
-    const availability = readerActionAvailability(this.#observerReady, this.#readerInput?.state() ?? "ready");
+    const state = this.#uploadState !== "ready" ? this.#uploadState : this.#readerInput?.state() ?? "ready";
+    const fileRecovery = this.#uploadState !== "ready" && this.#uploadState !== "uncertain";
+    const availability = readerActionAvailability(this.#observerReady, state);
+    if (fileRecovery && this.#agentStatus === undefined) availability.recover = false;
     this.#reader?.setActionAvailability(availability);
+    this.#reader?.setFileSelectionAvailable(this.#observerReady && this.#agentStatus !== undefined && state === "ready");
     for (const button of this.#commandButtons) button.disabled = !availability.send;
   }
 
@@ -207,7 +226,7 @@ export class TerminalPage {
       this.#setStatus(this.#hasObserved ? "Reconnecting" : "Connecting");
       return;
     }
-    const inputState = this.#readerInput?.state() ?? "ready";
+    const inputState = this.#uploadState !== "ready" ? this.#uploadState : this.#readerInput?.state() ?? "ready";
     const status = ({
       failed: "Could not send · observing",
       forwarding: "Forwarding input",
@@ -216,7 +235,65 @@ export class TerminalPage {
       requesting: "Requesting control",
       uncertain: "Delivery uncertain · observing",
     } satisfies Record<ReaderInputState, string>)[inputState];
-    this.#setStatus(status);
+    this.#setStatus(this.#uploadState === "requesting" ? "Sending files" : status);
+  }
+
+  async #sendFiles(takeover: boolean): Promise<void> {
+    const reader = this.#reader;
+    if (!reader || this.#uploadState !== "ready" && this.#uploadState !== "failed" && this.#uploadState !== "occupied" ||
+      !this.#observerReady || this.#agentStatus === undefined || !reader.hasPendingFiles()) return;
+    this.#uploadState = "requesting";
+    const attempt = ++this.#uploadAttempt;
+    const abort = new AbortController();
+    this.#uploadAbort?.abort();
+    this.#uploadAbort = abort;
+    reader.filesSending();
+    this.#syncReaderActions();
+    this.#renderReaderStatus();
+    try {
+      const outcome = await sendTerminalFiles({
+        paneID: this.paneID,
+        terminalID: this.terminalID,
+        workspaceID: this.#workspaceID,
+      }, reader.draftText(), reader.pendingFiles(), takeover, abort.signal);
+      if (this.#destroyed || attempt !== this.#uploadAttempt) return;
+      this.#uploadAbort = undefined;
+      switch (outcome.result) {
+      case "forwarded":
+        this.#uploadState = "ready";
+        reader.inputForwarded(true, true);
+        reader.hideComposer();
+        break;
+      case "occupied":
+        this.#uploadState = "occupied";
+        reader.inputOccupied(outcome.message, () => {
+          if (window.confirm("Take control? The current controller will lose input.")) void this.#sendFiles(true);
+        });
+        break;
+      case "unknown":
+        this.#uploadState = "uncertain";
+        reader.inputUncertain(outcome.message, () => {
+          this.#uploadState = "ready";
+          this.#syncReaderActions();
+          this.#renderReaderStatus();
+        });
+        break;
+      default:
+        this.#uploadState = "failed";
+        reader.inputFailed(outcome.message, () => void this.#sendFiles(false));
+      }
+    } catch {
+      if (this.#destroyed || attempt !== this.#uploadAttempt) return;
+      this.#uploadAbort = undefined;
+      this.#uploadState = "uncertain";
+      reader.inputUncertain("The result could not be confirmed. Check the terminal before sending the files again.", () => {
+        this.#uploadState = "ready";
+        this.#syncReaderActions();
+        this.#renderReaderStatus();
+      });
+    }
+    this.#syncReaderActions();
+    this.#renderReaderStatus();
   }
 
   async #startDesktop(): Promise<void> {

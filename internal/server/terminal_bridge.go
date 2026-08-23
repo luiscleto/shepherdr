@@ -454,19 +454,19 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 				_ = writeTerminalStatus(connection, "Sign in again")
 				return
 			}
-			for _, childCommand := range browserCommand.childCommands {
-				if lease != nil && !lease.Valid() {
-					_ = writeTerminalStatus(connection, "This terminal was replaced")
-					return
-				}
-				if err := withCommitAuthority(request, func() error {
-					return json.NewEncoder(stdin).Encode(childCommand)
-				}); err != nil {
-					if requestAuthorityValid(request) {
-						_ = writeTerminalStatus(connection, "Herdr input stream closed")
+			outcome, err := forwardTerminalBatch(request, lease, stdin, browserCommand.childCommands)
+			if outcome != terminalBatchForwarded {
+				if requestAuthorityValid(request) {
+					message := "Herdr input stream closed"
+					if lease != nil && !lease.Valid() {
+						message = "This terminal was replaced"
 					}
-					return
+					_ = writeTerminalStatus(connection, message)
 				}
+				if err != nil {
+					bridge.logger.Debug("terminal input batch stopped", "pane", settings.pane, "outcome", outcome, "error", err)
+				}
+				return
 			}
 			if browserCommand.requestID > 0 {
 				if err := withCommitAuthority(request, func() error {

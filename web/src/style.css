@@ -1427,6 +1427,18 @@ button.terminal-row:hover {
   padding-inline: 0.55rem;
 }
 
+.terminal-reader-page .reader-composer .reader-add-files {
+  border-color: var(--line-strong);
+  background: var(--paper-raised);
+  color: var(--accent);
+}
+
+.terminal-reader-page .reader-composer .reader-file-chip button {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+}
+
 .terminal-reader-page .reader-send-feedback button {
   min-height: 36px;
 }

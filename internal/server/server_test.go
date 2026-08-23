@@ -54,7 +54,7 @@ func TestSecurityHeadersConfineBrowserContent(t *testing.T) {
 		writer.WriteHeader(204)
 	}), false).ServeHTTP(response, request)
 	policy := response.Header().Get("Content-Security-Policy")
-	if !strings.Contains(policy, "object-src 'none'") || !strings.Contains(policy, "connect-src 'self'") {
+	if !strings.Contains(policy, "object-src 'none'") || !strings.Contains(policy, "connect-src 'self'") || !strings.Contains(policy, "img-src 'self' data: blob:") {
 		t.Fatalf("unexpected content security policy %q", policy)
 	}
 }

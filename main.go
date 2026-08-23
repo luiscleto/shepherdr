@@ -23,6 +23,7 @@ import (
 	"github.com/luisc/shepherdr/internal/herdr"
 	"github.com/luisc/shepherdr/internal/notifications"
 	"github.com/luisc/shepherdr/internal/server"
+	"github.com/luisc/shepherdr/internal/uploads"
 	"github.com/mdp/qrterminal/v3"
 )
 
@@ -52,10 +53,13 @@ func run() error {
 	var vapidContact optionalStringFlag
 	flag.Var(&vapidContact, "vapid-contact", "operator contact for Web Push (mailto: or HTTPS URI)")
 	resetNotifications := flag.Bool("reset-notifications", false, "clear notification subscriptions, keys, and contact, then exit")
+	uploadParent := flag.String("upload-parent", os.TempDir(), "parent directory for workspace file uploads")
+	uploadLimitText := flag.String("upload-limit", "50MiB", "decoded file bytes allowed per send: bytes, KiB, MiB, GiB, or none")
 	flag.Parse()
 
 	notificationPath, notificationPathErr := notifications.DefaultStatePath()
 	accessPath, accessPathErr := access.DefaultStatePath()
+	uploadPath, uploadPathErr := uploads.DefaultStatePath()
 	if accessPathErr != nil {
 		return accessPathErr
 	}
@@ -64,7 +68,8 @@ func run() error {
 			return fmt.Errorf("unknown command %q", flag.Args()[0])
 		}
 		if *noSignIn || publicOrigin.set || sessionLifetime.set || vapidContact.set || *resetNotifications ||
-			flagWasSet("listen") || flagWasSet("herdr-socket") || flagWasSet("terminal-lab") {
+			flagWasSet("listen") || flagWasSet("herdr-socket") || flagWasSet("terminal-lab") ||
+			flagWasSet("upload-parent") || flagWasSet("upload-limit") {
 			return errors.New("access commands cannot be combined with server configuration flags")
 		}
 		if notificationPathErr != nil {
@@ -74,6 +79,13 @@ func run() error {
 	}
 	if *noSignIn && (publicOrigin.set || sessionLifetime.set) {
 		return errors.New("-no-sign-in cannot be combined with -public-origin or -session-lifetime")
+	}
+	if uploadPathErr != nil {
+		return uploadPathErr
+	}
+	uploadLimit, err := uploads.ParseLimit(*uploadLimitText)
+	if err != nil {
+		return fmt.Errorf("-upload-limit: %w", err)
 	}
 	if *resetNotifications {
 		if notificationPathErr != nil {
@@ -145,6 +157,11 @@ func run() error {
 			printInvitation(os.Stdout, protectedOrigin.InvitationURL(opened.BootstrapToken))
 		}
 	}
+	uploadManager, err := uploads.Open(*uploadParent, uploadPath, logger)
+	if err != nil {
+		return fmt.Errorf("open terminal file uploads: %w", err)
+	}
+	defer uploadManager.Close()
 	var notificationStore *notifications.Store
 	var notificationWarning error
 	if notificationPathErr != nil {
@@ -166,6 +183,7 @@ func run() error {
 	client := herdr.NewClient(*socketPath)
 	projector := herdr.NewProjector(client)
 	projector.SetSnapshotObserver(notificationManager)
+	projector.SetPublishedSnapshotObserver(uploadManager)
 	herdrBinary, err := exec.LookPath("herdr")
 	if err != nil {
 		return fmt.Errorf("find herdr executable for terminal access: %w", err)
@@ -173,6 +191,7 @@ func run() error {
 	terminal := server.NewTerminalBridge(herdrBinary, *socketPath, logger, projector)
 	defer terminal.Close()
 	application := server.New(assets, projector, terminal, *terminalLabEnabled, client)
+	application.SetFileUploads(uploadManager, uploadLimit)
 	application.SetNotifications(notificationManager)
 	if accessManager != nil {
 		application.ConfigureProtectedAccess(accessManager)
@@ -201,7 +220,7 @@ func run() error {
 	if accessManager != nil {
 		address = protectedOrigin.Value
 	}
-	logger.Info("Shepherdr is ready", "address", address, "local_address", "http://"+listener.Addr().String(), "herdr_socket", *socketPath, "terminal_lab", *terminalLabEnabled, "sign_in_off", *noSignIn)
+	logger.Info("Shepherdr is ready", "address", address, "local_address", "http://"+listener.Addr().String(), "herdr_socket", *socketPath, "terminal_lab", *terminalLabEnabled, "sign_in_off", *noSignIn, "upload_parent", *uploadParent, "upload_limit", *uploadLimitText)
 
 	select {
 	case <-ctx.Done():

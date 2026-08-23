@@ -12,7 +12,7 @@ interface ReaderEvents {
   onLog(event: string, detail?: unknown): void;
   onNewOutput?(available: boolean): void;
   onStatus(message: string): void;
-  onSubmit(text: string): boolean;
+  onSubmit(text: string, files: readonly File[]): boolean;
 }
 
 interface ReaderOptions {
@@ -33,11 +33,16 @@ export function pauseReaderLiveRefresh(atLatest: boolean, hasSelection: boolean)
 }
 
 export class ReaderView {
+  #addFiles: HTMLButtonElement;
   #abort: AbortController | undefined;
+  #closeComposer: HTMLButtonElement | undefined;
   #collapsibleComposer: boolean;
   #composer: HTMLDivElement;
   #dimensions: TerminalDimensions = { cols: 80, rows: 24 };
   #events: ReaderEvents;
+  #fileInput: HTMLInputElement;
+  #fileList: HTMLDivElement;
+  #fileSelectionAvailable = false;
   #historyLines = historyPageLines;
   #historyRefreshPending = false;
   #host: HTMLElement;
@@ -49,6 +54,8 @@ export class ReaderView {
   #newOutput = false;
   #output: HTMLDivElement;
   #pane = "";
+  #pendingFiles: Array<{ file: File; preview?: string }> = [];
+  #submissionActive = false;
   #refreshTimer: number | undefined;
   #refreshQueued: { force: boolean; preserveTop: boolean } | undefined;
   #send: HTMLButtonElement;
@@ -98,6 +105,19 @@ export class ReaderView {
     this.#input.autocapitalize = "off";
     this.#input.autocomplete = "off";
     this.#input.spellcheck = false;
+    this.#fileInput = document.createElement("input");
+    this.#fileInput.type = "file";
+    this.#fileInput.multiple = true;
+    this.#fileInput.hidden = true;
+    this.#addFiles = document.createElement("button");
+    this.#addFiles.type = "button";
+    this.#addFiles.className = "reader-add-files";
+    this.#addFiles.textContent = "Add files";
+    this.#addFiles.hidden = true;
+    this.#fileList = document.createElement("div");
+    this.#fileList.className = "reader-file-list";
+    this.#fileList.setAttribute("aria-label", "Pending files");
+    this.#fileList.hidden = true;
     this.#send = document.createElement("button");
     this.#send.type = "button";
     this.#send.textContent = "Send text";
@@ -112,16 +132,18 @@ export class ReaderView {
     this.#takeoverSend.type = "button";
     this.#takeoverSend.textContent = "Take over and send";
     this.#sendFeedback.append(this.#sendFeedbackMessage, this.#retrySend, this.#takeoverSend);
-    this.#composer.append(this.#input, this.#send);
+    this.#composer.append(this.#input, this.#addFiles, this.#send);
     if (this.#collapsibleComposer) {
       const close = document.createElement("button");
       close.type = "button";
       close.className = "reader-composer-close";
       close.textContent = "Close";
       close.addEventListener("click", () => this.hideComposer());
+      this.#closeComposer = close;
       this.#composer.append(close);
       this.#composer.hidden = true;
     }
+    this.#composer.append(this.#fileInput, this.#fileList);
     host.replaceChildren(this.#scroll, this.#composer, this.#sendFeedback);
 
     this.#intersectionObserver = new IntersectionObserver((entries) => {
@@ -149,8 +171,17 @@ export class ReaderView {
     document.addEventListener("selectionchange", this.#selectionChange);
     this.#retrySend.addEventListener("click", () => this.#retryAction?.());
     this.#takeoverSend.addEventListener("click", () => this.#takeoverAction?.());
+    this.#addFiles.addEventListener("click", () => this.#fileInput.click());
+    this.#fileInput.addEventListener("change", () => {
+      const selected = Array.from(this.#fileInput.files ?? []);
+      this.#fileInput.value = "";
+      if (selected.length === 0) return;
+      for (const file of selected) this.#addPendingFile(file);
+      this.#renderPendingFiles();
+    });
+    this.#input.addEventListener("input", () => this.#syncSubmit());
     this.#send.addEventListener("click", () => {
-      if (!this.#sendAvailable || !this.#input.value || !this.#events.onSubmit(this.#input.value)) return;
+      if (!this.#canSubmit() || !this.#events.onSubmit(this.#input.value, this.pendingFiles())) return;
       this.#events.onLog("reader.input", { characters: this.#input.value.length });
     });
     this.setActionAvailability({ observerReady: false, recover: false, send: false });
@@ -246,11 +277,31 @@ export class ReaderView {
   setActionAvailability(availability: ReaderActionAvailability): void {
     this.#sendAvailable = availability.send;
     const keepOpenForEditing = this.#collapsibleComposer && !this.#composer.hidden && !availability.observerReady;
-    this.#input.disabled = !availability.send && !keepOpenForEditing;
-    this.#send.disabled = !availability.send;
+    this.#input.disabled = this.#submissionActive || !availability.send && !keepOpenForEditing;
+    this.#addFiles.disabled = this.#submissionActive || !availability.send;
+    if (this.#closeComposer) this.#closeComposer.disabled = this.#submissionActive;
     this.#retrySend.disabled = !availability.recover;
     this.#takeoverSend.disabled = !availability.recover;
     this.#input.placeholder = availability.observerReady ? "Type text to send" : "Connect to send text";
+    this.#syncSubmit();
+  }
+
+  setFileSelectionAvailable(available: boolean): void {
+    this.#fileSelectionAvailable = available;
+    this.#addFiles.hidden = !available;
+    this.#syncSubmit();
+  }
+
+  pendingFiles(): File[] {
+    return this.#pendingFiles.map(({ file }) => file);
+  }
+
+  draftText(): string {
+    return this.#input.value;
+  }
+
+  hasPendingFiles(): boolean {
+    return this.#pendingFiles.length > 0;
   }
 
   showComposer(): void {
@@ -260,7 +311,7 @@ export class ReaderView {
   }
 
   hideComposer(): void {
-    if (!this.#collapsibleComposer) return;
+    if (!this.#collapsibleComposer || this.#submissionActive) return;
     this.#composer.hidden = true;
     this.#input.blur();
     if (!this.#sendAvailable) this.#input.disabled = true;
@@ -273,22 +324,40 @@ export class ReaderView {
     this.#takeoverSend.hidden = true;
   }
 
-  inputForwarded(clearText: boolean): void {
+  filesSending(): void {
+    this.#submissionActive = true;
+    this.#input.disabled = true;
+    this.#addFiles.disabled = true;
+    if (this.#closeComposer) this.#closeComposer.disabled = true;
+    this.#renderPendingFiles();
+    this.#sendFeedback.hidden = false;
+    this.#sendFeedbackMessage.textContent = "Sending files…";
+    this.#retrySend.hidden = true;
+    this.#takeoverSend.hidden = true;
+  }
+
+  inputForwarded(clearText: boolean, clearFiles = false): void {
+    this.#submissionFinished();
     if (clearText) this.#input.value = "";
+    if (clearFiles) this.#clearPendingFiles();
     this.#sendFeedback.hidden = true;
     this.#retryAction = undefined;
     this.#takeoverAction = undefined;
+    this.#syncSubmit();
   }
 
   inputFailed(message: string, retry: () => void): void {
+    this.#submissionFinished();
     this.#showRecovery(message, { label: "Try again", run: retry }, undefined);
   }
 
   inputOccupied(message: string, takeover: () => void): void {
+    this.#submissionFinished();
     this.#showRecovery(message, undefined, takeover);
   }
 
   inputUncertain(message: string, dismiss: () => void): void {
+    this.#submissionFinished();
     this.#showRecovery(message, {
       label: "Dismiss",
       run: () => {
@@ -342,8 +411,83 @@ export class ReaderView {
     this.#intersectionObserver.disconnect();
     document.removeEventListener("selectionchange", this.#selectionChange);
     if (this.#refreshTimer !== undefined) window.clearTimeout(this.#refreshTimer);
+    this.#clearPendingFiles();
     this.#host.classList.remove("reader-surface");
     this.#host.replaceChildren();
+  }
+
+  #addPendingFile(file: File): void {
+    let preview: string | undefined;
+    const url = this.#host.ownerDocument.defaultView?.URL;
+    if (file.type.startsWith("image/") && typeof url?.createObjectURL === "function") {
+      preview = url.createObjectURL(file);
+    }
+    this.#pendingFiles.push({ file, preview });
+  }
+
+  #clearPendingFiles(): void {
+    for (const pending of this.#pendingFiles) this.#revokePreview(pending.preview);
+    this.#pendingFiles = [];
+    this.#renderPendingFiles();
+  }
+
+  #removePendingFile(index: number): void {
+    const [removed] = this.#pendingFiles.splice(index, 1);
+    this.#revokePreview(removed?.preview);
+    this.#renderPendingFiles();
+  }
+
+  #revokePreview(preview?: string): void {
+    const url = this.#host.ownerDocument.defaultView?.URL;
+    if (preview && typeof url?.revokeObjectURL === "function") url.revokeObjectURL(preview);
+  }
+
+  #renderPendingFiles(): void {
+    this.#fileList.replaceChildren();
+    this.#fileList.hidden = this.#pendingFiles.length === 0;
+    this.#pendingFiles.forEach((pending, index) => {
+      const chip = document.createElement("div");
+      chip.className = "reader-file-chip";
+      if (pending.preview) {
+        const thumbnail = document.createElement("img");
+        thumbnail.alt = "";
+        thumbnail.src = pending.preview;
+        thumbnail.addEventListener("error", () => {
+          this.#revokePreview(pending.preview);
+          pending.preview = undefined;
+          thumbnail.remove();
+        }, { once: true });
+        chip.append(thumbnail);
+      }
+      const detail = document.createElement("span");
+      detail.textContent = `${pending.file.name || "file"} · ${formatFileSize(pending.file.size)}`;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Remove";
+      remove.disabled = this.#submissionActive;
+      remove.setAttribute("aria-label", `Remove ${pending.file.name || "file"}`);
+      remove.addEventListener("click", () => this.#removePendingFile(index));
+      chip.append(detail, remove);
+      this.#fileList.append(chip);
+    });
+    this.#syncSubmit();
+  }
+
+  #canSubmit(): boolean {
+    return !this.#submissionActive && this.#sendAvailable && (this.#input.value.length > 0 || this.#pendingFiles.length > 0) &&
+      (this.#pendingFiles.length === 0 || this.#fileSelectionAvailable);
+  }
+
+  #submissionFinished(): void {
+    if (!this.#submissionActive) return;
+    this.#submissionActive = false;
+    if (this.#closeComposer) this.#closeComposer.disabled = false;
+    this.#renderPendingFiles();
+  }
+
+  #syncSubmit(): void {
+    this.#send.disabled = !this.#canSubmit();
+    this.#send.textContent = this.#pendingFiles.length > 0 ? "Send" : "Send text";
   }
 
   #hasSelection(): boolean {
@@ -397,4 +541,10 @@ export class ReaderView {
     else if (followBottom) this.#scroll.scrollTop = this.#scroll.scrollHeight;
     else this.#scroll.scrollTop = oldTop;
   }
+}
+
+function formatFileSize(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(size < 10 * 1024 ? 1 : 0)} KiB`;
+  return `${(size / (1024 * 1024)).toFixed(size < 10 * 1024 * 1024 ? 1 : 0)} MiB`;
 }

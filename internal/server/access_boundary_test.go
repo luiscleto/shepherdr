@@ -76,6 +76,7 @@ func TestProtectedRouteInventoryIsDenyByDefault(t *testing.T) {
 		{http.MethodPost, "/api/notifications/config", routeProtected},
 		{http.MethodPost, "/api/notifications/settings/read", routeProtected},
 		{http.MethodPost, "/api/notifications/settings", routeProtected},
+		{http.MethodPost, "/api/terminal/files", routeProtected},
 		{http.MethodDelete, "/api/notifications/settings", routeProtected},
 		{http.MethodGet, "/api", routeUnknown},
 		{http.MethodGet, "/api/unknown", routeUnknown},

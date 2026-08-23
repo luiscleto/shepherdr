@@ -480,6 +480,7 @@ function renderTerminal(paneID: string, expectedTerminalID?: string): void {
     paneID,
     terminalID: entry.terminal.terminal_id,
     title: entry.terminal.title,
+    workspaceID: entry.workspace.id,
   }, { onHome: leaveTerminal, onNotifications: () => notifications.openSettings() });
 }
 

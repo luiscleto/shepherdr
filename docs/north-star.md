@@ -4,7 +4,7 @@ Status: proposed
 
 Scope: the current product
 
-The current runnable product includes Home, Terminal, workspace management, and per-browser notifications. All four have passed their acceptance gates. Sign-in and device trust have approved architecture but are not implemented.
+The current runnable product includes Home, Terminal with local file sending, workspace management, and per-browser notifications. The earlier four product areas have passed their acceptance gates; the Terminal file-send addition still requires its Wave 05 real-phone gate. Sign-in and device trust have approved architecture but are not implemented.
 
 ## The promise
 
@@ -70,6 +70,8 @@ Home offers **Open** only for a current real terminal it can resolve exactly and
 
 On a phone, Terminal observes between sends. Phone sending, takeover behavior, desktop controls, and the completed real-phone gate are recorded in `terminal-direction.md`.
 
+While the exact current terminal has a Herdr-recognized agent, the phone composer may select arbitrary files, remove pending files, and send files with or without text. Shepherdr stages opaque bytes locally and sends their absolute filesystem paths as one Terminal batch. It does not claim provider-native attachment delivery or that an agent read a file. Files belong to the exact workspace, not an agent lifecycle; agent exit, replacement, reconnect, and status changes do not clean them.
+
 Use only terminal capabilities Herdr already exposes. Do not build another agent runtime or infer product state from terminal output.
 
 ## Notifications
@@ -100,7 +102,7 @@ Show only actions and state that exist. Never claim success before Herdr or the 
 
 Reconnects, restarts, offline devices, and interrupted actions must leave the person with a clear and truthful view of what is known.
 
-Treat Herdr output, names, agents, terminal identities, terminal content, repository files, attachments, and pasted content as untrusted. Merely displaying that content must never give it Shepherdr application authority. A displayed identity cannot grant authority or redirect to other work.
+Treat Herdr output, names, agents, terminal identities, terminal content, repository files, uploaded files, paths, attachments, and pasted content as untrusted. Merely displaying that content must never give it Shepherdr application authority. A displayed identity cannot grant authority or redirect to other work.
 
 The current product uses only capabilities Herdr already exposes. Do not invent Herdr interfaces.
 
@@ -116,4 +118,4 @@ The current product uses only capabilities Herdr already exposes. Do not invent 
 
 ## How we will know it works
 
-Use production Shepherdr with a real Herdr server and a real phone. Compare flat and worktree-nested Home with Herdr, check every terminal and exact agent total, exercise expansion and Blocked place restoration, and verify that ordinary updates do not blink, move the page, or change the connection badge. A normal refresh must load the current interface. Terminal acceptance follows `terminal-direction.md`; record only the behavior actually exercised. Exercise workspace creation, worktree creation, close scope, clean deletion, dirty refusal, interrupted results, and hostile input through real Herdr. Notification acceptance follows `notification-architecture-proposal.md` and uses a real Android phone plus a second browser or profile. Tests and emulator checks support confidence, but the real phone workflow is the gate.
+Use production Shepherdr with a real Herdr server and a real phone. Compare flat and worktree-nested Home with Herdr, check every terminal and exact agent total, exercise expansion and Blocked place restoration, and verify that ordinary updates do not blink, move the page, or change the connection badge. A normal refresh must load the current interface. Terminal acceptance follows `terminal-direction.md`; record only the behavior actually exercised, including the phone's actually offered file sources and exact staged bytes and paths. Exercise workspace creation, worktree creation, close scope, clean deletion, dirty refusal, interrupted results, and hostile input through real Herdr. Notification acceptance follows `notification-architecture-proposal.md` and uses a real Android phone plus a second browser or profile. Tests and emulator checks support confidence, but the real phone workflow is the gate.

@@ -44,12 +44,56 @@
 
 .reader-composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: stretch;
   gap: 0.4rem;
   border-top: 1px solid var(--line-strong);
   padding: 0.4rem;
   background: var(--paper-raised);
+}
+
+.reader-file-list {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 0.35rem;
+}
+
+.reader-file-list[hidden] {
+  display: none;
+}
+
+.reader-file-chip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  padding-inline-start: 0.45rem;
+  background: var(--paper-recessed);
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+
+.reader-file-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-file-chip img {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  background: var(--paper-raised);
+}
+
+.reader-file-chip button {
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
 }
 
 .reader-composer textarea {

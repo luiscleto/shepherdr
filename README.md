@@ -57,6 +57,34 @@ To run explicitly without passkeys:
 
 Home opens directly and shows **Sign-in is off.** Anyone who can reach Shepherdr can act as the operator in this mode.
 
+## Send files from a phone
+
+In a phone Terminal, **Add files** appears only while that exact terminal currently has a Herdr-recognized agent. The ordinary picker accepts arbitrary files. A person can remove pending files, send files without text, or add text before sending. Images may show a small browser-local thumbnail; the thumbnail URL is never uploaded or persisted. The sources offered by Files, camera, or photo-library pickers, multi-selection, and focus restoration depend on the phone and browser. Shepherdr does not force camera capture or claim that every source is available.
+
+Shepherdr stages opaque bytes on the machine where it runs, then sends one Terminal batch containing absolute local paths under this heading:
+
+```text
+User uploaded files:
+- /tmp/shepherdr-review-…/notes.txt
+- /tmp/shepherdr-review-…/diagram (1).svg
+```
+
+These are filesystem paths for the agent to open. They are not provider-native attachments, and Terminal acknowledgement does not prove that an agent, provider, or model read a file. Shepherdr and the Herdr agents must run as the same operating-system account. Workspace directories are owner-only `0700`; markers and uploaded files are `0600`.
+
+Two start flags configure this feature:
+
+```sh
+./bin/shepherdr -upload-parent /absolute/staging/parent
+./bin/shepherdr -upload-limit 50MiB
+./bin/shepherdr -upload-limit none
+```
+
+`-upload-parent` defaults to the platform temporary directory, normally `/tmp` on Linux, and applies when a workspace upload directory is created. A previously recorded and verified workspace association continues to use its exact existing directory. `-upload-limit` is the total decoded file bytes in one send and defaults to `50MiB`; positive byte counts may use `KiB`, `MiB`, or `GiB`. In finite mode, the JSON body may contain the separately calculated base64 contribution of each file plus a fixed 1 MiB for names, text, target fields, and JSON structure. `none` removes both route bounds; the operator accepts that one request can consume large memory, transfer time, temporary storage, or available disk.
+
+Files remain available for that workspace across agent exit, replacement, reconnect, and Shepherdr restart. When a complete Herdr state shows the workspace is gone, Shepherdr best-effort removes only its exactly recorded and marked directory; startup also reconciles recorded associations against the first complete workspace set. A failed cleanup stays recorded so a later startup can try again. Shepherdr does not scan the temporary directory or promise crash-perfect orphan cleanup.
+
+Protected mode requires the existing valid session, exact Host and Origin, and JSON mutation boundary. Revocation cancels an in-flight request and waits for its rollback or unknown-result handling before releasing the session lease. In `-no-sign-in` mode, every browser that can reach Shepherdr retains operator authority.
+
 ## Manage trusted sign-ins
 
 Stop Shepherdr before using local access commands. Create another ten-minute invitation and QR code with:
@@ -140,7 +168,7 @@ Do not use `tailscale funnel`. Funnel makes the service public.
 - Close a workspace after showing the additional linked workspaces and nonzero agent counts that will also be affected.
 - Delete a clean linked-worktree checkout without force and without deleting its branch. Herdr refuses a checkout that has changes.
 - Open any current real Herdr terminal, whether or not it has an agent.
-- From a phone, send one text or shortcut batch and release control after it is acknowledged. See [Terminal direction](docs/terminal-direction.md).
+- From a phone, send one text or shortcut batch, or send arbitrary files to a recognized agent as local filesystem paths, and release control after Terminal forwarding is acknowledged. See [Terminal direction](docs/terminal-direction.md).
 - Keep the last complete Home after a connection drops. Terminals are not openable until Shepherdr reconnects.
 - Send per-browser notifications that name the relevant Herdr workspace for selected status transitions and workspace openings or closings.
 - Open the exact current terminal from a status notification, or show **Terminal unavailable** when that exact terminal is gone.
@@ -163,6 +191,7 @@ npm run build --prefix web
 - [Product direction](docs/north-star.md)
 - [Interface direction](docs/ui-direction.md)
 - [Terminal direction](docs/terminal-direction.md)
+- [Mobile Terminal file-upload architecture](docs/mobile-terminal-file-uploads-architecture-proposal.md)
 - [Notification architecture](docs/notification-architecture-proposal.md)
 - [Passkey access architecture](docs/passkey-device-architecture-proposal.md)
 

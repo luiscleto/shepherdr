@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -103,9 +104,30 @@ func TestTerminalBridgeHelperProcess(t *testing.T) {
 		target := arguments[3]
 		if target == "term-bad" {
 			fmt.Println(`{"bytes":"","encoding":"ansi","full":false,"height":24,"seq":1,"type":"terminal.frame","width":80}`)
+		} else if target == "term-occupied" {
+			fmt.Println(`{"reason":"another terminal already has an attached client","type":"terminal.closed"}`)
 		} else {
 			bytes := base64.StdEncoding.EncodeToString([]byte("full frame"))
 			fmt.Printf(`{"bytes":%q,"encoding":"ansi","full":true,"height":24,"seq":1,"type":"terminal.frame","width":80}`+"\n", bytes)
+		}
+		if target == "term-send" {
+			scanner := bufio.NewScanner(os.Stdin)
+			var received []string
+			for scanner.Scan() {
+				received = append(received, scanner.Text())
+				if strings.Contains(scanner.Text(), `"type":"terminal.release"`) {
+					for _, argument := range arguments {
+						if strings.HasPrefix(argument, "--record=") {
+							_ = os.WriteFile(strings.TrimPrefix(argument, "--record="), []byte(strings.Join(received, "\n")), 0o600)
+						}
+					}
+					return
+				}
+			}
+			return
+		}
+		if target == "term-occupied" {
+			return
 		}
 		time.Sleep(time.Hour)
 		return
@@ -116,6 +138,65 @@ func TestTerminalBridgeHelperProcess(t *testing.T) {
 		return
 	}
 	fmt.Print("history")
+}
+
+type failingBatchWriter struct {
+	calls   int
+	failAt  int
+	partial bool
+}
+
+func (writer *failingBatchWriter) Write(data []byte) (int, error) {
+	writer.calls++
+	if writer.calls == writer.failAt {
+		if writer.partial {
+			return min(1, len(data)), io.ErrClosedPipe
+		}
+		return 0, io.ErrClosedPipe
+	}
+	return len(data), nil
+}
+
+func TestSharedTerminalBatchClassifiesPreForwardAndPostForwardFailure(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files", nil)
+	commands := []any{map[string]string{"type": "terminal.input", "text": "paste"}, map[string]string{"type": "terminal.input", "text": "\r"}}
+	first := &failingBatchWriter{failAt: 1}
+	outcome, err := forwardTerminalBatch(request, nil, first, commands)
+	if outcome != terminalBatchNotSent || err == nil {
+		t.Fatalf("zero-byte first write failure = %d, %v", outcome, err)
+	}
+	partial := &failingBatchWriter{failAt: 1, partial: true}
+	outcome, err = forwardTerminalBatch(request, nil, partial, commands)
+	if outcome != terminalBatchUnknown || err == nil {
+		t.Fatalf("partial first write failure = %d, %v", outcome, err)
+	}
+	second := &failingBatchWriter{failAt: 2}
+	outcome, err = forwardTerminalBatch(request, nil, second, commands)
+	if outcome != terminalBatchUnknown || err == nil {
+		t.Fatalf("second write failure = %d, %v", outcome, err)
+	}
+	success := &failingBatchWriter{}
+	outcome, err = forwardTerminalBatch(request, nil, success, commands)
+	if outcome != terminalBatchForwarded || err != nil || success.calls != 2 {
+		t.Fatalf("successful batch = %d, %v, calls %d", outcome, err, success.calls)
+	}
+}
+
+func TestShortTerminalBatchUsesExactTargetAndReportsOccupied(t *testing.T) {
+	source := newFakeTerminalStateSource(liveTerminalState("pane-1", "term-send", 1))
+	bridge := testTerminalBridge(source)
+	defer bridge.Close()
+	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files", nil)
+	outcome, err := bridge.SendBatch(request, "pane-1", "term-send", false, []string{"paste", "\r"})
+	if outcome != terminalBatchForwarded || err != nil {
+		t.Fatalf("send outcome = %d, %v", outcome, err)
+	}
+
+	source.publish(liveTerminalState("pane-1", "term-occupied", 1))
+	outcome, err = bridge.SendBatch(request, "pane-1", "term-occupied", false, []string{"paste", "\r"})
+	if outcome != terminalBatchOccupied || err == nil {
+		t.Fatalf("occupied outcome = %d, %v", outcome, err)
+	}
 }
 
 func TestTerminalTargetLeaseFencesIdentityAndConnectionGeneration(t *testing.T) {

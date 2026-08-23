@@ -19,6 +19,7 @@ import (
 	"github.com/luisc/shepherdr/internal/access"
 	"github.com/luisc/shepherdr/internal/herdr"
 	"github.com/luisc/shepherdr/internal/notifications"
+	"github.com/luisc/shepherdr/internal/uploads"
 )
 
 const homeHeartbeatInterval = 2 * time.Second
@@ -30,6 +31,9 @@ type Server struct {
 	projector          *herdr.Projector
 	workspaceActions   *workspaceActionCoordinator
 	terminal           *TerminalBridge
+	fileUploads        *uploads.Manager
+	fileUploadLimit    uploads.Limit
+	fileUploadState    TerminalStateSource
 	notifications      *notifications.Manager
 	origin             access.Origin
 	signInOff          bool
@@ -83,6 +87,9 @@ func (s *Server) Handler() http.Handler {
 	if s.terminal != nil {
 		mux.HandleFunc("GET /api/terminal", s.terminalSocket)
 		mux.HandleFunc("GET /api/terminal/read", s.terminalRead)
+		if s.fileUploads != nil && s.fileUploadState != nil {
+			mux.HandleFunc("POST /api/terminal/files", s.terminalFileSend)
+		}
 	}
 	if s.notifications != nil {
 		mux.HandleFunc("POST /api/notifications/config", s.notificationConfig)
@@ -357,7 +364,7 @@ func securityHeaders(next http.Handler, terminalLabEnabled bool) http.Handler {
 			// One development-only candidate uses a WebAssembly terminal core.
 			scriptSource = "script-src 'self' 'wasm-unsafe-eval'"
 		}
-		writer.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; "+scriptSource+"; "+styleSource+"; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+		writer.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; "+scriptSource+"; "+styleSource+"; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 		writer.Header().Set("Referrer-Policy", "no-referrer")
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		writer.Header().Set("X-Frame-Options", "DENY")

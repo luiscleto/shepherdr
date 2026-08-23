@@ -6,12 +6,12 @@ Approved simplification: 2026-08-20
 
 ## Scope
 
-This document covers Home and its current workspace actions. Terminal and per-browser notifications have separate approved direction. Sign-in and device trust are not implemented; their boundary is in the [approved passkey and device architecture](passkey-device-architecture-proposal.md).
+This document covers Home and its current workspace actions. Terminal, mobile Terminal file sending, and per-browser notifications have separate approved direction. Sign-in and device trust have their boundary in the [approved passkey and device architecture](passkey-device-architecture-proposal.md); mobile file sending follows the [approved file-upload architecture](mobile-terminal-file-uploads-architecture-proposal.md).
 
 The current shape is small:
 
 1. One configured Herdr 0.8.0 session owns the real workspaces, terminals, agents, statuses, and worktree actions.
-2. One Go process talks to Herdr, serves the embedded browser UI on `localhost`, and keeps only the latest complete Home in memory. The same process performs the work in `notification-architecture-proposal.md` and stores only its approved notification state outside the repository.
+2. One Go process talks to Herdr, serves the embedded browser UI on `localhost`, and keeps only the latest complete Home in memory. The same process performs the work in `notification-architecture-proposal.md` and `mobile-terminal-file-uploads-architecture-proposal.md`, storing only their approved notification and exact workspace-upload association state outside the repository.
 3. The phone renders Home and opens the existing Terminal destination.
 
 There is no Home database, stored grouping, second runtime, or public hosting support.

@@ -33,6 +33,10 @@ type SnapshotObserver interface {
 	ObserveSnapshot(Snapshot, bool)
 }
 
+type PublishedSnapshotObserver interface {
+	ObservePublishedSnapshot(Snapshot, bool)
+}
+
 type Projector struct {
 	client  *Client
 	refresh chan struct{}
@@ -41,11 +45,18 @@ type Projector struct {
 	state     State
 	listeners map[chan State]struct{}
 	observer  SnapshotObserver
+	published PublishedSnapshotObserver
 }
 
 func (p *Projector) SetSnapshotObserver(observer SnapshotObserver) {
 	p.mu.Lock()
 	p.observer = observer
+	p.mu.Unlock()
+}
+
+func (p *Projector) SetPublishedSnapshotObserver(observer PublishedSnapshotObserver) {
+	p.mu.Lock()
+	p.published = observer
 	p.mu.Unlock()
 }
 
@@ -300,6 +311,7 @@ func (p *Projector) publishLiveObserved(snapshot Snapshot, baseline bool) bool {
 	state.Snapshot = snapshot
 	p.publishLocked(state)
 	p.mu.Unlock()
+	p.observePublishedSnapshot(snapshot, baseline)
 	return true
 }
 
@@ -309,6 +321,15 @@ func (p *Projector) observeSnapshot(snapshot Snapshot, baseline bool) {
 	p.mu.RUnlock()
 	if observer != nil {
 		observer.ObserveSnapshot(snapshot, baseline)
+	}
+}
+
+func (p *Projector) observePublishedSnapshot(snapshot Snapshot, baseline bool) {
+	p.mu.RLock()
+	observer := p.published
+	p.mu.RUnlock()
+	if observer != nil {
+		observer.ObservePublishedSnapshot(snapshot, baseline)
 	}
 }
 

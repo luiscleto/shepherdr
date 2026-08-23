@@ -118,6 +118,20 @@ type recordingSnapshotObserver struct {
 	observations []snapshotObservation
 }
 
+type publishedSnapshotCheck struct {
+	projector *Projector
+	called    bool
+	current   Snapshot
+}
+
+func (o *publishedSnapshotCheck) ObservePublishedSnapshot(snapshot Snapshot, _ bool) {
+	o.called = true
+	o.current = o.projector.Current().Snapshot
+	if !reflect.DeepEqual(o.current, snapshot) {
+		panic("published snapshot observer ran before current state was replaced")
+	}
+}
+
 func (o *recordingSnapshotObserver) ObserveSnapshot(snapshot Snapshot, baseline bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -150,6 +164,19 @@ func TestProjectorObservesOnlyValidatedPublicationsWithBaselineBoundary(t *testi
 	observations := observer.all()
 	if len(observations) != 2 || !observations[0].baseline || observations[1].baseline {
 		t.Fatalf("observations = %+v", observations)
+	}
+}
+
+func TestPublishedSnapshotObserverRunsAfterCurrentStatePublication(t *testing.T) {
+	projector := NewProjector(nil)
+	observer := &publishedSnapshotCheck{projector: projector}
+	projector.SetPublishedSnapshotObserver(observer)
+	snapshot := stableProjectorSnapshot()
+	if !projector.publishLiveObserved(snapshot, true) {
+		t.Fatal("valid snapshot was rejected")
+	}
+	if !observer.called || !reflect.DeepEqual(observer.current, snapshot) {
+		t.Fatal("post-publication observer did not see the complete current snapshot")
 	}
 }
 
