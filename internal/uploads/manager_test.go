@@ -37,7 +37,7 @@ func TestStageCreatesVerifiedOwnerOnlyAssociationAndRecognizableConflictNames(t 
 		{Name: `C:\\fakepath\\diagram.svg`, Data: []byte("first")},
 		{Name: "../diagram.svg", Data: []byte("second")},
 		{Name: "bad\nname.txt", Data: []byte("third")},
-	}, func() error { return nil }, func(paths []string) (ForwardResult, error) {
+	}, func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 		forwardedPaths = append([]string(nil), paths...)
 		return Forwarded, nil
 	})
@@ -71,7 +71,7 @@ func TestStageCreatesVerifiedOwnerOnlyAssociationAndRecognizableConflictNames(t 
 
 	var reused string
 	_, err = manager.StageAndForward(context.Background(), "workspace-1", "Renamed", []File{{Name: "notes", Data: []byte("ok")}},
-		func() error { return nil }, func(paths []string) (ForwardResult, error) {
+		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 			reused = filepath.Dir(paths[0])
 			return Forwarded, nil
 		})
@@ -84,7 +84,7 @@ func TestMismatchedAssociationIsNeverReusedOrDeleted(t *testing.T) {
 	manager, _ := openTestManager(t)
 	var original string
 	_, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "one.txt", Data: []byte("one")}},
-		func() error { return nil }, func(paths []string) (ForwardResult, error) {
+		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 			original = filepath.Dir(paths[0])
 			return Forwarded, nil
 		})
@@ -97,7 +97,7 @@ func TestMismatchedAssociationIsNeverReusedOrDeleted(t *testing.T) {
 	}
 	var replacement string
 	_, err = manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "two.txt", Data: []byte("two")}},
-		func() error { return nil }, func(paths []string) (ForwardResult, error) {
+		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 			replacement = filepath.Dir(paths[0])
 			return Forwarded, nil
 		})
@@ -116,7 +116,7 @@ func TestDefiniteFailureRollsBackOnlyThisRequest(t *testing.T) {
 	manager, _ := openTestManager(t)
 	var firstPath string
 	_, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "keep.txt", Data: []byte("keep")}},
-		func() error { return nil }, func(paths []string) (ForwardResult, error) {
+		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 			firstPath = paths[0]
 			return Forwarded, nil
 		})
@@ -125,7 +125,7 @@ func TestDefiniteFailureRollsBackOnlyThisRequest(t *testing.T) {
 	}
 	var rolledBack string
 	result, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "remove.txt", Data: []byte("remove")}},
-		func() error { return nil }, func(paths []string) (ForwardResult, error) {
+		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 			rolledBack = paths[0]
 			return NotSent, context.Canceled
 		})
@@ -140,12 +140,101 @@ func TestDefiniteFailureRollsBackOnlyThisRequest(t *testing.T) {
 	}
 }
 
+func TestLatePathSwapIsRefusedAndRollbackStaysOnVerifiedHandle(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "uploads")
+	stateDirectory := filepath.Join(base, "state")
+	if err := os.Mkdir(stateDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := Open(root, filepath.Join(stateDirectory, "uploads.json"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	movedRoot := filepath.Join(base, "uploads-moved")
+	var originalPath, decoyPath string
+	result, sendErr := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "swap.txt", Data: []byte("original")}},
+		func() error { return nil }, func(paths []string, validateStaged func() error) (ForwardResult, error) {
+			originalPath = filepath.Join(movedRoot, filepath.Base(filepath.Dir(paths[0])), filepath.Base(paths[0]))
+			if err := os.Rename(root, movedRoot); err != nil {
+				t.Fatal(err)
+			}
+			replacementDirectory := filepath.Join(root, filepath.Base(filepath.Dir(paths[0])))
+			if err := os.MkdirAll(replacementDirectory, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			decoyPath = filepath.Join(replacementDirectory, filepath.Base(paths[0]))
+			if err := os.WriteFile(decoyPath, []byte("decoy"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			validationErr := validateStaged()
+			if validationErr == nil {
+				t.Fatal("redirected absolute upload path passed late validation")
+			}
+			return NotSent, validationErr
+		})
+	if result != NotSent || sendErr == nil {
+		t.Fatalf("swapped path result = %s, %v", result, sendErr)
+	}
+	if _, err := os.Stat(originalPath); !os.IsNotExist(err) {
+		t.Fatalf("request file remained in the verified directory: %v", err)
+	}
+	if data, err := os.ReadFile(decoyPath); err != nil || string(data) != "decoy" {
+		t.Fatalf("rollback followed the replacement path: %q, %v", data, err)
+	}
+}
+
+func TestCleanupStaysOnVerifiedParentAfterConfiguredPathSwap(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "uploads")
+	stateDirectory := filepath.Join(base, "state")
+	if err := os.Mkdir(stateDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := Open(root, filepath.Join(stateDirectory, "uploads.json"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	var directory string
+	_, err = manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "keep.txt", Data: []byte("keep")}},
+		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
+			directory = filepath.Dir(paths[0])
+			return Forwarded, nil
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	movedRoot := filepath.Join(base, "uploads-moved")
+	if err := os.Rename(root, movedRoot); err != nil {
+		t.Fatal(err)
+	}
+	replacementDirectory := filepath.Join(root, filepath.Base(directory))
+	if err := os.MkdirAll(replacementDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	decoy := filepath.Join(replacementDirectory, "decoy")
+	if err := os.WriteFile(decoy, []byte("decoy"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.cleanupWorkspace("workspace-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(movedRoot, filepath.Base(directory))); !os.IsNotExist(err) {
+		t.Fatalf("verified upload directory remains after cleanup: %v", err)
+	}
+	if data, err := os.ReadFile(decoy); err != nil || string(data) != "decoy" {
+		t.Fatalf("cleanup followed the replacement path: %q, %v", data, err)
+	}
+}
+
 func TestPartialStageFailureRemovesEarlierRequestFiles(t *testing.T) {
 	manager, _ := openTestManager(t)
 	result, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{
 		{Name: "first.txt", Data: []byte("first")},
 		{Name: strings.Repeat("x", 300), Data: []byte("second")},
-	}, func() error { return nil }, func([]string) (ForwardResult, error) {
+	}, func() error { return nil }, func([]string, func() error) (ForwardResult, error) {
 		t.Fatal("partial stage failure reached terminal forwarding")
 		return Forwarded, nil
 	})
@@ -165,11 +254,29 @@ func TestPartialStageFailureRemovesEarlierRequestFiles(t *testing.T) {
 	}
 }
 
+func TestUnsafeUnicodeIsRemovedFromNamesAndRejectedFromTerminalPaths(t *testing.T) {
+	for name, character := range map[string]string{
+		"format":              "\u202e",
+		"line separator":      "\u2028",
+		"paragraph separator": "\u2029",
+	} {
+		if got := safeBasename("left" + character + "right.txt"); got != "leftright.txt" {
+			t.Errorf("%s filename = %q", name, got)
+		}
+		if err := ValidatePathText("/tmp/left" + character + "right.txt"); err == nil {
+			t.Errorf("%s terminal path was accepted", name)
+		}
+	}
+	if got := safeBasename("résumé_日本語.txt"); got != "résumé_日本語.txt" {
+		t.Fatalf("ordinary Unicode filename = %q", got)
+	}
+}
+
 func TestCleanupRefusesMismatchedMarkerAndRetainsRecord(t *testing.T) {
 	manager, base := openTestManager(t)
 	var directory string
 	_, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "one", Data: []byte("one")}},
-		func() error { return nil }, func(paths []string) (ForwardResult, error) {
+		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 			directory = filepath.Dir(paths[0])
 			return Forwarded, nil
 		})
@@ -201,7 +308,7 @@ func TestStableWorkspaceGateSerializesSendAndPostPublicationCleanup(t *testing.T
 	go func() {
 		defer close(done)
 		_, _ = manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "one", Data: []byte("one")}},
-			func() error { return nil }, func(paths []string) (ForwardResult, error) {
+			func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 				forwarding <- filepath.Dir(paths[0])
 				<-release
 				return Forwarded, nil
@@ -237,7 +344,7 @@ func TestStartupReconciliationCleansOnlyMissingVerifiedWorkspace(t *testing.T) {
 	}
 	var staleDirectory string
 	_, err = first.StageAndForward(context.Background(), "stale", "Stale", []File{{Name: "one", Data: []byte("one")}},
-		func() error { return nil }, func(paths []string) (ForwardResult, error) {
+		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 			staleDirectory = filepath.Dir(paths[0])
 			return Forwarded, nil
 		})
@@ -267,7 +374,7 @@ func TestConcurrentDifferentWorkspaceCanPassItsOwnGate(t *testing.T) {
 	started := make(chan struct{})
 	go func() {
 		_, _ = manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "one", Data: []byte("one")}},
-			func() error { return nil }, func([]string) (ForwardResult, error) {
+			func() error { return nil }, func([]string, func() error) (ForwardResult, error) {
 				close(started)
 				<-block
 				return Forwarded, nil
@@ -276,7 +383,7 @@ func TestConcurrentDifferentWorkspaceCanPassItsOwnGate(t *testing.T) {
 	<-started
 	var other atomic.Bool
 	_, err := manager.StageAndForward(context.Background(), "workspace-2", "Two", []File{{Name: "two", Data: []byte("two")}},
-		func() error { return nil }, func([]string) (ForwardResult, error) {
+		func() error { return nil }, func([]string, func() error) (ForwardResult, error) {
 			other.Store(true)
 			return Forwarded, nil
 		})

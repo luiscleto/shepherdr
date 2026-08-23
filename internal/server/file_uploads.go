@@ -87,15 +87,21 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 		}
 		return nil
 	}
-	result, sendErr := s.fileUploads.StageAndForward(request.Context(), initial.workspace, initial.label, files, validate, func(paths []string) (uploads.ForwardResult, error) {
-		if err := validate(); err != nil {
+	result, sendErr := s.fileUploads.StageAndForward(request.Context(), initial.workspace, initial.label, files, validate, func(paths []string, validateStaged func() error) (uploads.ForwardResult, error) {
+		validateBeforeWrite := func() error {
+			if err := validateStaged(); err != nil {
+				return err
+			}
+			return validate()
+		}
+		if err := validateBeforeWrite(); err != nil {
 			return uploads.NotSent, err
 		}
 		chunks, err := uploadTerminalSubmission(paths, envelope.Text)
 		if err != nil {
 			return uploads.NotSent, err
 		}
-		outcome, err := s.terminal.SendBatch(request, initial.paneID, initial.terminalID, envelope.Takeover, chunks)
+		outcome, err := s.terminal.SendBatch(request, initial.paneID, initial.terminalID, envelope.Takeover, validateBeforeWrite, chunks)
 		switch outcome {
 		case terminalBatchForwarded:
 			return uploads.Forwarded, err

@@ -42,11 +42,13 @@ type association struct {
 type workspaceGate struct {
 	mu          sync.Mutex
 	association *association
+	directory   *ownedDirectory
 }
 
 type Manager struct {
 	logger    *slog.Logger
-	root      string
+	root      *os.Root
+	rootPath  string
 	statePath string
 
 	gatesMu sync.Mutex
@@ -79,19 +81,41 @@ func Open(root, statePath string, logger *slog.Logger) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
+	rootHandle, err := openStableRoot(resolvedRoot)
+	if err != nil {
+		return nil, err
+	}
 	records, err := readAssociations(statePath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		rootHandle.Close()
 		return nil, err
 	}
 	manager := &Manager{
 		gates: make(map[string]*workspaceGate), logger: logger, records: records,
-		root: resolvedRoot, statePath: statePath, workspaces: make(map[string]struct{}),
+		root: rootHandle, rootPath: resolvedRoot, statePath: statePath, workspaces: make(map[string]struct{}),
 	}
 	for workspaceID, record := range records {
 		copy := record
 		manager.gates[workspaceID] = &workspaceGate{association: &copy}
 	}
 	return manager, nil
+}
+
+func openStableRoot(path string) (*os.Root, error) {
+	before, err := os.Lstat(path)
+	if err != nil || !before.IsDir() || before.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("upload parent must be a direct directory")
+	}
+	root, err := os.OpenRoot(path)
+	if err != nil {
+		return nil, fmt.Errorf("open upload parent: %w", err)
+	}
+	after, err := root.Stat(".")
+	if err != nil || !os.SameFile(before, after) {
+		root.Close()
+		return nil, errors.New("upload parent changed while it was opened")
+	}
+	return root, nil
 }
 
 func prepareRoot(root string) (string, error) {
@@ -140,7 +164,7 @@ func (m *Manager) StageAndForward(
 	workspaceID, workspaceLabel string,
 	files []File,
 	validate func() error,
-	forward func([]string) (ForwardResult, error),
+	forward func([]string, func() error) (ForwardResult, error),
 ) (ForwardResult, error) {
 	if !validIdentity(workspaceID) {
 		return NotSent, errors.New("workspace is invalid")
@@ -154,45 +178,78 @@ func (m *Manager) StageAndForward(
 	if err := validate(); err != nil {
 		return NotSent, err
 	}
-	record, err := m.ensureAssociation(gate, workspaceID, workspaceLabel)
+	directory, err := m.ensureAssociation(gate, workspaceID, workspaceLabel)
 	if err != nil {
 		return NotSent, err
 	}
-	paths, err := stageFiles(ctx, *record, files)
+	staged, err := stageFiles(ctx, directory, files)
 	if err != nil {
 		return NotSent, err
 	}
-	result, forwardErr := forward(paths)
+	paths := make([]string, len(staged))
+	for index := range staged {
+		paths[index] = staged[index].path
+	}
+	validateStaged := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		present, err := verifyOwnedDirectory(directory)
+		if err != nil {
+			return err
+		}
+		if !present {
+			return errors.New("upload directory disappeared")
+		}
+		return verifyPathBinding(directory)
+	}
+	if err := validateStaged(); err != nil {
+		return NotSent, rollbackStageFiles(directory.root, staged, err)
+	}
+	result, forwardErr := forward(paths, validateStaged)
 	if result == NotSent || result == Occupied {
-		if rollbackErr := removeRequestFiles(paths); rollbackErr != nil {
+		if rollbackErr := removeRequestFiles(directory.root, staged); rollbackErr != nil {
 			m.logger.Error("upload rollback was incomplete", "workspace", workspaceID, "error", rollbackErr)
 		}
 	}
 	return result, forwardErr
 }
 
-func (m *Manager) ensureAssociation(gate *workspaceGate, workspaceID, workspaceLabel string) (*association, error) {
-	if gate.association != nil {
-		present, err := verifyAssociation(*gate.association)
+func (m *Manager) ensureAssociation(gate *workspaceGate, workspaceID, workspaceLabel string) (*ownedDirectory, error) {
+	if gate.directory != nil {
+		present, err := verifyOwnedDirectory(gate.directory)
 		if err == nil && present {
-			return gate.association, nil
+			return gate.directory, nil
+		}
+		if err != nil {
+			m.logger.Error("recorded upload directory was refused", "workspace", workspaceID, "error", err)
+		}
+		closeOwnedDirectory(gate.directory)
+		gate.directory = nil
+	} else if gate.association != nil {
+		directory, present, err := openOwnedDirectory(*gate.association)
+		if err == nil && present {
+			gate.directory = directory
+			return gate.directory, nil
 		}
 		if err != nil {
 			m.logger.Error("recorded upload directory was refused", "workspace", workspaceID, "error", err)
 		}
 	}
-	record, err := createAssociation(m.root, workspaceID, workspaceLabel)
+	directory, err := createAssociation(m.root, m.rootPath, workspaceID, workspaceLabel)
 	if err != nil {
 		return nil, err
 	}
-	if err := m.replaceRecord(workspaceID, &record); err != nil {
-		if rollbackErr := os.RemoveAll(record.Directory); rollbackErr != nil {
+	if err := m.replaceRecord(workspaceID, &directory.record); err != nil {
+		if rollbackErr := removeOwnedDirectory(directory, false); rollbackErr != nil {
 			m.logger.Error("upload association rollback was incomplete", "workspace", workspaceID, "error", rollbackErr)
 		}
+		closeOwnedDirectory(directory)
 		return nil, err
 	}
-	gate.association = &record
-	return gate.association, nil
+	gate.association = &directory.record
+	gate.directory = directory
+	return gate.directory, nil
 }
 
 func (m *Manager) replaceRecord(workspaceID string, record *association) error {
@@ -221,15 +278,28 @@ func (m *Manager) cleanupWorkspace(workspaceID string) error {
 	if gate.association == nil {
 		return nil
 	}
-	present, err := verifyAssociation(*gate.association)
-	if err != nil {
-		return err
-	}
-	if present {
-		if err := os.RemoveAll(gate.association.Directory); err != nil {
-			return fmt.Errorf("remove owned upload directory: %w", err)
+	directory := gate.directory
+	if directory == nil {
+		var err error
+		var present bool
+		directory, present, err = openOwnedDirectory(*gate.association)
+		if err != nil {
+			return err
 		}
+		if !present {
+			if err := m.replaceRecord(workspaceID, nil); err != nil {
+				return err
+			}
+			gate.association = nil
+			return nil
+		}
+		gate.directory = directory
 	}
+	if err := removeOwnedDirectory(directory, true); err != nil {
+		return fmt.Errorf("remove owned upload directory: %w", err)
+	}
+	closeOwnedDirectory(directory)
+	gate.directory = nil
 	if err := m.replaceRecord(workspaceID, nil); err != nil {
 		return err
 	}
@@ -283,33 +353,59 @@ func (m *Manager) ObservePublishedSnapshot(snapshot herdr.Snapshot, _ bool) {
 
 func (m *Manager) Close() {
 	m.observationMu.Lock()
+	if m.closed {
+		m.observationMu.Unlock()
+		return
+	}
 	m.closed = true
 	m.observationMu.Unlock()
 	m.cleanup.Wait()
+	m.gatesMu.Lock()
+	gates := make([]*workspaceGate, 0, len(m.gates))
+	for _, gate := range m.gates {
+		gates = append(gates, gate)
+	}
+	m.gatesMu.Unlock()
+	for _, gate := range gates {
+		gate.mu.Lock()
+		closeOwnedDirectory(gate.directory)
+		gate.directory = nil
+		gate.mu.Unlock()
+	}
+	_ = m.root.Close()
 }
 
-func createAssociation(root, workspaceID, label string) (association, error) {
+func createAssociation(parent *os.Root, rootPath, workspaceID, label string) (*ownedDirectory, error) {
 	for {
 		ownershipBytes := make([]byte, 16)
 		if _, err := rand.Read(ownershipBytes); err != nil {
-			return association{}, fmt.Errorf("create upload ownership value: %w", err)
+			return nil, fmt.Errorf("create upload ownership value: %w", err)
 		}
 		ownership := hex.EncodeToString(ownershipBytes)
-		directory := filepath.Join(root, "shepherdr-"+safeLabel(label)+"-"+ownership)
-		if err := os.Mkdir(directory, 0o700); err != nil {
+		name := "shepherdr-" + safeLabel(label) + "-" + ownership
+		if err := parent.Mkdir(name, 0o700); err != nil {
 			if errors.Is(err, os.ErrExist) {
 				continue
 			}
-			return association{}, fmt.Errorf("create workspace upload directory: %w", err)
+			return nil, fmt.Errorf("create workspace upload directory: %w", err)
 		}
-		record := association{Directory: directory, Ownership: ownership, WorkspaceID: workspaceID}
-		if err := writeMarker(record); err != nil {
-			if rollbackErr := os.RemoveAll(directory); rollbackErr != nil {
-				return association{}, errors.Join(err, fmt.Errorf("upload association rollback was incomplete: %w", rollbackErr))
+		directory, err := openCreatedDirectory(parent, rootPath, name, association{
+			Directory: filepath.Join(rootPath, name), Ownership: ownership, WorkspaceID: workspaceID,
+		})
+		if err != nil {
+			if rollbackErr := parent.RemoveAll(name); rollbackErr != nil {
+				return nil, errors.Join(err, fmt.Errorf("upload association rollback was incomplete: %w", rollbackErr))
 			}
-			return association{}, err
+			return nil, err
 		}
-		return record, nil
+		if err := writeMarker(directory); err != nil {
+			if rollbackErr := removeOwnedDirectory(directory, false); rollbackErr != nil {
+				err = errors.Join(err, fmt.Errorf("upload association rollback was incomplete: %w", rollbackErr))
+			}
+			closeOwnedDirectory(directory)
+			return nil, err
+		}
+		return directory, nil
 	}
 }
 
@@ -342,7 +438,7 @@ func validIdentity(value string) bool {
 		return false
 	}
 	for _, character := range value {
-		if unicode.IsControl(character) {
+		if unsafePathRune(character) {
 			return false
 		}
 	}

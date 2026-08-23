@@ -258,6 +258,108 @@ type terminalStreamEvent struct {
 	line []byte
 }
 
+type terminalChildSession struct {
+	bridge   *TerminalBridge
+	cancel   context.CancelFunc
+	command  *exec.Cmd
+	done     chan struct{}
+	events   chan terminalStreamEvent
+	exited   chan struct{}
+	settings terminalBridgeSettings
+	stdin    io.WriteCloser
+	stderr   *boundedLog
+}
+
+func (bridge *TerminalBridge) startTerminalSession(
+	requestContext context.Context,
+	fence <-chan struct{},
+	settings terminalBridgeSettings,
+	target string,
+) (*terminalChildSession, string, error) {
+	ctx, cancel := bridge.commandContext(requestContext, fence)
+	command := bridge.command(ctx, terminalSessionArguments(settings, target)...)
+	command.Env = append(os.Environ(), "HERDR_SOCKET_PATH="+bridge.socketPath)
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		cancel()
+		return nil, "Could not create the Herdr output stream", err
+	}
+	stdin, err := command.StdinPipe()
+	if err != nil {
+		cancel()
+		return nil, "Could not create the Herdr input stream", err
+	}
+	stderr := &boundedLog{limit: 8192}
+	command.Stderr = stderr
+	if !bridge.reserve(command) {
+		_ = stdin.Close()
+		cancel()
+		return nil, "Terminal service is stopping", errors.New("terminal bridge is closed")
+	}
+	if err := command.Start(); err != nil {
+		bridge.forget(command)
+		_ = stdin.Close()
+		cancel()
+		return nil, "Could not start the Herdr terminal stream", err
+	}
+
+	session := &terminalChildSession{
+		bridge: bridge, cancel: cancel, command: command, done: make(chan struct{}),
+		events: make(chan terminalStreamEvent, 32), exited: make(chan struct{}),
+		settings: settings, stdin: stdin, stderr: stderr,
+	}
+	go session.scan(stdout)
+	return session, "", nil
+}
+
+func (session *terminalChildSession) scan(stdout io.Reader) {
+	defer close(session.exited)
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), terminalBridgeMaxFrameBytes)
+	for scanner.Scan() {
+		line := bytes.Clone(scanner.Bytes())
+		select {
+		case session.events <- terminalStreamEvent{line: line}:
+		case <-session.done:
+			session.cancel()
+			_ = session.command.Wait()
+			session.bridge.forget(session.command)
+			return
+		}
+	}
+	scanErr := scanner.Err()
+	waitErr := session.command.Wait()
+	session.bridge.forget(session.command)
+	if scanErr != nil {
+		waitErr = scanErr
+	}
+	select {
+	case session.events <- terminalStreamEvent{err: waitErr}:
+	case <-session.done:
+	}
+}
+
+func (session *terminalChildSession) close(release bool) {
+	defer session.cancel()
+	if release {
+		_ = json.NewEncoder(session.stdin).Encode(map[string]string{"type": "terminal.release"})
+	}
+	_ = session.stdin.Close()
+	close(session.done)
+	select {
+	case <-session.exited:
+		return
+	case <-time.After(terminalBridgeShutdownWait):
+	}
+	session.cancel()
+	select {
+	case <-session.exited:
+	case <-time.After(terminalBridgeShutdownWait):
+		_ = session.command.Process.Kill()
+		session.bridge.logger.Error("terminal child did not exit after cancellation", "pane", session.settings.pane, "mode", session.settings.mode)
+	}
+}
+
 func (bridge *TerminalBridge) productionSocket(writer http.ResponseWriter, request *http.Request) {
 	settings, err := parseTerminalBridgeSettings(request)
 	if err != nil {
@@ -299,83 +401,12 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 	if lease != nil {
 		fence = lease.done
 	}
-	ctx, cancel := bridge.commandContext(request.Context(), fence)
-	defer cancel()
-	command := bridge.command(ctx, terminalSessionArguments(settings, target)...)
-	command.Env = append(os.Environ(), "HERDR_SOCKET_PATH="+bridge.socketPath)
-	stdout, err := command.StdoutPipe()
+	session, status, err := bridge.startTerminalSession(request.Context(), fence, settings, target)
 	if err != nil {
-		_ = writeTerminalStatus(connection, "Could not create the Herdr output stream")
+		_ = writeTerminalStatus(connection, status)
 		return
 	}
-	stdin, err := command.StdinPipe()
-	if err != nil {
-		_ = writeTerminalStatus(connection, "Could not create the Herdr input stream")
-		return
-	}
-	stderr := &boundedLog{limit: 8192}
-	command.Stderr = stderr
-	if !bridge.reserve(command) {
-		_ = writeTerminalStatus(connection, "Terminal service is stopping")
-		return
-	}
-	if err := command.Start(); err != nil {
-		bridge.forget(command)
-		_ = stdin.Close()
-		_ = writeTerminalStatus(connection, "Could not start the Herdr terminal stream")
-		return
-	}
-
-	handlerDone := make(chan struct{})
-	processExited := make(chan struct{})
-	streamEvents := make(chan terminalStreamEvent, 32)
-	go func() {
-		defer close(processExited)
-		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 64*1024), terminalBridgeMaxFrameBytes)
-		for scanner.Scan() {
-			line := bytes.Clone(scanner.Bytes())
-			select {
-			case streamEvents <- terminalStreamEvent{line: line}:
-			case <-handlerDone:
-				cancel()
-				_ = command.Wait()
-				bridge.forget(command)
-				return
-			}
-		}
-		scanErr := scanner.Err()
-		waitErr := command.Wait()
-		bridge.forget(command)
-		if scanErr != nil {
-			waitErr = scanErr
-		}
-		select {
-		case streamEvents <- terminalStreamEvent{err: waitErr}:
-		case <-handlerDone:
-		}
-	}()
-
-	cleanup := func() {
-		if settings.mode != "observe" {
-			_ = json.NewEncoder(stdin).Encode(map[string]string{"type": "terminal.release"})
-		}
-		_ = stdin.Close()
-		select {
-		case <-processExited:
-			return
-		case <-time.After(terminalBridgeShutdownWait):
-		}
-		cancel()
-		select {
-		case <-processExited:
-		case <-time.After(terminalBridgeShutdownWait):
-			_ = command.Process.Kill()
-			bridge.logger.Error("terminal child did not exit after cancellation", "pane", settings.pane, "mode", settings.mode)
-		}
-	}
-	defer cleanup()
-	defer close(handlerDone)
+	defer session.close(settings.mode != "observe")
 
 	clientMessages := make(chan []byte, 16)
 	clientClosed := make(chan struct{})
@@ -391,7 +422,7 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 			}
 			select {
 			case clientMessages <- message:
-			case <-handlerDone:
+			case <-session.done:
 				return
 			}
 		}
@@ -403,7 +434,7 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 	bridge.logger.Info("terminal stream started", "pane", settings.pane, "terminal", target, "mode", settings.mode, "cols", settings.cols, "rows", settings.rows)
 	for {
 		select {
-		case event := <-streamEvents:
+		case event := <-session.events:
 			if event.line != nil {
 				if lease != nil && !lease.Valid() {
 					_ = writeTerminalStatus(connection, "This terminal was replaced")
@@ -427,7 +458,7 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 				}
 				continue
 			}
-			detail := strings.TrimSpace(stderr.String())
+			detail := strings.TrimSpace(session.stderr.String())
 			if event.err != nil || detail != "" {
 				bridge.logger.Info("terminal stream ended", "pane", settings.pane, "terminal", target, "mode", settings.mode, "error", event.err, "stderr", detail)
 				if detail == "" {
@@ -454,7 +485,7 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 				_ = writeTerminalStatus(connection, "Sign in again")
 				return
 			}
-			outcome, err := forwardTerminalBatch(request, lease, stdin, browserCommand.childCommands)
+			outcome, err := forwardTerminalBatch(request, lease, session.stdin, browserCommand.childCommands, nil)
 			if outcome != terminalBatchForwarded {
 				if requestAuthorityValid(request) {
 					message := "Herdr input stream closed"

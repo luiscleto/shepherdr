@@ -1,16 +1,11 @@
 package server
 
 import (
-	"bufio"
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
-	"os"
-	"os/exec"
 	"strings"
-	"time"
 )
 
 type terminalBatchOutcome uint8
@@ -33,9 +28,10 @@ func (counter *terminalBatchWriteCounter) Write(data []byte) (int, error) {
 	return written, err
 }
 
-func forwardTerminalBatch(request *http.Request, lease *terminalTargetLease, writer io.Writer, commands []any) (terminalBatchOutcome, error) {
+func forwardTerminalBatch(request *http.Request, lease *terminalTargetLease, writer io.Writer, commands []any, validateBeforeFirstWrite func() error) (terminalBatchOutcome, error) {
 	counter := &terminalBatchWriteCounter{Writer: writer}
 	encoder := json.NewEncoder(counter)
+	validated := false
 	for _, command := range commands {
 		if err := request.Context().Err(); err != nil {
 			if counter.written > 0 {
@@ -60,6 +56,12 @@ func forwardTerminalBatch(request *http.Request, lease *terminalTargetLease, wri
 		err := withCommitAuthority(request, func() error {
 			if lease != nil && !lease.Valid() {
 				return errors.New("terminal is no longer current")
+			}
+			if !validated && validateBeforeFirstWrite != nil {
+				if err := validateBeforeFirstWrite(); err != nil {
+					return err
+				}
+				validated = true
 			}
 			return encoder.Encode(command)
 		})
@@ -90,9 +92,13 @@ func terminalInputCommands(chunks []string) ([]any, error) {
 	return commands, nil
 }
 
-// SendBatch uses the same guarded batch writer as the browser Terminal bridge,
-// but owns one short control session for the HTTP request.
-func (bridge *TerminalBridge) SendBatch(request *http.Request, pane, terminal string, takeover bool, chunks []string) (terminalBatchOutcome, error) {
+// SendBatch uses the browser Terminal bridge lifecycle for one short control
+// session. validate runs after control is acquired and immediately before the
+// guarded input writes.
+func (bridge *TerminalBridge) SendBatch(request *http.Request, pane, terminal string, takeover bool, validate func() error, chunks []string) (terminalBatchOutcome, error) {
+	if validate == nil {
+		return terminalBatchNotSent, errors.New("terminal batch pre-write validation is required")
+	}
 	commands, err := terminalInputCommands(chunks)
 	if err != nil {
 		return terminalBatchNotSent, err
@@ -106,36 +112,16 @@ func (bridge *TerminalBridge) SendBatch(request *http.Request, pane, terminal st
 	settings := terminalBridgeSettings{
 		cols: lease.target.cols, mode: mode, pane: pane, rows: lease.target.rows, takeover: takeover,
 	}
-	ctx, cancel := bridge.commandContext(request.Context(), lease.done)
-	defer cancel()
-	command := bridge.command(ctx, terminalSessionArguments(settings, terminal)...)
-	command.Env = append(os.Environ(), "HERDR_SOCKET_PATH="+bridge.socketPath)
-	stdout, err := command.StdoutPipe()
+	session, _, err := bridge.startTerminalSession(request.Context(), lease.done, settings, terminal)
 	if err != nil {
 		return terminalBatchNotSent, err
 	}
-	stdin, err := command.StdinPipe()
-	if err != nil {
-		return terminalBatchNotSent, err
-	}
-	stderr := &boundedLog{limit: 8192}
-	command.Stderr = stderr
-	if !bridge.reserve(command) {
-		return terminalBatchNotSent, errors.New("terminal bridge is closed")
-	}
-	if err := command.Start(); err != nil {
-		bridge.forget(command)
-		_ = stdin.Close()
-		return terminalBatchNotSent, err
-	}
-
-	events, processExited := bridge.scanBatchSession(command, stdout)
 	acquired := false
-	defer func() { bridge.finishBatchSession(command, stdin, processExited, acquired, cancel) }()
+	defer func() { session.close(acquired) }()
 	select {
-	case event := <-events:
+	case event := <-session.events:
 		if event.line == nil {
-			detail := strings.TrimSpace(stderr.String())
+			detail := strings.TrimSpace(session.stderr.String())
 			if strings.Contains(detail, "already has an attached client") {
 				return terminalBatchOccupied, errors.New(detail)
 			}
@@ -163,7 +149,7 @@ func (bridge *TerminalBridge) SendBatch(request *http.Request, pane, terminal st
 		return terminalBatchNotSent, errors.New("terminal bridge is closed")
 	}
 
-	outcome, err := forwardTerminalBatch(request, lease, stdin, commands)
+	outcome, err := forwardTerminalBatch(request, lease, session.stdin, commands, validate)
 	if outcome != terminalBatchForwarded {
 		return outcome, err
 	}
@@ -171,49 +157,4 @@ func (bridge *TerminalBridge) SendBatch(request *http.Request, pane, terminal st
 		return terminalBatchUnknown, err
 	}
 	return terminalBatchForwarded, nil
-}
-
-func (bridge *TerminalBridge) scanBatchSession(command *exec.Cmd, stdout io.Reader) (<-chan terminalStreamEvent, <-chan struct{}) {
-	events := make(chan terminalStreamEvent, 1)
-	exited := make(chan struct{})
-	go func() {
-		defer close(exited)
-		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 64*1024), terminalBridgeMaxFrameBytes)
-		if scanner.Scan() {
-			events <- terminalStreamEvent{line: append([]byte(nil), scanner.Bytes()...)}
-			for scanner.Scan() {
-			}
-		}
-		scanErr := scanner.Err()
-		waitErr := command.Wait()
-		bridge.forget(command)
-		if scanErr != nil {
-			waitErr = scanErr
-		}
-		select {
-		case events <- terminalStreamEvent{err: waitErr}:
-		default:
-		}
-	}()
-	return events, exited
-}
-
-func (bridge *TerminalBridge) finishBatchSession(command *exec.Cmd, stdin io.WriteCloser, exited <-chan struct{}, acquired bool, cancel context.CancelFunc) {
-	if acquired {
-		_ = json.NewEncoder(stdin).Encode(map[string]string{"type": "terminal.release"})
-	}
-	_ = stdin.Close()
-	select {
-	case <-exited:
-		return
-	case <-time.After(terminalBridgeShutdownWait):
-	}
-	cancel()
-	select {
-	case <-exited:
-	case <-time.After(terminalBridgeShutdownWait):
-		_ = command.Process.Kill()
-		bridge.logger.Error("terminal batch child did not exit after cancellation")
-	}
 }

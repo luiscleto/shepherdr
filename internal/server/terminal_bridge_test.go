@@ -161,22 +161,22 @@ func TestSharedTerminalBatchClassifiesPreForwardAndPostForwardFailure(t *testing
 	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files", nil)
 	commands := []any{map[string]string{"type": "terminal.input", "text": "paste"}, map[string]string{"type": "terminal.input", "text": "\r"}}
 	first := &failingBatchWriter{failAt: 1}
-	outcome, err := forwardTerminalBatch(request, nil, first, commands)
+	outcome, err := forwardTerminalBatch(request, nil, first, commands, nil)
 	if outcome != terminalBatchNotSent || err == nil {
 		t.Fatalf("zero-byte first write failure = %d, %v", outcome, err)
 	}
 	partial := &failingBatchWriter{failAt: 1, partial: true}
-	outcome, err = forwardTerminalBatch(request, nil, partial, commands)
+	outcome, err = forwardTerminalBatch(request, nil, partial, commands, nil)
 	if outcome != terminalBatchUnknown || err == nil {
 		t.Fatalf("partial first write failure = %d, %v", outcome, err)
 	}
 	second := &failingBatchWriter{failAt: 2}
-	outcome, err = forwardTerminalBatch(request, nil, second, commands)
+	outcome, err = forwardTerminalBatch(request, nil, second, commands, nil)
 	if outcome != terminalBatchUnknown || err == nil {
 		t.Fatalf("second write failure = %d, %v", outcome, err)
 	}
 	success := &failingBatchWriter{}
-	outcome, err = forwardTerminalBatch(request, nil, success, commands)
+	outcome, err = forwardTerminalBatch(request, nil, success, commands, nil)
 	if outcome != terminalBatchForwarded || err != nil || success.calls != 2 {
 		t.Fatalf("successful batch = %d, %v, calls %d", outcome, err, success.calls)
 	}
@@ -187,13 +187,13 @@ func TestShortTerminalBatchUsesExactTargetAndReportsOccupied(t *testing.T) {
 	bridge := testTerminalBridge(source)
 	defer bridge.Close()
 	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files", nil)
-	outcome, err := bridge.SendBatch(request, "pane-1", "term-send", false, []string{"paste", "\r"})
+	outcome, err := bridge.SendBatch(request, "pane-1", "term-send", false, func() error { return nil }, []string{"paste", "\r"})
 	if outcome != terminalBatchForwarded || err != nil {
 		t.Fatalf("send outcome = %d, %v", outcome, err)
 	}
 
 	source.publish(liveTerminalState("pane-1", "term-occupied", 1))
-	outcome, err = bridge.SendBatch(request, "pane-1", "term-occupied", false, []string{"paste", "\r"})
+	outcome, err = bridge.SendBatch(request, "pane-1", "term-occupied", false, func() error { return nil }, []string{"paste", "\r"})
 	if outcome != terminalBatchOccupied || err == nil {
 		t.Fatalf("occupied outcome = %d, %v", outcome, err)
 	}

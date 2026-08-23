@@ -137,6 +137,81 @@ func TestTerminalFileRouteStagesOpaqueBytesAndSendsOneServerDerivedBatch(t *test
 	}
 }
 
+type lateAgentValidationSource struct {
+	*fakeTerminalStateSource
+	calls   int
+	callsMu sync.Mutex
+}
+
+func (source *lateAgentValidationSource) Current() herdr.State {
+	source.callsMu.Lock()
+	source.calls++
+	call := source.calls
+	source.callsMu.Unlock()
+	state := source.fakeTerminalStateSource.Current()
+	if call >= 4 {
+		state.Snapshot.Agents = nil
+	}
+	return state
+}
+
+func TestTerminalFileRouteRevalidatesAgentAfterControlAndRollsBack(t *testing.T) {
+	baseSource := newFakeTerminalStateSource(recognizedAgentState("workspace-1", "pane-1", "term-send"))
+	source := &lateAgentValidationSource{fakeTerminalStateSource: baseSource}
+	bridge := testTerminalBridge(source)
+	defer bridge.Close()
+	record := filepath.Join(t.TempDir(), "terminal-input.jsonl")
+	bridge.command = func(ctx context.Context, arguments ...string) *exec.Cmd {
+		return terminalHelperCommand(ctx, append(arguments, "--record="+record)...)
+	}
+	uploadBase := t.TempDir()
+	stateDirectory := filepath.Join(uploadBase, "state")
+	if err := os.Mkdir(stateDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	filesRoot := filepath.Join(uploadBase, "files")
+	manager, err := uploads.Open(filesRoot, filepath.Join(stateDirectory, "uploads.json"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, bridge, false)
+	application.ConfigureSignInOff()
+	application.SetFileUploads(manager, uploads.Limit{DecodedBytes: 32})
+	application.fileUploadState = source
+
+	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files", bytes.NewReader(terminalFileBody(t, "", "late.txt", []byte("late"), false)))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	application.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("late agent loss returned %d: %s", response.Code, response.Body.String())
+	}
+	var result terminalFileResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.Result != uploads.NotSent {
+		t.Fatalf("late agent loss response = %+v, %v", result, err)
+	}
+	recorded, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var command map[string]string
+	if err := json.Unmarshal(recorded, &command); err != nil || command["type"] != "terminal.release" {
+		t.Fatalf("commands after late agent loss = %q, %v", recorded, err)
+	}
+	directories, err := os.ReadDir(filesRoot)
+	if err != nil || len(directories) != 1 || !directories[0].IsDir() {
+		t.Fatalf("upload directories after request rollback = %+v, %v", directories, err)
+	}
+	entries, err := os.ReadDir(filepath.Join(filesRoot, directories[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != ".shepherdr-upload" {
+		t.Fatalf("late validation left request files: %+v", entries)
+	}
+}
+
 func TestTerminalFileRequestEnforcesFiniteDecodedAndCanonicalBase64ButNoneHasNoRouteBound(t *testing.T) {
 	finite := uploads.Limit{DecodedBytes: 3}
 	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files", bytes.NewReader(terminalFileBody(t, "", "four", []byte("four"), false)))
@@ -156,8 +231,15 @@ func TestTerminalFileRequestEnforcesFiniteDecodedAndCanonicalBase64ButNoneHasNoR
 }
 
 func TestUploadPrefixRejectsUnsafeGeneratedPathsAndNormalizesPersonText(t *testing.T) {
-	if _, err := uploadTerminalSubmission([]string{"/tmp/bad\npath"}, "text"); err == nil {
-		t.Fatal("generated path with a line break was accepted")
+	for name, path := range map[string]string{
+		"control":             "/tmp/bad\npath",
+		"format":              "/tmp/left\u202eright",
+		"line separator":      "/tmp/left\u2028right",
+		"paragraph separator": "/tmp/left\u2029right",
+	} {
+		if _, err := uploadTerminalSubmission([]string{path}, "text"); err == nil {
+			t.Errorf("generated path with %s was accepted", name)
+		}
 	}
 	chunks, err := uploadTerminalSubmission([]string{"/tmp/diagram (1).svg"}, "one\n\x1b[200~two")
 	if err != nil {
