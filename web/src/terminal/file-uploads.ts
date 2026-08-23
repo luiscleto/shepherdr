@@ -75,7 +75,6 @@ export async function sendTerminalFiles(
     }
     return { message: record.message, result: record.result as TerminalFileResult };
   } catch {
-    if (!response.ok && response.status !== 401) return { message: "Files were not sent. Try again.", result: "not_sent" };
     return {
       message: "The input may have reached the terminal, but the result could not be confirmed. Check the terminal before sending it again.",
       result: "unknown",

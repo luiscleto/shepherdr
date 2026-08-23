@@ -219,3 +219,19 @@ test("file send distinguishes definite server failure from an unconfirmed connec
     new Response("Sign in again.", { status: 401 }));
   assert.equal(revokedSession.result, "unknown", "session revocation may be observed after the terminal batch was forwarded");
 });
+
+test("malformed gateway response leaves file delivery unconfirmed", async (t) => {
+  const browser = new Window({ url: "http://localhost/" });
+  t.after(() => browser.close());
+  const file = new browser.File(["small"], "small.txt") as unknown as File;
+  const outcome = await sendTerminalFiles(
+    { paneID: "pane-1", terminalID: "term-1", workspaceID: "workspace-1" },
+    "",
+    [file],
+    false,
+    new AbortController().signal,
+    async () => new Response("<html>Bad gateway</html>", { status: 502 }),
+  );
+  assert.equal(outcome.result, "unknown");
+  assert.match(outcome.message, /could not be confirmed/);
+});
