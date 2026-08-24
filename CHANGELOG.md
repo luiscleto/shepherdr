@@ -8,11 +8,11 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ### Added
 
-- A mobile-first Home view of Herdr workspaces, worktrees, terminals, agents, and attention state.
-- Exact terminal reading and input, including temporary local file staging for recognized agents.
-- Workspace creation, worktree creation, workspace close, and clean linked-checkout deletion through Herdr.
-- Passkey-protected access, explicit sign-in-off operation, trusted sign-in management, and per-browser notifications.
-- Linux amd64, Linux arm64, macOS amd64, and macOS arm64 release candidates gated on their native systems.
+- See Herdr workspaces, worktrees, terminals, agents, and attention from a phone.
+- Read terminals, send input, and send local file paths to recognized agents.
+- Create and close workspaces, create worktrees, and delete clean linked checkouts.
+- Protect access with passkeys or deliberately run with sign-in off, manage trusted sign-ins, and choose notifications for each browser.
+- Prebuilt downloads are included only for Linux and macOS targets that pass final checks.
 
 ### Security
 
@@ -21,8 +21,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ### Compatibility
 
-- Supports stable Herdr 0.8.0 through 0.8.2. Newer versions continue best-effort with a warning, while older versions are refused.
-- Release binaries are unsigned and are not notarized.
+- Works with Herdr 0.8.0 through 0.8.2. Older versions do not start; newer versions start with a warning that they have not been tested.
+- macOS downloads are unsigned and not notarized, so macOS may show a system warning before the first run.
 
 [Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/luiscleto/shepherdr/releases/tag/v0.1.0

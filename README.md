@@ -1,10 +1,10 @@
 # Shepherdr
 
-Shepherdr is now a runnable, mobile-first web interface for one local Herdr session. From a phone, you can check agents, manage workspaces, use terminals, send files, and choose notifications. Herdr remains the runtime.
+Shepherdr is a phone-friendly web interface for one local Herdr session. From a phone, you can check agents, manage workspaces, use terminals, send files, and choose notifications. Herdr still does the work.
 
 ## Requirements
 
-- Herdr 0.8.0 through 0.8.2, with the `herdr` executable on `PATH` and the intended local Herdr session available. Older releases are refused; newer releases continue best-effort with a warning.
+Shepherdr works with Herdr 0.8.0 through 0.8.2. The `herdr` executable must be on `PATH`, and Herdr must be running locally. Shepherdr does not start with older versions. It starts with newer versions but warns that the version has not been tested.
 
 Run Shepherdr and Herdr as the same operating-system account. Shepherdr needs that account's owner-only local Herdr socket, and Herdr agents need to be able to read files uploaded through Shepherdr. Files sent through Terminal become local paths on the machine running Shepherdr; they are not sent directly to a model.
 
@@ -19,7 +19,7 @@ Release archives are the recommended installation. Open the stable [latest relea
 | macOS Intel | `shepherdr_0.1.0_darwin_amd64.tar.gz` |
 | macOS Apple silicon | `shepherdr_0.1.0_darwin_arm64.tar.gz` |
 
-Each archive contains one same-named directory with `shepherdr`, `README.md`, `CHANGELOG.md`, and `LICENSE`. Verify the selected archive against `shepherdr_0.1.0_checksums.txt` before extracting it. For example:
+Each archive unpacks to a folder with the same name as the archive. The folder contains `shepherdr`, `README.md`, `CHANGELOG.md`, and `LICENSE`. Verify the selected archive against `shepherdr_0.1.0_checksums.txt` before extracting it. For example:
 
 ```sh
 archive=shepherdr_0.1.0_linux_amd64.tar.gz
@@ -31,6 +31,17 @@ shepherdr --version
 
 Choose a directory already on `PATH` if `$HOME/.local/bin` is not on it.
 
+### Optional Go installation
+
+The release archives remain the recommended path. Go users can install Shepherdr without a separate browser build:
+
+```sh
+go install github.com/luiscleto/shepherdr@latest
+go install github.com/luiscleto/shepherdr@v0.1.0
+```
+
+The first command follows the latest published module version; the second pins the first release. Go writes the executable to `GOBIN`, or to the Go bin directory when `GOBIN` is unset.
+
 ### Build from source
 
 Source builds require Go 1.27 or later, Node.js 20 or later, and npm. Build the browser application from the locked dependencies before building the Go executable:
@@ -41,20 +52,11 @@ npm run build --prefix web
 go build -o bin/shepherdr .
 ```
 
-### Optional Go installation
-
-The release archives remain the recommended path. As a convenience, the tagged browser assets are also included in the Go module, so `go install` does not run npm:
-
-```sh
-go install github.com/luiscleto/shepherdr@latest
-go install github.com/luiscleto/shepherdr@v0.1.0
-```
-
-The first command follows the latest published module version; the second pins the first release. Go writes the executable to `GOBIN`, or to the Go bin directory when `GOBIN` is unset.
-
 ## Upgrade
 
-Stop Shepherdr before replacing its executable. Leave its configuration and state in place, including the configured upload staging parent, so trusted sign-ins, notification settings, upload associations, and staged files remain available. Download the new archive, verify it against that release's checksum file, extract it, and replace the stopped executable. Then confirm the installed version and restart Shepherdr under the same operating-system account and with the same Herdr socket and configuration:
+Stop Shepherdr before replacing its executable. Keep its configuration, state, and uploaded files in place so trusted sign-ins, notification settings, and workspace files remain available.
+
+Download the new archive, verify it against that release's checksum file, extract it, and replace the stopped executable. Check the installed version, then restart Shepherdr with the same operating-system account, Herdr socket, and settings:
 
 ```sh
 shepherdr --version
@@ -64,7 +66,9 @@ Do not remove the previous executable until the verified replacement is ready.
 
 ## Start
 
-Shepherdr listens on `127.0.0.1:8787` by default and accepts only loopback listen addresses. Its default Herdr socket is the `herdr/herdr.sock` path under the platform user configuration directory, normally `~/.config/herdr/herdr.sock` on Linux. Select another absolute socket path when needed:
+Shepherdr listens on `127.0.0.1:8787` by default and accepts only loopback listen addresses. The local-computer address is <http://127.0.0.1:8787>.
+
+By default, Shepherdr uses the `herdr/herdr.sock` file in your user configuration folder, normally `~/.config/herdr/herdr.sock` on Linux. Select another absolute socket path when needed:
 
 ```sh
 shepherdr -herdr-socket /absolute/path/to/herdr.sock
@@ -72,13 +76,13 @@ shepherdr -herdr-socket /absolute/path/to/herdr.sock
 
 ### Protected access (default)
 
-The first protected start needs the exact private HTTPS origin that browsers will open:
+Choose a private HTTPS address as described under [Private-network deployment](#private-network-deployment). The first protected start needs that exact private HTTPS address:
 
 ```sh
 shepherdr -public-origin https://shepherdr.example-private.net
 ```
 
-The address must be a lowercase HTTPS DNS name with no path. Shepherdr saves it, prints a private setup link and terminal QR code that expire after ten minutes, and does not print that same link again after restart. Open the link on the computer or scan the QR code on a phone, name the trusted sign-in, and choose **Trust this device** to create its passkey. A new browser cannot trust itself without an invitation.
+The private HTTPS address must be a lowercase DNS name with no path. Shepherdr saves it, prints a private setup link and terminal QR code that expire after ten minutes, and does not print that same link again after restart. Open the link on the computer or scan the QR code on a phone, name the trusted sign-in, and choose **Trust this device** to create its passkey. A new browser cannot trust itself without an invitation.
 
 After setup, protected visits use **Sign in with a passkey**. You can instead start Shepherdr with sign-in off, as described below.
 
@@ -127,13 +131,13 @@ Reset keeps the private address, notification keys, and configured notification 
 
 ## Notifications
 
-Configure a real operator contact before a browser can enable Web Push:
+Before a browser can turn on notifications, set a real contact address:
 
 ```sh
 shepherdr -vapid-contact mailto:you@example.com
 ```
 
-An absolute HTTPS website is also accepted. The contact, notification keys, and subscriptions are stored outside the repository. Later starts reuse them; supplying another valid contact updates it without changing the keys or subscriptions. The contact is shared with browser push providers as part of Web Push.
+An absolute HTTPS website is also accepted. The contact, notification keys, and subscriptions are stored outside the repository. Later starts reuse them; supplying another valid contact updates it without changing the keys or subscriptions. The contact is shared with browser push providers when notifications are set up.
 
 Each browser or installed app manages its own choices under **Settings**. `blocked`, `done`, trusted sign-in added, and trusted sign-in removed start on; `working`, `idle`, `unknown`, workspace opened, and workspace closed start off. Android Chrome does not require installation. On iPhone or iPad, add Shepherdr to the Home Screen and open it there before enabling notifications.
 
@@ -158,7 +162,7 @@ User uploaded files:
 
 These paths are for the agent to open. Shepherdr does not claim the files were delivered to a model or read by an agent. Uploaded content, names, and paths are untrusted, and an upload can consume memory, disk, and transfer time.
 
-The staging parent defaults to the platform temporary directory, normally `/tmp` on Linux. The request limit is the total decoded file bytes in one send and defaults to `50MiB`:
+By default, Shepherdr keeps selected files in the system temporary directory, normally `/tmp` on Linux. The total file size in one send defaults to `50MiB`:
 
 ```sh
 shepherdr -upload-parent /absolute/staging/parent
@@ -166,9 +170,9 @@ shepherdr -upload-limit 100MiB
 shepherdr -upload-limit none
 ```
 
-Positive limits accept bytes or the `KiB`, `MiB`, and `GiB` suffixes. `none` removes Shepherdr's request bound and can exhaust available memory, time, or disk.
+Positive limits accept bytes or the `KiB`, `MiB`, and `GiB` suffixes. `none` removes Shepherdr's size limit and can exhaust available memory, time, or disk.
 
-Files stay with their workspace when an agent exits or changes and when Shepherdr restarts. After the workspace is gone, Shepherdr tries to delete only the staging folder it created for that workspace. Cleanup can fail, and a crash may leave files behind. This temporary storage is not durable file history.
+Files stay with their workspace when an agent exits or changes and when Shepherdr restarts. After the workspace is gone, Shepherdr tries to delete only the temporary folder it created for that workspace. Cleanup can fail, and a crash may leave files behind. This temporary storage is not durable file history.
 
 ## Private-network deployment
 
@@ -186,9 +190,9 @@ Open the resulting private HTTPS address from another trusted tailnet device. Do
 
 ## Product behavior
 
-Home groups only worktrees that Herdr identifies, shows every current terminal exactly once, and uses Herdr's status words unchanged: `working`, `blocked`, `idle`, `done`, and `unknown`. It offers current workspace creation, worktree creation, workspace close, and clean linked-checkout deletion without force. Terminal opens only the exact current target and never substitutes another terminal. If Herdr stops, restart it and Shepherdr reconnects automatically.
+Home shows every current terminal once, groups only worktrees that Herdr identifies, and uses Herdr's status words unchanged: `working`, `blocked`, `idle`, `done`, and `unknown`. You can create workspaces and worktrees, close workspaces, and delete clean linked checkouts without force. Terminal opens only the selected current target and never substitutes another terminal. If Herdr stops, restart it and Shepherdr reconnects automatically.
 
-Herdr output, agents, terminal content, repository files, uploaded files, attachments, pasted content, names, and identifiers are untrusted. Displaying them never grants Shepherdr authority.
+Shepherdr treats Herdr output, agents, terminal content, repository files, uploaded files, attachments, pasted content, names, and identifiers as untrusted. Displaying them never grants Shepherdr authority.
 
 Current product and interface direction:
 
