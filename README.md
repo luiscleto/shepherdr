@@ -2,6 +2,12 @@
 
 Shepherdr is a phone-friendly web interface for one local Herdr session. From a phone, you can check agents, manage workspaces, use terminals, send files, and choose notifications. Herdr still does the work.
 
+<p align="center">
+  https://github.com/user-attachments/assets/225b10ae-e873-4b16-890a-1add63fe2856
+</p>
+
+---
+
 ## Requirements
 
 Shepherdr works with Herdr 0.8.0 through 0.8.2. The `herdr` executable must be on `PATH`, and Herdr must be running locally. Shepherdr does not start with older versions. It starts with newer versions but warns that the version has not been tested.
