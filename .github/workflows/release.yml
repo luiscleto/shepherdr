@@ -13,16 +13,18 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify:
     name: Verify release ref
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
           ref: ${{ inputs.commit_sha }}
 
       - name: Require the approved v0.1.0 tag and master commit
@@ -88,20 +90,22 @@ jobs:
             herdr_asset: herdr-macos-aarch64
             herdr_sha256: a5d4f4d504d8b309c91f811050559300faba31258425f53c50852fc96f6ae574
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     env:
       CGO_ENABLED: "0"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
           ref: ${{ inputs.commit_sha }}
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "20"
           cache: npm
@@ -154,7 +158,8 @@ jobs:
           go version -m "$package_dir/shepherdr" > "$candidate_dir/build-metadata.txt"
           grep -F "github.com/luiscleto/shepherdr" "$candidate_dir/build-metadata.txt"
           grep -F "CGO_ENABLED=0" "$candidate_dir/build-metadata.txt"
-          grep -F "main.releaseVersion=v0.1.0" "$candidate_dir/build-metadata.txt"
+          grep -F "GOOS=$TARGET_GOOS" "$candidate_dir/build-metadata.txt"
+          grep -F "GOARCH=$TARGET_GOARCH" "$candidate_dir/build-metadata.txt"
           grep -F "vcs.revision=${{ inputs.commit_sha }}" "$candidate_dir/build-metadata.txt"
           grep -F "vcs.modified=false" "$candidate_dir/build-metadata.txt"
 
@@ -194,23 +199,96 @@ jobs:
           mkdir -p "$tools_dir"
 
           gh release download v0.8.2 --repo herdrdev/herdr --pattern "$HERDR_ASSET" --dir "$tools_dir"
-          herdr_binary="$tools_dir/$HERDR_ASSET"
-          printf '%s  %s\n' "$HERDR_SHA256" "$herdr_binary" | shasum -a 256 -c -
-          chmod 0755 "$herdr_binary"
+          downloaded_herdr="$tools_dir/$HERDR_ASSET"
+          printf '%s  %s\n' "$HERDR_SHA256" "$downloaded_herdr" | shasum -a 256 -c -
+          install -m 0755 "$downloaded_herdr" "$tools_dir/herdr"
+          herdr_binary="$tools_dir/herdr"
           test "$("$herdr_binary" --version)" = "herdr 0.8.2"
+          test "$(PATH="$tools_dir:$PATH" command -v herdr)" = "$herdr_binary"
 
           herdr_pid=
           shepherdr_pid=
+          wait_bounded() {
+            local pid=$1
+            local label=$2
+            local seconds=$3
+            local allow_failure=$4
+            local attempt status
+            for ((attempt = 0; attempt < seconds; attempt++)); do
+              if ! kill -0 "$pid" 2>/dev/null; then
+                if wait "$pid"; then
+                  return 0
+                else
+                  status=$?
+                fi
+                if [[ "$allow_failure" == "true" ]]; then
+                  return 0
+                fi
+                echo "$label exited with status $status" >&2
+                return "$status"
+              fi
+              sleep 1
+            done
+            echo "$label did not exit within ${seconds}s" >&2
+            return 124
+          }
+          terminate_bounded() {
+            local pid=$1
+            local label=$2
+            if ! kill -0 "$pid" 2>/dev/null; then
+              wait "$pid" >/dev/null 2>&1 || true
+              return 0
+            fi
+            kill -TERM "$pid" 2>/dev/null || true
+            if wait_bounded "$pid" "$label" 10 true; then
+              return 0
+            fi
+            echo "$label ignored TERM; sending KILL" >&2
+            kill -KILL "$pid" 2>/dev/null || true
+            wait_bounded "$pid" "$label after KILL" 5 true || echo "$label could not be reaped" >&2
+            return 1
+          }
+          stop_herdr_bounded() {
+            local stop_pid
+            HERDR_CONFIG_PATH="$smoke_root/herdr/config.toml" HERDR_SOCKET_PATH="$smoke_root/herdr/herdr.sock" "$herdr_binary" server stop >"$smoke_root/herdr-stop.log" 2>&1 &
+            stop_pid=$!
+            if ! wait_bounded "$stop_pid" "herdr stop command" 10 false; then
+              terminate_bounded "$stop_pid" "herdr stop command cleanup" || true
+              return 1
+            fi
+            wait_bounded "$herdr_pid" "Herdr server" 15 false
+          }
           cleanup() {
             status=$?
             trap - EXIT
-            if [[ -n "$shepherdr_pid" ]] && kill -0 "$shepherdr_pid" 2>/dev/null; then
-              kill -TERM "$shepherdr_pid" 2>/dev/null || true
-              wait "$shepherdr_pid" 2>/dev/null || true
+            cleanup_failed=0
+            if [[ -n "$shepherdr_pid" ]]; then
+              if kill -0 "$shepherdr_pid" 2>/dev/null; then
+                if ! terminate_bounded "$shepherdr_pid" "Shepherdr cleanup"; then
+                  cleanup_failed=1
+                fi
+              else
+                wait "$shepherdr_pid" >/dev/null 2>&1 || true
+              fi
             fi
-            if [[ -n "$herdr_pid" ]] && kill -0 "$herdr_pid" 2>/dev/null; then
-              HERDR_CONFIG_PATH="$smoke_root/herdr/config.toml" HERDR_SOCKET_PATH="$smoke_root/herdr/herdr.sock" "$herdr_binary" server stop >/dev/null 2>&1 || true
-              wait "$herdr_pid" 2>/dev/null || true
+            if [[ -n "$herdr_pid" ]]; then
+              if kill -0 "$herdr_pid" 2>/dev/null; then
+                HERDR_CONFIG_PATH="$smoke_root/herdr/config.toml" HERDR_SOCKET_PATH="$smoke_root/herdr/herdr.sock" "$herdr_binary" server stop >"$smoke_root/herdr-cleanup-stop.log" 2>&1 &
+                cleanup_stop_pid=$!
+                if ! wait_bounded "$cleanup_stop_pid" "herdr cleanup stop command" 10 false; then
+                  cleanup_failed=1
+                  terminate_bounded "$cleanup_stop_pid" "herdr cleanup stop command" || true
+                fi
+                if ! wait_bounded "$herdr_pid" "Herdr cleanup" 10 true; then
+                  cleanup_failed=1
+                  terminate_bounded "$herdr_pid" "Herdr cleanup" || true
+                fi
+              else
+                wait "$herdr_pid" >/dev/null 2>&1 || true
+              fi
+            fi
+            if [[ "$status" -eq 0 && "$cleanup_failed" -ne 0 ]]; then
+              status=1
             fi
             exit "$status"
           }
@@ -251,7 +329,7 @@ jobs:
           fi
           SHEPHERDR_REAL_URL=http://127.0.0.1:18787 go test ./internal/server -run '^TestRealProductionHome$' -count=1
           kill -TERM "$shepherdr_pid"
-          wait "$shepherdr_pid"
+          wait_bounded "$shepherdr_pid" "sign-in-off Shepherdr" 15 false
           shepherdr_pid=
 
           mkdir -p "$smoke_root/protected/config" "$smoke_root/protected/uploads"
@@ -269,15 +347,14 @@ jobs:
           grep -F '<title>Shepherdr</title>' "$smoke_root/protected-home.html"
           grep -F 'Trust this device' "$smoke_root/protected.log"
           kill -TERM "$shepherdr_pid"
-          wait "$shepherdr_pid"
+          wait_bounded "$shepherdr_pid" "protected Shepherdr" 15 false
           shepherdr_pid=
 
-          HERDR_CONFIG_PATH="$smoke_root/herdr/config.toml" HERDR_SOCKET_PATH="$smoke_root/herdr/herdr.sock" "$herdr_binary" server stop
-          wait "$herdr_pid"
+          stop_herdr_bounded
           herdr_pid=
 
       - name: Upload gated candidate
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: candidate-${{ matrix.goos }}-${{ matrix.goarch }}
           if-no-files-found: error
@@ -292,16 +369,20 @@ jobs:
       - candidates
     if: ${{ !cancelled() && needs.verify.result == 'success' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
           ref: ${{ inputs.commit_sha }}
 
       - name: Download successful candidates
         id: download
         continue-on-error: true
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: candidate-*
           path: downloaded
