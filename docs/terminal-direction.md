@@ -18,7 +18,14 @@ While the exact current terminal has a Herdr-recognized agent, the phone compose
 
 **Preparing files…** appears while selected files are read. Prepared files appear as compact, horizontally scrolling attachment cards with filename, size, a remove action, and a browser-local thumbnail for an image when available. Picker cancel, temporary disconnect, definite failure, and an unknown result preserve text and pending files. Files may be sent without text.
 
-On send, Shepherdr stages opaque bytes in the exact workspace's owner-only local directory and prefixes one Terminal batch with **User uploaded files:** plus one absolute path per line. Duplicate basenames gain ` (1)`, ` (2)`, and so on before the extension. The path list is Terminal input, not an attachment envelope. Acknowledgement means the input was forwarded; it does not prove that an agent, provider, or model opened or read a file.
+On send, Shepherdr stages opaque bytes in the exact workspace's owner-only local directory and starts one Terminal batch in this form:
+
+```text
+User uploaded files:
+- /absolute/path
+```
+
+Each file has its own `- ` line. Duplicate basenames gain ` (1)`, ` (2)`, and so on before the extension. The path list is Terminal input, not an attachment envelope. Acknowledgement means the input was forwarded; it does not prove that an agent, provider, or model opened or read a file.
 
 File send uses the same ordinary or confirmed-takeover control and release behavior as phone text. If the exact target or recognized agent is gone before input is handed off, Shepherdr sends nothing and best-effort removes that request's files. If handoff cannot be confirmed, Shepherdr preserves the files and requires a deliberate new send.
 
@@ -46,4 +53,4 @@ Acceptance records only the sources and behavior the phone actually offered. Aut
 
 ## Ongoing acceptance guidance
 
-Future Terminal changes require checks proportionate to the behavior they affect. Preserve exact targeting, Reader's observe-between-sends model, truthful acknowledgement and unknown-result language, deliberate takeover, no automatic input retry, local-path file semantics, and real-phone evidence for mobile behavior.
+Changes to Terminal behavior require checks proportionate to the behavior they affect. Preserve exact targeting, Reader's observe-between-sends model, truthful acknowledgement and unknown-result language, deliberate takeover, no automatic input retry, local-path file semantics, and real-phone evidence for mobile behavior.

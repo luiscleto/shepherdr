@@ -12,13 +12,14 @@ Shepherdr manages Herdr. It does not replace Herdr or create another organizatio
 
 ## The complete phone loop
 
-1. Sign in with a passkey, or deliberately run with sign-in off.
-2. See Herdr's current workspaces and terminals, with agent identity and status when an agent is present.
-3. See how many agents are working and which are blocked.
-4. Open the intended exact terminal in Reader.
-5. Send text, shortcuts, or, while a recognized agent is present, selected files and optional text.
-6. Choose notifications for this browser or installed app.
-7. Open an exact current terminal from a status notification, or return to Home when that target is gone.
+1. On first protected setup, open the setup link or scan its QR code, then choose **Trust this device**.
+2. On later visits, sign in with a passkey, or deliberately run with sign-in off.
+3. See Herdr's current workspaces and terminals, with agent identity and status when an agent is present.
+4. See how many agents are working and which are blocked.
+5. Open the intended exact terminal and its composer.
+6. Send text, shortcuts, or, while a recognized agent is present, selected files and optional text.
+7. Choose notifications for this browser or installed app.
+8. Open an exact current terminal from a status notification, or return to Home when that target is gone.
 
 The daily return path stays short: open Shepherdr, see who needs attention, and reach that work.
 
@@ -26,17 +27,17 @@ The daily return path stays short: open Shepherdr, see who needs attention, and 
 
 Home shows every real Herdr workspace and terminal exactly once. Agent identity and status are optional terminal information; an ordinary terminal still exists and has no invented status. Shepherdr uses Herdr's words unchanged: **working**, **blocked**, **idle**, **done**, and **unknown**.
 
-Home has one local filter over the names in its last complete view. Filtering makes no additional Herdr read, leaves the global attention counts unchanged, and does not overwrite the person's expansion choices.
+Home has one filter over the names already shown. Filtering leaves the global attention counts unchanged and does not overwrite the person's expansion choices.
 
-When Herdr establishes a worktree relationship, Home mirrors it as one nested set. It does not group by names, paths, branches, or guesswork. The set shows only nonzero real agent totals. A single real top-level terminal remains an openable row with a separate disclosure action; other shapes use a neutral set heading and show every real terminal when expanded.
+When Herdr establishes a worktree relationship, Home mirrors it as one group. It does not create groups from names, paths, branches, or guesswork. The group shows only nonzero real agent totals. A single real top-level terminal remains an openable row with a separate disclosure action; other shapes use a neutral group heading and show every real terminal when expanded.
 
-Sets with working or blocked agents start expanded. Later expansion choices win for that visit. **Expand all** and **Collapse all** appear only when useful.
+Groups with working or blocked agents start expanded. Later expansion choices win for that visit. **Expand all** and **Collapse all** appear only when useful.
 
 The attention area shows the working count. When agents are blocked, **N blocked** opens a temporary **Blocked** view with the minimum workspace context. **Show all terminals** restores Home's prior expansion, scroll, and focus.
 
 ## Truthful connection and content
 
-The stable connection badge says **Live**, **Reconnecting**, **Offline**, **Herdr is not running**, or **Cannot use this Herdr**. It follows the real connection, not an internal read.
+The stable connection badge says **Live**, **Reconnecting**, **Offline**, **Herdr is not running**, or **Cannot use this Herdr**. It reflects whether Shepherdr can reach Herdr.
 
 Shepherdr keeps the last complete Home in place until a complete replacement is ready. It shows no internal refresh state. If no Home has loaded, the list area has one short loading or unavailable message. **No terminals** means Herdr is running with nothing open.
 
@@ -53,11 +54,11 @@ Each action checks fresh Herdr state and runs one at a time. Shepherdr reports a
 
 ## Terminal and file sending
 
-Home opens only an exact current terminal. On a phone, the accepted Terminal Reader observes without taking control between sends, supports browser text selection and older available output, and offers **Message** plus terminal shortcuts. Text or shortcut input takes control only long enough for one acknowledged batch and then releases it. A conflict requires a confirmed **Take over and send**; input is never retried automatically. Desktop Terminal retains interactive control until release.
+Home opens only an exact current terminal. On a phone, Terminal observes without taking control between sends, supports browser text selection and older available output, and offers **Message** plus terminal shortcuts. **Message** opens the composer. Text or shortcut input takes control only long enough for one acknowledged batch and then releases it. A conflict requires a confirmed **Take over and send**; input is never retried automatically. Desktop Terminal retains interactive control until release.
 
-While the exact current terminal has a Herdr-recognized agent, the phone composer can select arbitrary files, remove pending files, and send files with or without text. Shepherdr stages opaque bytes in owner-only local storage and sends their absolute paths as Terminal input. This is not provider-native attachment delivery, and acknowledgement does not prove that an agent opened or read a file.
+While the exact current terminal has a Herdr-recognized agent, the phone composer can select arbitrary files, remove pending files, and send files with or without text. Shepherdr stores the selected files temporarily on its own machine and sends their absolute local paths through Terminal. It does not claim the files were delivered to a model or read by an agent.
 
-Staged files belong to the exact workspace, not an agent lifecycle. They remain through agent exit or replacement, reconnect, and Shepherdr restart. After a complete Herdr state shows the workspace is gone, Shepherdr makes a best-effort attempt to remove only its recorded and verified directory; startup reconciles recorded associations after receiving complete workspace state. This temporary operator-owned storage is not durable file history, and cleanup is not crash-perfect.
+Files stay with their workspace when an agent exits or changes and when Shepherdr restarts. After the workspace is gone, Shepherdr tries to delete only the staging folder it created for that workspace. Cleanup can fail, and a crash may leave files behind. This temporary operator-owned storage is not durable file history.
 
 ## Notifications
 
@@ -89,7 +90,7 @@ Use only capabilities Herdr already exposes. Do not invent Herdr interfaces.
 
 ## Outside the current product
 
-Project planning, architecture management, public hosting, team accounts, roles, organizations, remote recovery, provider-specific prompt handling, and a second agent runtime are outside the product. Chat is later work and is not part of the current product.
+Project planning, architecture management, public hosting, team accounts, roles, organizations, remote recovery, provider-specific prompt handling, and a second agent runtime are outside the product.
 
 ## How we know it works
 

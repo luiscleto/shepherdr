@@ -6,7 +6,7 @@ Approved: 2026-08-23
 
 Date: 2026-08-23
 
-This direction records the implemented file-send behavior within the current Terminal and access architecture. `docs/mobile-terminal-attachments-discovery.md` remains historical pre-implementation evidence. The implementation does not add Chat, provider-native attachments, an agent-read claim, or another agent runtime.
+This direction records the implemented file-send behavior within the current Terminal and access architecture. `docs/mobile-terminal-attachments-discovery.md` remains historical pre-implementation evidence. Shepherdr sends local paths through Terminal and does not claim delivery to a model or that an agent read a file. It does not add another agent runtime.
 
 ## Decision status and scope
 
@@ -21,7 +21,7 @@ The human has approved these inputs:
 
 This document does not reopen those decisions. The implemented operator settings are `-upload-parent` and `-upload-limit`; the exact route, state, and interface behavior below describe the current product.
 
-## Small architecture
+## Architecture
 
 One small upload manager runs in the existing Shepherdr process. Its lookup atomically returns one stable gate object for each exact Herdr workspace ID; that object remains in the manager for the process lifetime. A nullable association beneath the gate links the workspace to its directory. Cleanup may clear that association but never replaces or removes the gate. The durable side is a small owner-only association file mapping the ID to one exact absolute directory and its random ownership value. There is no agent record, agent epoch, topology generation, per-agent directory, global queue, quota service, cleanup worker, or durable browser draft.
 
@@ -85,11 +85,11 @@ The route is listed exactly in the deny-by-default route inventory. It keeps `Co
 - In protected mode, exact canonical Host and Origin, a valid session, and current route rules apply. Reuse the existing `SessionLease` and runtime cancellation semantics without another auth lifecycle. Body handling, staging, Terminal work, and rollback use the lease's runtime context. Revocation removes authority and cancels that context immediately, then waits for the handler to notice cancellation, stop or classify any possible forwarding, best-effort roll back when appropriate, and release the lease. The handler performs the existing pre-forward authority/cancellation check; a possible post-forward cancellation remains unknown rather than becoming success.
 - In `-no-sign-in` mode there is no authenticated session, credential owner, or protected-session lease. Every browser that can reach Shepherdr retains the approved operator authority, while the route continues to use that mode's existing Host/Origin boundary, exact classification, JSON type, target checks, and configured body handling. Do not import protected canonical-origin/session claims into this mode.
 
-This is an application of the approved access architecture, not a new access product decision. Transfers materially larger than the ordinary 50 MiB default may later justify a narrowly reviewed multipart route. Multipart and octet-stream are not designed or reserved here.
+This is an application of the approved access architecture, not a new access product decision. Multipart and octet-stream are not part of the current direction; materially larger transfers require a separately reviewed design.
 
-## One shared Terminal batch-send primitive
+## Shared Terminal batch-send operation
 
-Extract or define one reusable server-side batch-send primitive shared by the current Terminal bridge and file-send route. It takes the exact target, completed text batch, ordinary or explicitly confirmed takeover intent, request/session cancellation context, and the existing control ownership. It preserves the accepted Terminal behavior in one place:
+The current Terminal bridge and file-send route use one shared server-side batch-send operation. It receives the exact target, completed text batch, ordinary or explicitly confirmed takeover intent, request/session cancellation context, and the existing control ownership. It preserves the accepted Terminal behavior in one place:
 
 - exact pane and terminal targeting with no fallback;
 - one bracketed-paste batch followed by Enter and acknowledgement;
@@ -119,7 +119,7 @@ The phone command is **Message**. Its composer shows the compact **Add files** i
 
 Selected files are prepared in current page memory. **Preparing files…** keeps send unavailable until that work finishes. Prepared files appear as compact cards in a contained horizontal scrolling strip, with recognizable filename, size, an accessible compact remove icon, and a small local thumbnail for browser-decodable images. The narrow content-security policy permits `blob:` only for image sources. Every object URL is revoked on removal, replacement, successful send, draft discard, or component teardown. No preview URL or file draft is persisted.
 
-Use the ordinary file input behavior needed for arbitrary files. Camera, gallery, and Files choices, ordering, multi-select, returned metadata, and focus restoration remain browser/platform-dependent; do not force capture or claim that every phone offers every source.
+The interface uses ordinary file input behavior for arbitrary files. Camera, gallery, and Files choices, ordering, multi-select, returned metadata, and focus restoration remain browser/platform-dependent; the interface does not force capture or claim that every phone offers every source.
 
 Picker cancel leaves the existing text draft intact. A temporary disconnect preserves the existing local draft and pending files, but send is unavailable until the exact current agent is observed again. A target or agent lost before forwarding produces a clear not-sent result and keeps the local draft for correction. A confirmed send clears it through existing composer behavior. An unknown result preserves the draft and offers only deliberate retry; there is no automatic retry, and a retry can create `(1)` filenames or duplicate terminal text if the first send actually reached the terminal.
 

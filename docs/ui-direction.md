@@ -15,7 +15,7 @@ Write for a person checking Herdr workspaces, terminals, and agents from a phone
 - Security language is quiet and direct.
 - Internal names stay off the screen unless the person needs an exact value to act.
 
-Use familiar words: **workspace**, **terminal**, **agent**, **worktree**, **device**, and **notification**. Keep internal words such as source, group, pane, route, and session off the screen. **Linked workspace** may appear only when someone needs to understand the additional work an action affects.
+Use familiar words: **workspace**, **terminal**, **agent**, **worktree**, **group**, **device**, and **notification**. Keep internal words such as source, pane, route, and session off the screen. **Linked workspace** may appear only when someone needs to understand the additional work an action affects.
 
 Use Herdr's status words unchanged: **working**, **blocked**, **idle**, **done**, and **unknown**. Supporting text may say a blocked agent “needs you,” but that is not another status. Show paths and raw errors only when they help someone act. Do not show internal IDs.
 
@@ -58,13 +58,13 @@ Use a strong sans-serif face for the product, workspace, and terminal names. Use
 
 Home first answers who is working, who is blocked, what needs attention, and which workspaces and terminals exist. Every real terminal appears exactly once. An agent identity and exact Herdr status are optional information; an ordinary terminal has no status badge.
 
-The client-side field is labeled **Filter workspaces and terminals**. It filters only the last complete Home already in the browser. It does not trigger a read, change global counts, renumber titles, or overwrite expansion choices. When nothing matches, show **No matches** and “Try another filter.”
+The filter is labeled **Filter workspaces and terminals**. It uses only the names already shown on Home. It does not change global counts, renumber titles, or overwrite expansion choices. When nothing matches, show **No matches** and “Try another filter.”
 
 Keep ordinary Home compact. A terminal row has a strong human title, optional agent identity and status, and a small aligned terminal glyph. The whole current row is **Open**; the glyph is not another button.
 
-When Herdr confirms a worktree nest, show one nested section with only nonzero agent totals in the order **working**, **blocked**, **idle**, **done**, **unknown**. Counts are information, not controls. A single top-level terminal remains its own openable parent row with a separate leading disclosure. Other shapes use a neutral disclosure heading and show every terminal when expanded. Never substitute a representative terminal.
+When Herdr confirms a worktree relationship, show one group with only nonzero agent totals in the order **working**, **blocked**, **idle**, **done**, **unknown**. Counts are information, not controls. A single top-level terminal remains its own openable parent row with a separate leading disclosure. Other shapes use a neutral group heading and show every terminal when expanded. Never substitute a representative terminal.
 
-Working or blocked nests start expanded. Later choices win for the visit. Show **Expand all** or **Collapse all** only when useful. The attention area shows the working count and no zero-blocked text. **N blocked** opens **Blocked**; **Show all terminals** restores the prior Home expansion, scroll, and focus.
+Groups with working or blocked agents start expanded. Later choices win for the visit. Show **Expand all** or **Collapse all** only when useful. The attention area shows the working count and no zero-blocked text. **N blocked** opens **Blocked**; **Show all terminals** restores the prior Home expansion, scroll, and focus.
 
 ## Connection and Home updates
 
@@ -82,13 +82,13 @@ The tools row includes **New space**. A workspace row keeps its terminal action 
 
 Every close action says **Close workspace**. The confirmation names that workspace and any nonzero additional linked-workspace or agent effects. **Delete checkout** appears only for a linked worktree, never forces deletion, never deletes its branch, and shows the freshly checked path as inert text. If a checkout has changes, say it was not deleted and that the changes must be resolved.
 
-Creation, close, and deletion change Home only after Herdr confirms them. An unconfirmed mutation says the result is unknown and is not retried automatically.
+Creation, close, and deletion change Home only after Herdr confirms them. If Shepherdr cannot confirm what happened, it says the result is unknown and does not retry automatically.
 
 ## Terminal
 
 Terminal uses the human terminal title and a short connection or input state. These states describe the terminal, not the agent. The surrounding controls use the Home palette; the terminal surface keeps its own high-contrast colors.
 
-On a phone, the accepted Reader is the stable reading surface. It supports browser selection, older available output, continued live output, **Message**, and horizontally scrollable shortcuts. **Message** opens the text composer; there are no persistent control buttons. During a temporary disconnect, an open composer keeps its draft, selection, pending files, and focus, but send and remote shortcuts are unavailable.
+On a phone, Terminal provides a stable reading surface with browser selection, older available output, continued live output, **Message**, and horizontally scrollable shortcuts. **Message** opens the text composer; there are no persistent control buttons. During a temporary disconnect, an open composer keeps its draft, selection, pending files, and focus, but send and remote shortcuts are unavailable.
 
 The composer shows **Add files** only while the exact terminal has a Herdr-recognized agent. Its compact paperclip action opens **Photos** and **Files** choices. The platform decides the actual picker sources, multi-selection, and focus return; Shepherdr does not force camera capture or promise that every source exists.
 
@@ -98,7 +98,7 @@ Picker cancel, temporary disconnect, definite not-sent results, and unknown resu
 
 If another controller is present, offer only the confirmed **Take over and send** path. Desktop Terminal uses the full renderer and keeps interactive control until **Release**.
 
-File language stays local and truthful: Shepherdr sends local filesystem paths through Terminal. Do not say files were attached to a provider, delivered to a model, or read by an agent.
+File language stays local and truthful: Shepherdr sends local filesystem paths through Terminal. Do not say the files were delivered to a model or read by an agent.
 
 ## Notifications
 

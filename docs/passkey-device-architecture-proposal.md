@@ -35,7 +35,7 @@ Excluded are passwords, recovery codes, remote or self-service lost-device recov
 - **WebSockets:** browsers send an `Origin` header in the opening handshake and a server for selected sites must validate it. See [RFC 6455 section 10.2](https://www.rfc-editor.org/rfc/rfc6455#section-10.2).
 - **Cookie retention has a browser boundary:** `Max-Age`/`Expires` set a maximum, not a retention guarantee, and a cookie without them has a user-agent-defined session lifetime. Browsers may discard either kind earlier. See [RFC 6265 sections 4.1.2.1 and 6.1](https://www.rfc-editor.org/rfc/rfc6265.html).
 
-## Smallest architecture
+## Architecture
 
 Keep one Shepherdr process and its same-origin embedded UI. The Go listener remains loopback-only; the operator-owned private HTTPS proxy is the only protected browser entry. A small access manager, one versioned access-state file, native browser WebAuthn calls, and a maintained Go verifier provide the boundary. Do not add an identity service, database, second frontend origin, or authentication state to Herdr.
 
@@ -136,7 +136,7 @@ Sign-in, trust, and reauthentication use separate random host-only cookies such 
 
 Successful completion, cancellation, fatal failure, or attempt exhaustion deletes the server record and overwrites the cookie with the same attributes, `Max-Age=0`, and a past `Expires`. Ordinary authentication failure consumes that challenge but may issue a new one inside the same reservation until the attempt bound; it never extends the cookie or outer deadline. Expiry is enforced server-side even if a browser retains a cookie.
 
-Cookies are shared by tabs. There is one live ceremony per browser cookie and kind; a later begin in one tab invalidates the earlier challenge, whose finish receives the same expired-ceremony response and cannot change state. Proposed hard bounds for this one-operator service are 128 live ceremonies globally, one per client per kind, and five challenge attempts per ceremony; expired records are pruned before capacity is checked, and new begins fail closed rather than evicting an active ceremony. Persistent bounds are 32 active credentials, 32 live invitations globally/eight per authorizer, 256 sessions globally/32 per credential. Creating a session at capacity atomically invalidates the oldest created session in the affected scope and applies the normal socket/child cleanup.
+Cookies are shared by tabs. There is one live ceremony per browser cookie and kind; a later begin in one tab invalidates the earlier challenge, whose finish receives the same expired-ceremony response and cannot change state. The implemented hard bounds for this one-operator service are 128 live ceremonies globally, one per client per kind, and five challenge attempts per ceremony; expired records are pruned before capacity is checked, and new begins fail closed rather than evicting an active ceremony. Persistent bounds are 32 active credentials, 32 live invitations globally/eight per authorizer, 256 sessions globally/32 per credential. Creating a session at capacity atomically invalidates the oldest created session in the affected scope and applies the normal socket/child cleanup.
 
 ## Sessions, reauthentication, and invalidation
 
@@ -253,7 +253,7 @@ Use the production executable, real Herdr, one desktop browser, and a real Andro
 - Exercise every listed production route while authenticated: full Home, exact Terminal desktop read and phone text/file send/control/takeover, workspace prepare/create/close/delete, notification config/settings/subscription, service-worker click, stale Terminal handling, and a real Herdr state transition. Revoke the bound session during file staging or forwarding and confirm rollback versus unknown retention before lease release.
 - Revoke a non-current credential while HTTP, Home, Terminal, invitation, and push activity is live. Confirm immediate authority denial, access-first crash invariants, socket/child shutdown, invalid invitations, subscription cleanup, no push request after cutoff, and only a pre-cutoff accepted push can arrive within TTL.
 - Feed hostile Herdr names/output, paths, IDs, labels, attachments, and pasted content through real views. Confirm none can authorize, redirect, enroll, select a credential, subscribe, open another Terminal, or mutate.
-- Migrate today's state. Confirm no implicit trust, VAPID identity preservation, legacy-subscription suppression, explicit notification re-enable, `-no-sign-in` current behavior/warning, protected return on restart, stopped-service CLI refusal while running, and corrupt-state fail-closed behavior.
+- Confirm no implicit trust from older ownerless notification state, VAPID identity preservation, ownerless-subscription suppression, explicit notification re-enable, `-no-sign-in` current behavior/warning, protected return on restart, stopped-service CLI refusal while running, and corrupt-state fail-closed behavior.
 - Run stopped-service invite/list/revoke/reset. Confirm revoke refuses the final credential, reset clears exactly the approved state while preserving origin/VAPID identity, and only the next protected start creates a new bootstrap invitation.
 
 ## Ongoing boundaries
