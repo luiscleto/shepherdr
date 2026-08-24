@@ -55,6 +55,7 @@ export interface HomeState {
   epoch?: string;
   gap: number;
   has_home: boolean;
+  herdr_version: string;
   home: Home;
   last_known: boolean;
 }

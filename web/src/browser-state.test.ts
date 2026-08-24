@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { Window } from "happy-dom";
@@ -137,6 +138,7 @@ function state(value = flatHome(), connection: HomeState["connection"] = "live")
     connection,
     gap: 2,
     has_home: true,
+    herdr_version: "0.8.0",
     home: value,
     last_known: connection !== "live",
   };
@@ -189,6 +191,7 @@ test("Home shows one real initial or unavailable state with the transport-owned 
     connection: "reconnecting",
     gap: 0,
     has_home: false,
+    herdr_version: "",
     home: { blocked_count: 0, working_count: 0, workspaces: [] },
     last_known: false,
   };
@@ -216,6 +219,7 @@ test("Home shows one real initial or unavailable state with the transport-owned 
   assert.doesNotMatch(app.textContent ?? "", /Offline/);
 
   render(view, state());
+  assert.equal(requiredElement(app, ".herdr-version").textContent, "Herdr 0.8.0");
   assert.equal(requiredElement(connection, ".connection-label").textContent, "Live");
   assert.equal(requiredElement(connection, ".connection-dot").className, "connection-dot connection-dot-live");
   assert.equal(connection.childElementCount, 2);
@@ -307,6 +311,9 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   const current = state();
   render(view, current);
   const connection = requiredElement(app, ".home-connection");
+  const version = requiredElement(app, ".herdr-version");
+  assert.equal(version.localName, "p");
+  assert.equal(version.textContent, "Herdr 0.8.0");
   const row = requiredRow(view, "pane-one");
   assert.equal(connection.childElementCount, 2);
   assert.equal(connection.querySelectorAll("button").length, 1);
@@ -316,6 +323,8 @@ test("transport changes keep the last complete Home and its stable badge slot", 
 
   const stale = { ...current, connection: "reconnecting" as const, last_known: true };
   render(view, stale, { actionsAvailable: false, reachability: "reconnecting" });
+  assert.equal(app.querySelector(".herdr-version") === version, true);
+  assert.equal(version.textContent, "");
   assert.equal(app.querySelector(".home-connection") === connection, true);
   const unavailableRow = requiredRow(view, "pane-one");
   assert.equal(unavailableRow.localName, "div");
@@ -331,6 +340,7 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   assert.equal(opens, 1);
 
   render(view, stale, { actionsAvailable: false, reachability: "offline" });
+  assert.equal(version.textContent, "");
   assert.equal(requiredElement(connection, ".connection-label").textContent, "Offline");
   assert.equal(requiredElement(connection, ".connection-dot").className, "connection-dot connection-dot-offline");
   assert.equal(connection.childElementCount, 2);
@@ -338,6 +348,7 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   assert.doesNotMatch(connection.textContent ?? "", /Reconnect/);
 
   render(view, current);
+  assert.equal(version.textContent, "Herdr 0.8.0");
   assert.equal(app.querySelector(".home-connection") === connection, true);
   assert.equal(requiredElement(connection, ".connection-label").textContent, "Live");
   const recoveredRow = requiredRow(view, "pane-one");
@@ -345,6 +356,26 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   assert.equal(requiredElement(recoveredRow, ".terminal-name").textContent, "Workspace one");
   recoveredRow.click();
   assert.equal(opens, 2);
+  window.close();
+});
+
+test("Home renders the live Herdr version as text in a geometry-reserving slot", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window);
+  const current = state();
+  current.herdr_version = "0.8.0<img src=x>";
+
+  render(view, current);
+
+  const version = requiredElement(app, ".herdr-version");
+  assert.equal(version.textContent, "Herdr 0.8.0<img src=x>");
+  assert.equal(version.childElementCount, 0);
+  render(view, { ...current, has_home: false });
+  assert.equal(version.textContent, "Herdr 0.8.0<img src=x>");
+  render(view, { ...current, herdr_version: "" });
+  assert.equal(version.textContent, "");
+  const styles = readFileSync(new URL("./style.css", import.meta.url), "utf8");
+  assert.match(styles, /\.herdr-version\s*\{[^}]*min-height:\s*0\.86rem;/s);
   window.close();
 });
 

@@ -157,11 +157,11 @@ export function parseCompleteHomeState(value: unknown): HomeState | undefined {
   const state = record(value);
   if (!state || !exactKeys(
     state,
-    ["connection", "epoch", "gap", "has_home", "home", "last_known"],
+    ["connection", "epoch", "gap", "has_home", "herdr_version", "home", "last_known"],
     ["detail"],
   ) || typeof state.connection !== "string" || !connections.has(state.connection as HomeState["connection"]) ||
     typeof state.epoch !== "string" || !serverEpochPattern.test(state.epoch) || !nonnegativeInteger(state.gap) ||
-    typeof state.has_home !== "boolean" || typeof state.last_known !== "boolean" ||
+    typeof state.has_home !== "boolean" || typeof state.herdr_version !== "string" || typeof state.last_known !== "boolean" ||
     (Object.hasOwn(state, "detail") && typeof state.detail !== "string")) return undefined;
   const home = parseHome(state.home);
   if (!home) return undefined;
@@ -170,6 +170,7 @@ export function parseCompleteHomeState(value: unknown): HomeState | undefined {
     epoch: state.epoch,
     gap: state.gap,
     has_home: state.has_home,
+    herdr_version: state.herdr_version,
     home,
     last_known: state.last_known,
     ...(typeof state.detail === "string" ? { detail: state.detail } : {}),

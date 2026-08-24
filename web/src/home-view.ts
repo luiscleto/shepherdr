@@ -155,6 +155,7 @@ export class HomeView {
   readonly #filterInput: HTMLInputElement;
   readonly #header: HTMLElement;
   readonly #headerHeading: HTMLElement;
+  readonly #herdrVersion: HTMLElement;
   readonly #notificationsAction: HTMLButtonElement;
   readonly #homeTools: HTMLElement;
   readonly #loading: HTMLElement;
@@ -188,9 +189,11 @@ export class HomeView {
     this.#header = element(this.#document, "header", "masthead");
     const heading = element(this.#document, "div");
     this.#headerHeading = element(this.#document, "h1", undefined, "Home");
+    this.#herdrVersion = element(this.#document, "p", "herdr-version");
     this.#accessNotice = element(this.#document, "p", "quiet", "Sign-in is off.");
     heading.append(
       element(this.#document, "p", "eyebrow", "Shepherdr"),
+      this.#herdrVersion,
       this.#headerHeading,
       this.#accessNotice,
     );
@@ -281,6 +284,7 @@ export class HomeView {
     setHidden(this.#headerHeading, model.mode === "all");
     setHidden(this.#accessNotice, !model.signInOff);
     const live = model.reachability === "current" && model.state.connection === "live" && !model.state.last_known;
+    setText(this.#herdrVersion, live && model.state.herdr_version !== "" ? `Herdr ${model.state.herdr_version}` : "");
 
     const desired: Node[] = [this.#header];
     const connection = this.#connectionCopy(model);

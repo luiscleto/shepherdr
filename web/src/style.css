@@ -270,6 +270,15 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.herdr-version {
+  min-height: 0.86rem;
+  margin: 0.35rem 0 0;
+  color: var(--ink-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
 .quiet {
   margin: 0.55rem 0 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;

@@ -54,6 +54,7 @@ let state: HomeState = {
   connection: "reconnecting",
   gap: 0,
   has_home: false,
+  herdr_version: "",
   home: { blocked_count: 0, working_count: 0, workspaces: [] },
   last_known: false,
 };
@@ -381,6 +382,7 @@ function accessSignedOut(): void {
     connection: "reconnecting",
     gap: 0,
     has_home: false,
+    herdr_version: "",
     home: { blocked_count: 0, working_count: 0, workspaces: [] },
     last_known: false,
   };

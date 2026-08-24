@@ -20,13 +20,14 @@ const (
 )
 
 type State struct {
-	Connection Connection `json:"connection"`
-	Detail     string     `json:"detail,omitempty"`
-	Gap        uint64     `json:"gap"`
-	HasHome    bool       `json:"has_home"`
-	Home       Home       `json:"home"`
-	LastKnown  bool       `json:"last_known"`
-	Snapshot   Snapshot   `json:"-"`
+	Connection   Connection `json:"connection"`
+	Detail       string     `json:"detail,omitempty"`
+	Gap          uint64     `json:"gap"`
+	HasHome      bool       `json:"has_home"`
+	HerdrVersion string     `json:"herdr_version"`
+	Home         Home       `json:"home"`
+	LastKnown    bool       `json:"last_known"`
+	Snapshot     Snapshot   `json:"-"`
 }
 
 type SnapshotObserver interface {
@@ -306,6 +307,7 @@ func (p *Projector) publishLiveObserved(snapshot Snapshot, baseline bool) bool {
 	state.Connection = ConnectionLive
 	state.Detail = ""
 	state.HasHome = true
+	state.HerdrVersion = snapshot.Version
 	state.Home = home
 	state.LastKnown = false
 	state.Snapshot = snapshot
@@ -357,6 +359,7 @@ func samePublishedState(left, right State) bool {
 		left.Detail == right.Detail &&
 		left.Gap == right.Gap &&
 		left.HasHome == right.HasHome &&
+		left.HerdrVersion == right.HerdrVersion &&
 		left.LastKnown == right.LastKnown &&
 		reflect.DeepEqual(left.Home, right.Home)
 }

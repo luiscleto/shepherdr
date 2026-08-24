@@ -9,6 +9,7 @@ function completeFrame(): Record<string, unknown> {
     epoch: "0123456789abcdef0123456789abcdef",
     gap: 0,
     has_home: true,
+    herdr_version: "0.8.0<script>",
     home: {
       blocked_count: 0,
       working_count: 1,
@@ -51,6 +52,7 @@ test("strictly parses documented Home actions and top-level checkout paths", () 
   assert.equal(parsed?.home.workspaces[0].checkout_path, "/work/<b>one</b>");
   assert.equal(parsed?.home.workspaces[0].worktrees?.[0].actions.join(","), "close_workspace,delete_checkout");
   assert.equal(parsed?.home.workspaces[0].label, "Parent <script>");
+  assert.equal(parsed?.herdr_version, "0.8.0<script>");
 });
 
 test("rejects missing, duplicate, unknown, misplaced, or extra additive Home fields", () => {

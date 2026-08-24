@@ -66,6 +66,9 @@ func TestProjectorUsesOneReadAndOneDirtyFollowUpForAnEventBurst(t *testing.T) {
 	if !live.HasHome {
 		t.Fatal("post-subscription snapshot did not publish a complete Home")
 	}
+	if live.HerdrVersion != "0.8.0" {
+		t.Fatalf("published Herdr version = %q, want 0.8.0", live.HerdrVersion)
+	}
 	waitForCount(t, &fixture.snapshots, 3)
 	time.Sleep(100 * time.Millisecond)
 	if got := fixture.snapshots.Load(); got != 3 {

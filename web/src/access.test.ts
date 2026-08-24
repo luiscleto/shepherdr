@@ -439,6 +439,7 @@ test("Home keeps one Settings action and no separate Devices header action", () 
       connection: "live" as const,
       gap: 0,
       has_home: true,
+      herdr_version: "0.8.0",
       home: { blocked_count: 0, working_count: 0, workspaces: [] },
       last_known: false,
     },
