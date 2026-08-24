@@ -271,12 +271,17 @@ button:disabled {
 }
 
 .herdr-version {
+  height: 0.86rem;
   min-height: 0.86rem;
+  max-width: 100%;
+  overflow: hidden;
   margin: 0.35rem 0 0;
   color: var(--ink-muted);
   font-size: 0.72rem;
   font-weight: 500;
   line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .quiet {

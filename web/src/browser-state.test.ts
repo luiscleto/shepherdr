@@ -375,7 +375,12 @@ test("Home renders the live Herdr version as text in a geometry-reserving slot",
   render(view, { ...current, herdr_version: "" });
   assert.equal(version.textContent, "");
   const styles = readFileSync(new URL("./style.css", import.meta.url), "utf8");
-  assert.match(styles, /\.herdr-version\s*\{[^}]*min-height:\s*0\.86rem;/s);
+  const versionRule = styles.match(/\.herdr-version\s*\{([^}]*)\}/)?.[1] ?? "";
+  assert.match(versionRule, /(?:^|\n)\s*height:\s*0\.86rem;/);
+  assert.match(versionRule, /(?:^|\n)\s*max-width:\s*100%;/);
+  assert.match(versionRule, /(?:^|\n)\s*overflow:\s*hidden;/);
+  assert.match(versionRule, /(?:^|\n)\s*text-overflow:\s*ellipsis;/);
+  assert.match(versionRule, /(?:^|\n)\s*white-space:\s*nowrap;/);
   window.close();
 });
 
