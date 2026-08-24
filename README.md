@@ -2,9 +2,7 @@
 
 Shepherdr is a phone-friendly web interface for one local Herdr session. From a phone, you can check agents, manage workspaces, use terminals, send files, and choose notifications. Herdr still does the work.
 
-<p align="center">
-  https://github.com/user-attachments/assets/225b10ae-e873-4b16-890a-1add63fe2856
-</p>
+https://github.com/user-attachments/assets/225b10ae-e873-4b16-890a-1add63fe2856
 
 ---
 
