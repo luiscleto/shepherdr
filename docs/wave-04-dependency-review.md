@@ -10,4 +10,4 @@ Primary upstream evidence reviewed before pinning:
 - The release is a dependency-only maintenance release. Its module requires Go 1.25 and records the Go 1.26.3 toolchain: <https://raw.githubusercontent.com/go-webauthn/webauthn/v0.17.4/go.mod>
 - Upstream's security policy lists the current line as supported and GitHub reports no published repository security advisories at review time: <https://github.com/go-webauthn/webauthn/security>
 
-The repository baseline is Go 1.26.0. The worker checks used Go 1.26.5. Shepherdr delegates WebAuthn option construction and verification to this library and does not implement CBOR, COSE, attestation, or signature verification itself.
+At review time, the repository baseline was Go 1.26.0 and the worker checks used Go 1.26.5. The current repository baseline is Go 1.27. Shepherdr delegates WebAuthn option construction and verification to this library and does not implement CBOR, COSE, attestation, or signature verification itself.

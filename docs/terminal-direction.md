@@ -35,7 +35,7 @@ Connection and input messages describe the terminal connection, not the agent's 
 
 ## Runtime boundary
 
-Shepherdr uses Herdr 0.8.0's existing snapshot, terminal read, observe, control, acknowledgement, release, and takeover capabilities. Herdr remains authoritative for the terminal process, output, and control.
+Shepherdr supports Herdr 0.8.0 through 0.8.2 and uses their existing snapshot, terminal read, observe, control, acknowledgement, release, and takeover capabilities. Herdr remains authoritative for the terminal process, output, and control.
 
 The server rechecks the exact target for reads and sends. The file path shares the accepted Terminal batch writer and its acknowledgement, release, conflict, takeover, cancellation, and unknown-result behavior. Shepherdr rechecks the exact current workspace, terminal, and recognized agent immediately before sending. Herdr cannot bind agent presence atomically to the terminal write, so a recognized agent can still exit in the final interval; Shepherdr makes no stronger delivery claim.
 

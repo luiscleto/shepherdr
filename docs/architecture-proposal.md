@@ -10,7 +10,7 @@ This document covers Home and its current workspace actions. Terminal, protected
 
 The current shape is small:
 
-1. One configured Herdr 0.8.0 session owns the real workspaces, terminals, agents, statuses, and worktree actions.
+1. One configured supported Herdr session owns the real workspaces, terminals, agents, statuses, and worktree actions.
 2. One Go process talks to Herdr, serves the embedded browser UI on loopback, protects it with passkeys by default, and keeps only the latest complete Home in memory. The same process owns notification state and exact workspace-upload associations outside the repository.
 3. The phone renders Home, manages trusted sign-ins and notification choices, opens the accepted Terminal destination, and sends local file paths while a recognized agent is present.
 
@@ -28,7 +28,7 @@ Herdr remains the authority for the status words `working`, `blocked`, `idle`, `
 
 ## The Home loop
 
-Herdr 0.8.0 requires status subscriptions to name the panes they watch. Home therefore uses one small setup read, then one simple loop:
+Supported Herdr releases require status subscriptions to name the panes they watch. Home therefore uses one small setup read, then one simple loop:
 
 1. Read once to learn the current pane IDs. Do not show that setup read.
 2. Open one event connection for global changes and those pane statuses.

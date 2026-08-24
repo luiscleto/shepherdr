@@ -19,7 +19,7 @@ The human approved these inputs:
 - The browser boundary is one deny-by-default exact Host/Origin gate, host-only `Secure`, `HttpOnly`, `SameSite=Strict` cookies, JSON-only mutations, explicit WebSocket Origin checks, no state-changing GETs, and no separate CSRF token.
 - Local `access invite|devices|revoke|reset` commands require the service to be stopped. Trusted-browser device administration works while it is online. A browser cannot remove the final credential.
 - Reset is destructive local administration: it preserves public-origin and VAPID identity configuration while clearing credentials, sessions, invitations, and notification subscriptions.
-- The implementation baseline is Go 1.26 with the current maintained `go-webauthn` release.
+- The implementation baseline is Go 1.27 with the current maintained `go-webauthn` release.
 
 In the rest of this document, **confirmed** describes repository or standards behavior and **assumption** names a security boundary.
 
@@ -218,7 +218,7 @@ Subscription creation/removal rechecks authority while holding the write lock. R
 
 ## Maintained library boundary
 
-Shepherdr uses [`github.com/go-webauthn/webauthn`](https://github.com/go-webauthn/webauthn) `v0.17.4` on Go 1.26. It supplies relying-party ceremonies, discoverable/usernameless flows, storage types, backup flags, and a security process, but remains pre-v1, so upgrades require release-note and compatibility review.
+Shepherdr uses [`github.com/go-webauthn/webauthn`](https://github.com/go-webauthn/webauthn) `v0.17.4` on Go 1.27. It supplies relying-party ceremonies, discoverable/usernameless flows, storage types, backup flags, and a security process, but remains pre-v1, so upgrades require release-note and compatibility review.
 
 Use the standard browser API without a hosted SDK. Use a maintained QR encoder/terminal renderer such as [`github.com/mdp/qrterminal/v3`](https://github.com/mdp/qrterminal) rather than implementing QR encoding. Go `crypto/rand` and `crypto/sha256` are appropriate for opaque tokens and stored digests; they do not replace WebAuthn verification.
 
