@@ -41,7 +41,7 @@ func TestProjectorUsesOneReadAndOneDirtyFollowUpForAnEventBurst(t *testing.T) {
 	fixture := newLoopFixture(t, stableProjectorSnapshot())
 	fixture.blockSnapshot.Store(2)
 
-	projector := NewProjector(NewClient(fixture.socketPath))
+	projector := NewProjector(NewClient(fixture.socketPath, discardLogger()))
 	updates, unsubscribe := projector.Subscribe()
 	defer unsubscribe()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -196,7 +196,7 @@ func TestProjectorObservesDottedStatusAndNewPaneBeforeSilentReplacementBaseline(
 	var subscriptions atomic.Int32
 	go serveStatusResubscriptionBoundaryFixture(ctx, listener, triggerStatusAndNewPane, &snapshots, &subscriptions)
 
-	projector := NewProjector(NewClient(socketPath))
+	projector := NewProjector(NewClient(socketPath, discardLogger()))
 	observer := &recordingSnapshotObserver{}
 	projector.SetSnapshotObserver(observer)
 	runCtx, cancelRun := context.WithCancel(context.Background())
@@ -227,7 +227,7 @@ func TestProjectorObservesDottedStatusAndNewPaneBeforeSilentReplacementBaseline(
 
 func TestWorktreeEventRefreshesOnceWithoutGapOrRetry(t *testing.T) {
 	fixture := newLoopFixture(t, stableProjectorSnapshot())
-	projector := NewProjector(NewClient(fixture.socketPath))
+	projector := NewProjector(NewClient(fixture.socketPath, discardLogger()))
 	updates, unsubscribe := projector.Subscribe()
 	defer unsubscribe()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -260,7 +260,7 @@ func TestWorktreeEventRefreshesOnceWithoutGapOrRetry(t *testing.T) {
 
 func TestRequestedHomeRefreshUsesOneCompleteRead(t *testing.T) {
 	fixture := newLoopFixture(t, stableProjectorSnapshot())
-	projector := NewProjector(NewClient(fixture.socketPath))
+	projector := NewProjector(NewClient(fixture.socketPath, discardLogger()))
 	updates, unsubscribe := projector.Subscribe()
 	defer unsubscribe()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -297,7 +297,7 @@ func TestProjectorResubscribesBeforePublishingANewPane(t *testing.T) {
 	var subscriptions atomic.Int32
 	go serveNewPaneFixture(ctx, listener, &snapshots, &subscriptions)
 
-	projector := NewProjector(NewClient(socketPath))
+	projector := NewProjector(NewClient(socketPath, discardLogger()))
 	updates, unsubscribe := projector.Subscribe()
 	defer unsubscribe()
 	runCtx, cancelRun := context.WithCancel(context.Background())
@@ -315,7 +315,7 @@ func TestProjectorResubscribesBeforePublishingANewPane(t *testing.T) {
 
 func TestSubscriptionLossReconnectsAndUsesAPostSubscriptionSnapshot(t *testing.T) {
 	fixture := newLoopFixture(t, stableProjectorSnapshot())
-	projector := NewProjector(NewClient(fixture.socketPath))
+	projector := NewProjector(NewClient(fixture.socketPath, discardLogger()))
 	updates, unsubscribe := projector.Subscribe()
 	defer unsubscribe()
 	ctx, cancel := context.WithCancel(context.Background())

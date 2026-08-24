@@ -7,6 +7,7 @@ require (
 	github.com/go-webauthn/webauthn v0.17.4
 	github.com/gorilla/websocket v1.5.3
 	github.com/mdp/qrterminal/v3 v3.2.1
+	golang.org/x/mod v0.39.0
 	rsc.io/qr v0.2.0
 )
 

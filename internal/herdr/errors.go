@@ -23,19 +23,22 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("Herdr API %s: %s", e.Code, e.Message)
 }
 
+type CompatibilityReason string
+
+const (
+	CompatibilityVersionTooOld     CompatibilityReason = "version_too_old"
+	CompatibilityInterfaceMismatch CompatibilityReason = "interface_mismatch"
+)
+
 type CompatibilityError struct {
-	Version        string
-	Protocol       uint32
-	InvalidVersion bool
-	Inconsistent   bool
+	Version  string
+	Protocol uint32
+	Reason   CompatibilityReason
 }
 
 func (e *CompatibilityError) Error() string {
 	supportedRange := fmt.Sprintf("Shepherdr supports Herdr %s through %s", minimumSupportedVersion, maximumSupportedVersion)
-	if e.InvalidVersion {
-		return fmt.Sprintf("Herdr reported an invalid version %q; %s", e.Version, supportedRange)
-	}
-	if e.Inconsistent {
+	if e.Reason == CompatibilityInterfaceMismatch {
 		return fmt.Sprintf("Herdr %s reported inconsistent connection details; %s", e.Version, supportedRange)
 	}
 	return fmt.Sprintf("Herdr %s is older than the supported Herdr range; %s", e.Version, supportedRange)

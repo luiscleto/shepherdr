@@ -9,12 +9,13 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"golang.org/x/mod/semver"
 )
 
 const (
@@ -25,14 +26,14 @@ const (
 )
 
 type Client struct {
-	socketPath          string
-	nextID              atomic.Uint64
-	logger              *slog.Logger
-	newerVersionWarning sync.Once
+	socketPath           string
+	nextID               atomic.Uint64
+	logger               *slog.Logger
+	compatibilityWarning sync.Once
 }
 
-func NewClient(socketPath string) *Client {
-	return &Client{socketPath: socketPath, logger: slog.Default()}
+func NewClient(socketPath string, logger *slog.Logger) *Client {
+	return &Client{socketPath: socketPath, logger: logger}
 }
 
 func (c *Client) SocketPath() string { return c.socketPath }
@@ -89,7 +90,7 @@ func (c *Client) Snapshot(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	if warning != "" {
-		c.newerVersionWarning.Do(func() {
+		c.compatibilityWarning.Do(func() {
 			c.logger.Warn(warning)
 		})
 	}
@@ -99,60 +100,40 @@ func (c *Client) Snapshot(ctx context.Context) (Snapshot, error) {
 	return result.Snapshot, nil
 }
 
-type semanticVersion [3]uint64
-
 func checkCompatibility(version string, protocol uint32) (string, error) {
 	parsed, ok := parseSemanticVersion(version)
 	if !ok {
-		return "", &CompatibilityError{Version: version, Protocol: protocol, InvalidVersion: true}
+		return fmt.Sprintf("Herdr reported version %q, which Shepherdr could not verify; Shepherdr supports stable Herdr %s through %s; continuing best-effort", version, minimumSupportedVersion, maximumSupportedVersion), nil
 	}
-	minimum, _ := parseSemanticVersion(minimumSupportedVersion)
-	maximum, _ := parseSemanticVersion(maximumSupportedVersion)
-	if compareSemanticVersion(parsed, minimum) < 0 {
-		return "", &CompatibilityError{Version: version, Protocol: protocol}
+	minimum := "v" + minimumSupportedVersion
+	maximum := "v" + maximumSupportedVersion
+	if semver.Compare(parsed, minimum) < 0 {
+		return "", &CompatibilityError{Version: version, Protocol: protocol, Reason: CompatibilityVersionTooOld}
 	}
-	if compareSemanticVersion(parsed, maximum) > 0 {
-		return fmt.Sprintf("Herdr %s is newer than Shepherdr's supported Herdr range %s through %s; continuing best-effort", version, minimumSupportedVersion, maximumSupportedVersion), nil
+	if semver.Compare(parsed, maximum) > 0 {
+		return fmt.Sprintf("Herdr %s is newer than Shepherdr's supported stable Herdr range %s through %s; continuing best-effort", version, minimumSupportedVersion, maximumSupportedVersion), nil
 	}
+	if semver.Prerelease(parsed) != "" {
+		return fmt.Sprintf("Herdr %s is outside Shepherdr's supported stable Herdr range %s through %s; continuing best-effort", version, minimumSupportedVersion, maximumSupportedVersion), nil
+	}
+	stableVersion := strings.TrimPrefix(semver.Canonical(parsed), "v")
 	if protocol != Protocol && protocol != protocol20 {
-		return "", &CompatibilityError{Version: version, Protocol: protocol, Inconsistent: true}
+		return "", &CompatibilityError{Version: version, Protocol: protocol, Reason: CompatibilityInterfaceMismatch}
 	}
-	if (version == minimumSupportedVersion && protocol != Protocol) ||
-		(version == maximumSupportedVersion && protocol != protocol20) {
-		return "", &CompatibilityError{Version: version, Protocol: protocol, Inconsistent: true}
+	if (stableVersion == minimumSupportedVersion && protocol != Protocol) ||
+		(stableVersion == maximumSupportedVersion && protocol != protocol20) {
+		return "", &CompatibilityError{Version: version, Protocol: protocol, Reason: CompatibilityInterfaceMismatch}
 	}
 	return "", nil
 }
 
-func parseSemanticVersion(version string) (semanticVersion, bool) {
-	parts := strings.Split(version, ".")
-	if len(parts) != 3 {
-		return semanticVersion{}, false
+func parseSemanticVersion(version string) (string, bool) {
+	core := version
+	if suffix := strings.IndexAny(core, "+-"); suffix >= 0 {
+		core = core[:suffix]
 	}
-	var parsed semanticVersion
-	for index, part := range parts {
-		if part == "" || (len(part) > 1 && part[0] == '0') {
-			return semanticVersion{}, false
-		}
-		value, err := strconv.ParseUint(part, 10, 64)
-		if err != nil {
-			return semanticVersion{}, false
-		}
-		parsed[index] = value
-	}
-	return parsed, true
-}
-
-func compareSemanticVersion(left, right semanticVersion) int {
-	for index := range left {
-		if left[index] < right[index] {
-			return -1
-		}
-		if left[index] > right[index] {
-			return 1
-		}
-	}
-	return 0
+	parsed := "v" + version
+	return parsed, strings.Count(core, ".") == 2 && semver.IsValid(parsed)
 }
 
 type Subscription struct {

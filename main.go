@@ -180,7 +180,7 @@ func run() error {
 		}
 		accessManager.SetNotificationAuthority(notificationManager)
 	}
-	client := herdr.NewClient(*socketPath)
+	client := herdr.NewClient(*socketPath, logger)
 	projector := herdr.NewProjector(client)
 	projector.SetSnapshotObserver(notificationManager)
 	projector.SetPublishedSnapshotObserver(uploadManager)

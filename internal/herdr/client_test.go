@@ -60,7 +60,7 @@ func TestClientUsesSnapshotAndConfirmedSubscriptions(t *testing.T) {
 		connection.Close()
 	}()
 
-	client := NewClient(socketPath)
+	client := NewClient(socketPath, discardLogger())
 	snapshot, err := client.Snapshot(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -138,68 +138,86 @@ func TestClientUsesSnapshotAndConfirmedSubscriptions(t *testing.T) {
 	}
 }
 
-func TestClientEnforcesHerdrCompatibilityPolicy(t *testing.T) {
+func TestHerdrCompatibilityPolicy(t *testing.T) {
 	tests := []struct {
 		name        string
 		version     string
 		protocol    uint32
-		wantError   bool
+		wantReason  CompatibilityReason
 		wantWarning bool
 	}{
 		{name: "minimum supported release", version: "0.8.0", protocol: 19},
 		{name: "middle release on earlier confirmed interface", version: "0.8.1", protocol: 19},
 		{name: "middle release on later confirmed interface", version: "0.8.1", protocol: 20},
 		{name: "maximum supported release", version: "0.8.2", protocol: 20},
-		{name: "below minimum", version: "0.7.9", protocol: 19, wantError: true},
+		{name: "build metadata preserves supported precedence", version: "0.8.2+build.1", protocol: 20},
+		{name: "below minimum", version: "0.7.9", protocol: 19, wantReason: CompatibilityVersionTooOld},
+		{name: "minimum prerelease is below minimum", version: "0.8.0-rc.1", protocol: 19, wantReason: CompatibilityVersionTooOld},
 		{name: "above maximum", version: "0.8.3", protocol: 21, wantWarning: true},
-		{name: "minimum release with inconsistent interface", version: "0.8.0", protocol: 20, wantError: true},
-		{name: "maximum release with inconsistent interface", version: "0.8.2", protocol: 19, wantError: true},
-		{name: "supported release with unknown old interface", version: "0.8.1", protocol: 18, wantError: true},
+		{name: "newer prerelease", version: "0.8.3-rc.1", protocol: 21, wantWarning: true},
+		{name: "unverified prerelease within stable range", version: "0.8.2-rc.1", protocol: 20, wantWarning: true},
+		{name: "malformed version is unknown", version: "not-semver", protocol: 1, wantWarning: true},
+		{name: "minimum release with inconsistent interface", version: "0.8.0", protocol: 20, wantReason: CompatibilityInterfaceMismatch},
+		{name: "maximum release with inconsistent interface", version: "0.8.2", protocol: 19, wantReason: CompatibilityInterfaceMismatch},
+		{name: "build metadata preserves consistency check", version: "0.8.2+build.1", protocol: 19, wantReason: CompatibilityInterfaceMismatch},
+		{name: "supported release with unknown old interface", version: "0.8.1", protocol: 18, wantReason: CompatibilityInterfaceMismatch},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			socketPath := filepath.Join(t.TempDir(), "herdr.sock")
-			listener, err := net.Listen("unix", socketPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer listener.Close()
-			serverDone := make(chan error, 1)
-			go serveSnapshotResponse(listener, test.version, test.protocol, serverDone)
-
-			var logs bytes.Buffer
-			client := NewClient(socketPath)
-			client.logger = slog.New(slog.NewTextHandler(&logs, nil))
-			snapshot, snapshotErr := client.Snapshot(context.Background())
-			if err := <-serverDone; err != nil {
-				t.Fatal(err)
-			}
-			if test.wantError {
+			warning, err := checkCompatibility(test.version, test.protocol)
+			if test.wantReason != "" {
 				var compatibility *CompatibilityError
-				if !errors.As(snapshotErr, &compatibility) {
-					t.Fatalf("Snapshot error = %v, want CompatibilityError", snapshotErr)
+				if !errors.As(err, &compatibility) {
+					t.Fatalf("compatibility error = %v, want CompatibilityError", err)
 				}
-				if !strings.Contains(snapshotErr.Error(), "Herdr 0.8.0 through 0.8.2") || strings.Contains(strings.ToLower(snapshotErr.Error()), "protocol") {
-					t.Fatalf("compatibility error = %q", snapshotErr)
+				if compatibility.Reason != test.wantReason {
+					t.Fatalf("compatibility reason = %q, want %q", compatibility.Reason, test.wantReason)
+				}
+				if !strings.Contains(err.Error(), "Herdr 0.8.0 through 0.8.2") || strings.Contains(strings.ToLower(err.Error()), "protocol") {
+					t.Fatalf("compatibility error = %q", err)
+				}
+				if warning != "" {
+					t.Fatalf("warning with compatibility error = %q", warning)
 				}
 			} else {
-				if snapshotErr != nil {
-					t.Fatal(snapshotErr)
-				}
-				if snapshot.Version != test.version || snapshot.Protocol != test.protocol {
-					t.Fatalf("snapshot version/interface = %s/%d, want %s/%d", snapshot.Version, snapshot.Protocol, test.version, test.protocol)
+				if err != nil {
+					t.Fatal(err)
 				}
 			}
-			warning := logs.String()
 			if test.wantWarning {
-				if !strings.Contains(warning, "Herdr 0.8.3") || !strings.Contains(warning, "Herdr range 0.8.0 through 0.8.2") || strings.Contains(strings.ToLower(warning), "protocol") {
+				if !strings.Contains(warning, "0.8.0 through 0.8.2") || !strings.Contains(warning, "continuing best-effort") || strings.Contains(strings.ToLower(warning), "protocol") {
 					t.Fatalf("compatibility warning = %q", warning)
 				}
 			} else if warning != "" {
 				t.Fatalf("unexpected warning = %q", warning)
 			}
 		})
+	}
+}
+
+func TestClientSendsOneCompatibilityWarningToConfiguredLogger(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	var logs bytes.Buffer
+	client := NewClient(socketPath, slog.New(slog.NewTextHandler(&logs, nil)))
+	for range 2 {
+		serverDone := make(chan error, 1)
+		go serveSnapshotResponse(listener, "0.8.3-rc.1", 21, serverDone)
+		if _, err := client.Snapshot(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-serverDone; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if count := strings.Count(logs.String(), "continuing best-effort"); count != 1 {
+		t.Fatalf("configured logger received %d compatibility warnings, want 1: %q", count, logs.String())
 	}
 }
 
@@ -241,7 +259,7 @@ func TestRealHerdrSnapshot(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	snapshot, err := NewClient(socketPath).Snapshot(ctx)
+	snapshot, err := NewClient(socketPath, discardLogger()).Snapshot(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,3 +316,7 @@ func hasSubscription(subscriptions []map[string]any, kind, paneID string) bool {
 type testError struct{ message string }
 
 func (e *testError) Error() string { return e.message }
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}

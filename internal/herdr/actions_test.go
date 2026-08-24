@@ -210,7 +210,7 @@ func TestClientSendsExactConfirmedWorkspaceMutations(t *testing.T) {
 		serverDone <- nil
 	}()
 
-	client := NewClient(socketPath)
+	client := NewClient(socketPath, discardLogger())
 	label, branch := "Useful", "feature/exact"
 	for index, call := range []func() error{
 		func() error { return client.CreateWorkspace(context.Background(), "/work", &label) },
@@ -252,7 +252,7 @@ func TestMutationWithoutMatchingResultIsUnknown(t *testing.T) {
 		_ = json.NewDecoder(connection).Decode(&request)
 		_ = json.NewEncoder(connection).Encode(map[string]any{"id": request.ID, "result": map[string]any{"type": "ok"}})
 	}()
-	err = NewClient(socketPath).RemoveWorktree(context.Background(), "opaque-child")
+	err = NewClient(socketPath, discardLogger()).RemoveWorktree(context.Background(), "opaque-child")
 	if err == nil || !MutationMayHaveRun(err) {
 		t.Fatalf("mismatched mutation result = %v, want uncertain error", err)
 	}
