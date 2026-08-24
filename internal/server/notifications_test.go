@@ -9,7 +9,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/luisc/shepherdr/internal/notifications"
+	"github.com/luiscleto/shepherdr/internal/notifications"
 )
 
 func TestNotificationRoutesRequireStrictSameOriginJSONAndExposeNoSecrets(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/luisc/shepherdr/internal/herdr"
+	"github.com/luiscleto/shepherdr/internal/herdr"
 )
 
 type TerminalStateSource interface {

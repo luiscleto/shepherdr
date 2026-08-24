@@ -4,13 +4,36 @@ Shepherdr is now a runnable, mobile-first web interface for one local Herdr sess
 
 ## Requirements
 
-- Go 1.27 or later.
-- Node.js 20 or later and npm. The locked browser dependencies require at least Node 20.
 - Herdr 0.8.0 through 0.8.2, with the `herdr` executable on `PATH` and the intended local Herdr session available. Older releases are refused; newer releases continue best-effort with a warning.
 
-Files sent through Terminal become local paths on the machine running Shepherdr. They are not sent directly to a model, so run Shepherdr and the Herdr agents as the same operating-system account so the agents can read them.
+Run Shepherdr and Herdr as the same operating-system account. Shepherdr needs that account's owner-only local Herdr socket, and Herdr agents need to be able to read files uploaded through Shepherdr. Files sent through Terminal become local paths on the machine running Shepherdr; they are not sent directly to a model.
 
-## Build and start
+## Install
+
+Release archives are the recommended installation. Open the stable [latest release](https://github.com/luiscleto/shepherdr/releases/latest) and download its checksum file plus the archive for this machine:
+
+| System | Archive |
+| --- | --- |
+| Linux x86-64 | `shepherdr_0.1.0_linux_amd64.tar.gz` |
+| Linux ARM64 | `shepherdr_0.1.0_linux_arm64.tar.gz` |
+| macOS Intel | `shepherdr_0.1.0_darwin_amd64.tar.gz` |
+| macOS Apple silicon | `shepherdr_0.1.0_darwin_arm64.tar.gz` |
+
+Each archive contains one same-named directory with `shepherdr`, `README.md`, `CHANGELOG.md`, and `LICENSE`. Verify the selected archive against `shepherdr_0.1.0_checksums.txt` before extracting it. For example:
+
+```sh
+archive=shepherdr_0.1.0_linux_amd64.tar.gz
+grep "  ${archive}$" shepherdr_0.1.0_checksums.txt | shasum -a 256 -c -
+tar -xzf "$archive"
+install -m 0755 "${archive%.tar.gz}/shepherdr" "$HOME/.local/bin/shepherdr"
+shepherdr --version
+```
+
+Choose a directory already on `PATH` if `$HOME/.local/bin` is not on it.
+
+### Build from source
+
+Source builds require Go 1.27 or later, Node.js 20 or later, and npm. Build the browser application from the locked dependencies before building the Go executable:
 
 ```sh
 npm ci --prefix web
@@ -18,10 +41,33 @@ npm run build --prefix web
 go build -o bin/shepherdr .
 ```
 
+### Optional Go installation
+
+The release archives remain the recommended path. As a convenience, the tagged browser assets are also included in the Go module, so `go install` does not run npm:
+
+```sh
+go install github.com/luiscleto/shepherdr@latest
+go install github.com/luiscleto/shepherdr@v0.1.0
+```
+
+The first command follows the latest published module version; the second pins the first release. Go writes the executable to `GOBIN`, or to the Go bin directory when `GOBIN` is unset.
+
+## Upgrade
+
+Stop Shepherdr before replacing its executable. Leave its configuration and state in place, including the configured upload staging parent, so trusted sign-ins, notification settings, upload associations, and staged files remain available. Download the new archive, verify it against that release's checksum file, extract it, and replace the stopped executable. Then confirm the installed version and restart Shepherdr under the same operating-system account and with the same Herdr socket and configuration:
+
+```sh
+shepherdr --version
+```
+
+Do not remove the previous executable until the verified replacement is ready.
+
+## Start
+
 Shepherdr listens on `127.0.0.1:8787` by default and accepts only loopback listen addresses. Its default Herdr socket is the `herdr/herdr.sock` path under the platform user configuration directory, normally `~/.config/herdr/herdr.sock` on Linux. Select another absolute socket path when needed:
 
 ```sh
-bin/shepherdr -herdr-socket /absolute/path/to/herdr.sock
+shepherdr -herdr-socket /absolute/path/to/herdr.sock
 ```
 
 ### Protected access (default)
@@ -29,7 +75,7 @@ bin/shepherdr -herdr-socket /absolute/path/to/herdr.sock
 The first protected start needs the exact private HTTPS origin that browsers will open:
 
 ```sh
-bin/shepherdr -public-origin https://shepherdr.example-private.net
+shepherdr -public-origin https://shepherdr.example-private.net
 ```
 
 The address must be a lowercase HTTPS DNS name with no path. Shepherdr saves it, prints a private setup link and terminal QR code that expire after ten minutes, and does not print that same link again after restart. Open the link on the computer or scan the QR code on a phone, name the trusted sign-in, and choose **Trust this device** to create its passkey. A new browser cannot trust itself without an invitation.
@@ -39,14 +85,14 @@ After setup, protected visits use **Sign in with a passkey**. You can instead st
 Later starts reuse the saved origin:
 
 ```sh
-bin/shepherdr
+shepherdr
 ```
 
 Protected sign-ins expire after 30 days by default, and using Shepherdr does not extend that time. Set the duration for new sign-ins to a whole number from `1d` through `365d`, or use `none` to let the browser decide how long its sign-in cookie remains:
 
 ```sh
-bin/shepherdr -session-lifetime 365d
-bin/shepherdr -session-lifetime none
+shepherdr -session-lifetime 365d
+shepherdr -session-lifetime none
 ```
 
 The choice is saved. A browser can still discard the cookie earlier.
@@ -54,7 +100,7 @@ The choice is saved. A browser can still discard the cookie earlier.
 To start explicitly without passkeys:
 
 ```sh
-bin/shepherdr -no-sign-in
+shepherdr -no-sign-in
 ```
 
 The interface shows **Sign-in is off.** Anyone who can reach Shepherdr can act as the operator in this mode.
@@ -66,10 +112,10 @@ While signed in, open **Settings**, then **Devices**, to list trusted sign-ins, 
 Local access commands require Shepherdr to be stopped:
 
 ```sh
-bin/shepherdr access invite
-bin/shepherdr access devices
-bin/shepherdr access revoke <trust-id>
-bin/shepherdr access reset
+shepherdr access invite
+shepherdr access devices
+shepherdr access revoke <trust-id>
+shepherdr access reset
 ```
 
 - `access invite` prints a new ten-minute link and QR code for trusting another device.
@@ -84,7 +130,7 @@ Reset keeps the private address, notification keys, and configured notification 
 Configure a real operator contact before a browser can enable Web Push:
 
 ```sh
-bin/shepherdr -vapid-contact mailto:you@example.com
+shepherdr -vapid-contact mailto:you@example.com
 ```
 
 An absolute HTTPS website is also accepted. The contact, notification keys, and subscriptions are stored outside the repository. Later starts reuse them; supplying another valid contact updates it without changing the keys or subscriptions. The contact is shared with browser push providers as part of Web Push.
@@ -94,7 +140,7 @@ Each browser or installed app manages its own choices under **Settings**. `block
 To clear the saved contact, notification keys, and all subscriptions without changing access state, stop Shepherdr and run:
 
 ```sh
-bin/shepherdr -reset-notifications
+shepherdr -reset-notifications
 ```
 
 Then configure the contact and enable each browser again. Notifications are best effort and have no history or delivery guarantee.
@@ -115,9 +161,9 @@ These paths are for the agent to open. Shepherdr does not claim the files were d
 The staging parent defaults to the platform temporary directory, normally `/tmp` on Linux. The request limit is the total decoded file bytes in one send and defaults to `50MiB`:
 
 ```sh
-bin/shepherdr -upload-parent /absolute/staging/parent
-bin/shepherdr -upload-limit 100MiB
-bin/shepherdr -upload-limit none
+shepherdr -upload-parent /absolute/staging/parent
+shepherdr -upload-limit 100MiB
+shepherdr -upload-limit none
 ```
 
 Positive limits accept bytes or the `KiB`, `MiB`, and `GiB` suffixes. `none` removes Shepherdr's request bound and can exhaust available memory, time, or disk.

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/luisc/shepherdr/internal/herdr"
+	"github.com/luiscleto/shepherdr/internal/herdr"
 )
 
 const (

@@ -91,4 +91,4 @@ Implementation order and wave contents come later from approved architecture and
 - Browser tests must use the repository's memory-capped test entry. Assertions compare primitive results rather than live DOM objects so a useful failure cannot exhaust the machine.
 - Do not replace Herdr, Git, or another real tool with a large mock system that stays green while the product fails. Ordinary small unit tests are fine. Prefer a few useful tests and real manual checks over complex stand-ins for the tools the product actually uses.
 - `docs/herdr-integration-discovery.md` is evidence, not product direction. Do not edit it unless the human asks.
-- Use conventional commits. Do not commit dependencies, generated build output, local databases, credentials, or private keys.
+- Use conventional commits. Do not commit dependencies, generated build output, local databases, credentials, or private keys. The sole generated-output exception is deterministic, CI-verified `web/dist`, tracked as the Go embed input.

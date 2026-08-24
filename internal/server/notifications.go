@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/luisc/shepherdr/internal/notifications"
+	"github.com/luiscleto/shepherdr/internal/notifications"
 )
 
 const maxNotificationRequest = 16 << 10

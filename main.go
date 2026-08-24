@@ -15,20 +15,24 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/luisc/shepherdr/internal/access"
-	"github.com/luisc/shepherdr/internal/herdr"
-	"github.com/luisc/shepherdr/internal/notifications"
-	"github.com/luisc/shepherdr/internal/server"
-	"github.com/luisc/shepherdr/internal/uploads"
+	"github.com/luiscleto/shepherdr/internal/access"
+	"github.com/luiscleto/shepherdr/internal/herdr"
+	"github.com/luiscleto/shepherdr/internal/notifications"
+	"github.com/luiscleto/shepherdr/internal/server"
+	"github.com/luiscleto/shepherdr/internal/uploads"
 	"github.com/mdp/qrterminal/v3"
 )
 
 //go:embed all:web/dist
 var browserFiles embed.FS
+
+// releaseVersion is set for release candidates with -ldflags "-X main.releaseVersion=v0.1.0".
+var releaseVersion string
 
 func main() {
 	if err := run(); err != nil {
@@ -53,9 +57,14 @@ func run() error {
 	var vapidContact optionalStringFlag
 	flag.Var(&vapidContact, "vapid-contact", "operator contact for Web Push (mailto: or HTTPS URI)")
 	resetNotifications := flag.Bool("reset-notifications", false, "clear notification subscriptions, keys, and contact, then exit")
+	showVersion := flag.Bool("version", false, "print the Shepherdr version and exit")
 	uploadParent := flag.String("upload-parent", os.TempDir(), "parent directory for workspace file uploads")
 	uploadLimitText := flag.String("upload-limit", "50MiB", "decoded file bytes allowed per send: bytes, KiB, MiB, GiB, or none")
 	flag.Parse()
+	if *showVersion {
+		fmt.Printf("shepherdr %s\n", buildVersion(releaseVersion, readBuildInfo()))
+		return nil
+	}
 
 	notificationPath, notificationPathErr := notifications.DefaultStatePath()
 	accessPath, accessPathErr := access.DefaultStatePath()
@@ -237,6 +246,32 @@ func run() error {
 		}
 		return err
 	}
+}
+
+func readBuildInfo() *debug.BuildInfo {
+	information, ok := debug.ReadBuildInfo()
+	if !ok {
+		return nil
+	}
+	return information
+}
+
+func buildVersion(linkerVersion string, information *debug.BuildInfo) string {
+	if linkerVersion != "" {
+		return linkerVersion
+	}
+	if information == nil {
+		return "devel"
+	}
+	for _, setting := range information.Settings {
+		if setting.Key == "vcs" {
+			return "devel"
+		}
+	}
+	if information.Main.Version != "" && information.Main.Version != "(devel)" {
+		return information.Main.Version
+	}
+	return "devel"
 }
 
 type optionalStringFlag struct {

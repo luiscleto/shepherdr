@@ -11,8 +11,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/luisc/shepherdr/internal/herdr"
-	"github.com/luisc/shepherdr/internal/uploads"
+	"github.com/luiscleto/shepherdr/internal/herdr"
+	"github.com/luiscleto/shepherdr/internal/uploads"
 )
 
 type terminalFileRequest struct {

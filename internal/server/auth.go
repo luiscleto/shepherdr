@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/luisc/shepherdr/internal/access"
+	"github.com/luiscleto/shepherdr/internal/access"
 	"rsc.io/qr"
 )
 

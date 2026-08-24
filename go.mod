@@ -1,4 +1,4 @@
-module github.com/luisc/shepherdr
+module github.com/luiscleto/shepherdr
 
 go 1.27.0
 

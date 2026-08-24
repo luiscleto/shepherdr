@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/luisc/shepherdr/internal/access"
+	"github.com/luiscleto/shepherdr/internal/access"
 )
 
 type accessContextKey uint8

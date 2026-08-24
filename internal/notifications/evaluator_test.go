@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/luisc/shepherdr/internal/herdr"
+	"github.com/luiscleto/shepherdr/internal/herdr"
 )
 
 func TestSnapshotEvaluatorUsesOnlyContiguousCompleteDifferences(t *testing.T) {

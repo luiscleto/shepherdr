@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/luisc/shepherdr/internal/herdr"
+	"github.com/luiscleto/shepherdr/internal/herdr"
 )
 
 func TestRealProductionHome(t *testing.T) {

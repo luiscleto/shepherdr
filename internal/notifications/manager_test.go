@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luisc/shepherdr/internal/herdr"
+	"github.com/luiscleto/shepherdr/internal/herdr"
 )
 
 type testTrustAuthority struct {

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/luisc/shepherdr/internal/herdr"
+	"github.com/luiscleto/shepherdr/internal/herdr"
 )
 
 func TestDestructiveActionsUseFreshExactFactsAndOpaqueTarget(t *testing.T) {

@@ -11,7 +11,7 @@ import (
 	"testing"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
-	"github.com/luisc/shepherdr/internal/herdr"
+	"github.com/luiscleto/shepherdr/internal/herdr"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

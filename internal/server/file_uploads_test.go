@@ -19,9 +19,9 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/luisc/shepherdr/internal/access"
-	"github.com/luisc/shepherdr/internal/herdr"
-	"github.com/luisc/shepherdr/internal/uploads"
+	"github.com/luiscleto/shepherdr/internal/access"
+	"github.com/luiscleto/shepherdr/internal/herdr"
+	"github.com/luiscleto/shepherdr/internal/uploads"
 )
 
 func recognizedAgentState(workspace, pane, terminal string) herdr.State {

@@ -13,8 +13,8 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/luisc/shepherdr/internal/access"
-	"github.com/luisc/shepherdr/internal/herdr"
+	"github.com/luiscleto/shepherdr/internal/access"
+	"github.com/luiscleto/shepherdr/internal/herdr"
 )
 
 const maxWorkspaceActionRequest = 16 << 10

@@ -21,8 +21,8 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/gorilla/websocket"
-	"github.com/luisc/shepherdr/internal/access"
-	"github.com/luisc/shepherdr/internal/herdr"
+	"github.com/luiscleto/shepherdr/internal/access"
+	"github.com/luiscleto/shepherdr/internal/herdr"
 )
 
 func TestInvitationQRCodeIsAnIntrinsicSquarePNG(t *testing.T) {

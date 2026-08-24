@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/luisc/shepherdr/internal/herdr"
+	"github.com/luiscleto/shepherdr/internal/herdr"
 )
 
 type fakeTerminalStateSource struct {
