@@ -12,7 +12,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Read terminals, send input, and send local file paths to recognized agents.
 - Create and close workspaces, create worktrees, and delete clean linked checkouts.
 - Protect access with passkeys or deliberately run with sign-in off, manage trusted sign-ins, and choose notifications for each browser.
-- Prebuilt downloads are included only for Linux and macOS targets that pass final checks.
+- Downloadable builds for supported Linux and macOS computers; the release page lists the available systems.
 
 ### Security
 
