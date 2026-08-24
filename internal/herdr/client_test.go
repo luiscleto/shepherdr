@@ -1,13 +1,17 @@
 package herdr
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -132,6 +136,102 @@ func TestClientUsesSnapshotAndConfirmedSubscriptions(t *testing.T) {
 	if err := <-serverDone; err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestClientEnforcesHerdrCompatibilityPolicy(t *testing.T) {
+	tests := []struct {
+		name        string
+		version     string
+		protocol    uint32
+		wantError   bool
+		wantWarning bool
+	}{
+		{name: "minimum supported release", version: "0.8.0", protocol: 19},
+		{name: "middle release on earlier confirmed interface", version: "0.8.1", protocol: 19},
+		{name: "middle release on later confirmed interface", version: "0.8.1", protocol: 20},
+		{name: "maximum supported release", version: "0.8.2", protocol: 20},
+		{name: "below minimum", version: "0.7.9", protocol: 19, wantError: true},
+		{name: "above maximum", version: "0.8.3", protocol: 21, wantWarning: true},
+		{name: "minimum release with inconsistent interface", version: "0.8.0", protocol: 20, wantError: true},
+		{name: "maximum release with inconsistent interface", version: "0.8.2", protocol: 19, wantError: true},
+		{name: "supported release with unknown old interface", version: "0.8.1", protocol: 18, wantError: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			socketPath := filepath.Join(t.TempDir(), "herdr.sock")
+			listener, err := net.Listen("unix", socketPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			serverDone := make(chan error, 1)
+			go serveSnapshotResponse(listener, test.version, test.protocol, serverDone)
+
+			var logs bytes.Buffer
+			client := NewClient(socketPath)
+			client.logger = slog.New(slog.NewTextHandler(&logs, nil))
+			snapshot, snapshotErr := client.Snapshot(context.Background())
+			if err := <-serverDone; err != nil {
+				t.Fatal(err)
+			}
+			if test.wantError {
+				var compatibility *CompatibilityError
+				if !errors.As(snapshotErr, &compatibility) {
+					t.Fatalf("Snapshot error = %v, want CompatibilityError", snapshotErr)
+				}
+				if !strings.Contains(snapshotErr.Error(), "Herdr 0.8.0 through 0.8.2") || strings.Contains(strings.ToLower(snapshotErr.Error()), "protocol") {
+					t.Fatalf("compatibility error = %q", snapshotErr)
+				}
+			} else {
+				if snapshotErr != nil {
+					t.Fatal(snapshotErr)
+				}
+				if snapshot.Version != test.version || snapshot.Protocol != test.protocol {
+					t.Fatalf("snapshot version/interface = %s/%d, want %s/%d", snapshot.Version, snapshot.Protocol, test.version, test.protocol)
+				}
+			}
+			warning := logs.String()
+			if test.wantWarning {
+				if !strings.Contains(warning, "Herdr 0.8.3") || !strings.Contains(warning, "Herdr range 0.8.0 through 0.8.2") || strings.Contains(strings.ToLower(warning), "protocol") {
+					t.Fatalf("compatibility warning = %q", warning)
+				}
+			} else if warning != "" {
+				t.Fatalf("unexpected warning = %q", warning)
+			}
+		})
+	}
+}
+
+func serveSnapshotResponse(listener net.Listener, version string, protocol uint32, done chan<- error) {
+	connection, err := listener.Accept()
+	if err != nil {
+		done <- err
+		return
+	}
+	defer connection.Close()
+	var request struct {
+		ID     string `json:"id"`
+		Method string `json:"method"`
+	}
+	if err := json.NewDecoder(connection).Decode(&request); err != nil {
+		done <- err
+		return
+	}
+	if request.Method != "session.snapshot" {
+		done <- fmt.Errorf("method = %q, want session.snapshot", request.Method)
+		return
+	}
+	done <- json.NewEncoder(connection).Encode(map[string]any{
+		"id": request.ID,
+		"result": map[string]any{
+			"type": "session_snapshot",
+			"snapshot": map[string]any{
+				"version": version, "protocol": protocol,
+				"workspaces": []any{}, "tabs": []any{}, "panes": []any{}, "layouts": []any{}, "agents": []any{},
+			},
+		},
+	})
 }
 
 func TestRealHerdrSnapshot(t *testing.T) {

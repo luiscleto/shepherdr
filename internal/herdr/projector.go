@@ -274,14 +274,14 @@ func (p *Projector) publishError(err error) {
 		state.Gap++
 	}
 	state.LastKnown = state.HasHome
-	var protocol *ProtocolError
+	var compatibility *CompatibilityError
 	switch {
 	case IsNotRunning(err):
 		state.Connection = ConnectionNotRunning
 		state.Detail = ""
-	case errors.As(err, &protocol):
+	case errors.As(err, &compatibility):
 		state.Connection = ConnectionIncompatible
-		state.Detail = protocol.Error()
+		state.Detail = compatibility.Error()
 	default:
 		state.Connection = ConnectionIncompatible
 		state.Detail = err.Error()

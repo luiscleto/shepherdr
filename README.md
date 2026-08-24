@@ -6,7 +6,7 @@ Shepherdr is now a runnable, mobile-first web interface for one local Herdr sess
 
 - Go 1.27 or later.
 - Node.js 20 or later and npm. The locked browser dependencies require at least Node 20.
-- Herdr 0.8.0 (socket protocol 19), with the `herdr` executable on `PATH` and the intended local Herdr session available.
+- Herdr 0.8.0 through 0.8.2, with the `herdr` executable on `PATH` and the intended local Herdr session available. Older releases are refused; newer releases continue best-effort with a warning.
 
 Files sent through Terminal become local paths on the machine running Shepherdr. They are not sent directly to a model, so run Shepherdr and the Herdr agents as the same operating-system account so the agents can read them.
 
