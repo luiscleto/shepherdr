@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net"
-	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -162,7 +161,7 @@ func TestSnapshotCheckoutPathIsPublishedOnlyForTopLevelWorkspace(t *testing.T) {
 }
 
 func TestClientSendsExactConfirmedWorkspaceMutations(t *testing.T) {
-	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
+	socketPath := shortSocketPath(t)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)
@@ -234,7 +233,7 @@ func TestClientSendsExactConfirmedWorkspaceMutations(t *testing.T) {
 }
 
 func TestMutationWithoutMatchingResultIsUnknown(t *testing.T) {
-	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
+	socketPath := shortSocketPath(t)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)

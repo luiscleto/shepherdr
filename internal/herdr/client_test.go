@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +24,7 @@ func TestTransportClosureIsNotAnIncompatibleHerdr(t *testing.T) {
 }
 
 func TestClientUsesSnapshotAndConfirmedSubscriptions(t *testing.T) {
-	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
+	socketPath := shortSocketPath(t)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +196,7 @@ func TestHerdrCompatibilityPolicy(t *testing.T) {
 }
 
 func TestClientSendsOneCompatibilityWarningToConfiguredLogger(t *testing.T) {
-	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
+	socketPath := shortSocketPath(t)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)

@@ -74,8 +74,12 @@ func NewProjector(client *Client) *Projector {
 }
 
 func (p *Projector) RequestRefresh() {
+	latchDirty(p.refresh)
+}
+
+func latchDirty(dirty chan<- struct{}) {
 	select {
-	case p.refresh <- struct{}{}:
+	case dirty <- struct{}{}:
 	default:
 	}
 }
@@ -173,10 +177,7 @@ func (p *Projector) followSubscription(ctx context.Context, subscription *Subscr
 				lost <- err
 				return
 			}
-			select {
-			case changed <- struct{}{}:
-			default:
-			}
+			latchDirty(changed)
 		}
 	}()
 

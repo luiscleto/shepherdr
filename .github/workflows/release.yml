@@ -27,7 +27,7 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.commit_sha }}
 
-      - name: Require the approved v0.1.0 tag and master commit
+      - name: Require the approved v0.1.1 tag and master commit
         env:
           EXPECTED_SHA: ${{ inputs.commit_sha }}
           RELEASE_TAG: ${{ inputs.tag }}
@@ -38,8 +38,8 @@ jobs:
             echo "commit_sha must be a full lowercase commit SHA" >&2
             exit 1
           fi
-          if [[ "$RELEASE_TAG" != "v0.1.0" ]]; then
-            echo "this workflow prepares only v0.1.0" >&2
+          if [[ "$RELEASE_TAG" != "v0.1.1" ]]; then
+            echo "this workflow prepares only v0.1.1" >&2
             exit 1
           fi
           if ! git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
@@ -148,12 +148,12 @@ jobs:
           set -euo pipefail
           go test ./...
 
-          archive_base="shepherdr_0.1.0_${TARGET_GOOS}_${TARGET_GOARCH}"
+          archive_base="shepherdr_0.1.1_${TARGET_GOOS}_${TARGET_GOARCH}"
           candidate_dir="$RUNNER_TEMP/candidate"
           package_dir="$candidate_dir/$archive_base"
           mkdir -p "$package_dir"
           go build -trimpath -ldflags "-s -w -X main.releaseVersion=$RELEASE_TAG" -o "$package_dir/shepherdr" .
-          test "$("$package_dir/shepherdr" --version)" = "shepherdr v0.1.0"
+          test "$("$package_dir/shepherdr" --version)" = "shepherdr v0.1.1"
 
           go version -m "$package_dir/shepherdr" > "$candidate_dir/build-metadata.txt"
           grep -F "github.com/luiscleto/shepherdr" "$candidate_dir/build-metadata.txt"
@@ -180,7 +180,7 @@ jobs:
           test -f "$extract_root/$archive_base/README.md"
           test -f "$extract_root/$archive_base/CHANGELOG.md"
           test -f "$extract_root/$archive_base/LICENSE"
-          test "$("$extract_root/$archive_base/shepherdr" --version)" = "shepherdr v0.1.0"
+          test "$("$extract_root/$archive_base/shepherdr" --version)" = "shepherdr v0.1.1"
 
       - name: Exercise the native packaged binary with Herdr 0.8.2
         env:
@@ -192,7 +192,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive_base="shepherdr_0.1.0_${TARGET_GOOS}_${TARGET_GOARCH}"
+          archive_base="shepherdr_0.1.1_${TARGET_GOOS}_${TARGET_GOARCH}"
           packaged_binary="$RUNNER_TEMP/candidate/extracted/$archive_base/shepherdr"
           smoke_root="$RUNNER_TEMP/native-smoke"
           tools_dir="$smoke_root/tools"
@@ -359,8 +359,8 @@ jobs:
           name: candidate-${{ matrix.goos }}-${{ matrix.goarch }}
           if-no-files-found: error
           path: |
-            ${{ runner.temp }}/candidate/shepherdr_0.1.0_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
-            ${{ runner.temp }}/candidate/shepherdr_0.1.0_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz.sha256
+            ${{ runner.temp }}/candidate/shepherdr_0.1.1_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+            ${{ runner.temp }}/candidate/shepherdr_0.1.1_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz.sha256
 
   draft:
     name: Update draft release
@@ -395,12 +395,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p downloaded release-assets
-          checksum_file="release-assets/shepherdr_0.1.0_checksums.txt"
+          checksum_file="release-assets/shepherdr_0.1.1_checksums.txt"
           : > "$checksum_file"
           included=
           omitted=
           for target in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
-            archive="shepherdr_0.1.0_$target.tar.gz"
+            archive="shepherdr_0.1.1_$target.tar.gz"
             candidate_checksum="$archive.sha256"
             if [[ -f "downloaded/$archive" && -f "downloaded/$candidate_checksum" ]]; then
               (cd downloaded && shasum -a 256 -c "$candidate_checksum")
@@ -414,7 +414,7 @@ jobs:
           LC_ALL=C sort -k2 "$checksum_file" -o "$checksum_file"
 
           awk '
-            /^## \[0\.1\.0\]/ { release = 1; next }
+            /^## \[0\.1\.1\]/ { release = 1; next }
             /^## \[/ && release { exit }
             /^\[Unreleased\]:/ && release { exit }
             release { print }
@@ -436,7 +436,7 @@ jobs:
             echo "| Target | Result |"
             echo "| --- | --- |"
             for target in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
-              archive="release-assets/shepherdr_0.1.0_$target.tar.gz"
+              archive="release-assets/shepherdr_0.1.1_$target.tar.gz"
               if [[ -f "$archive" ]]; then
                 echo "| $target | included |"
               else
@@ -452,15 +452,54 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq .id 2>/dev/null || true)
+          release_id=
+          is_draft=
+          lookup_body="$RUNNER_TEMP/release-lookup.json"
+          lookup_status=
+          if ! lookup_status=$(curl --silent --show-error \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --output "$lookup_body" \
+            --write-out '%{http_code}' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG"); then
+            echo "draft release lookup request failed" >&2
+            exit 1
+          fi
+          case "$lookup_status" in
+            200)
+              release_id=$(jq -er '.id | select(type == "number" and . > 0 and . == floor)' "$lookup_body")
+              is_draft=$(jq -er '.draft | if type == "boolean" then tostring else empty end' "$lookup_body")
+              ;;
+            404)
+              if ! jq -e 'type == "object" and .message == "Not Found"' "$lookup_body" >/dev/null; then
+                echo "draft release lookup returned a malformed 404 response" >&2
+                exit 1
+              fi
+              repository=$(gh api "repos/$GITHUB_REPOSITORY" --jq .full_name)
+              if [[ "$repository" != "$GITHUB_REPOSITORY" ]]; then
+                echo "could not confirm repository access after missing draft lookup" >&2
+                exit 1
+              fi
+              release_id=
+              ;;
+            *)
+              echo "draft release lookup failed with HTTP $lookup_status" >&2
+              exit 1
+              ;;
+          esac
+
           if [[ -n "$release_id" ]]; then
-            is_draft=$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq .draft)
+            if [[ ! "$release_id" =~ ^[1-9][0-9]*$ ]]; then
+              echo "draft release lookup returned an invalid release ID" >&2
+              exit 1
+            fi
             if [[ "$is_draft" != "true" ]]; then
               echo "refusing to modify a published release" >&2
               exit 1
             fi
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
-              -f name="Shepherdr v0.1.0" \
+              -f name="Shepherdr v0.1.1" \
               -F draft=true \
               -F prerelease=false \
               -F body=@release-body.md >/dev/null
@@ -468,19 +507,23 @@ jobs:
             release_id=$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
               -f tag_name="$RELEASE_TAG" \
               -f target_commitish="${{ inputs.commit_sha }}" \
-              -f name="Shepherdr v0.1.0" \
+              -f name="Shepherdr v0.1.1" \
               -F draft=true \
               -F prerelease=false \
               -F body=@release-body.md \
               --jq .id)
           fi
+          if [[ ! "$release_id" =~ ^[1-9][0-9]*$ ]]; then
+            echo "draft release operation returned an invalid release ID" >&2
+            exit 1
+          fi
 
           for name in \
-            shepherdr_0.1.0_linux_amd64.tar.gz \
-            shepherdr_0.1.0_linux_arm64.tar.gz \
-            shepherdr_0.1.0_darwin_amd64.tar.gz \
-            shepherdr_0.1.0_darwin_arm64.tar.gz \
-            shepherdr_0.1.0_checksums.txt; do
+            shepherdr_0.1.1_linux_amd64.tar.gz \
+            shepherdr_0.1.1_linux_arm64.tar.gz \
+            shepherdr_0.1.1_darwin_amd64.tar.gz \
+            shepherdr_0.1.1_darwin_arm64.tar.gz \
+            shepherdr_0.1.1_checksums.txt; do
             if gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --jq '.[].name' | grep -Fxq "$name"; then
               gh release delete-asset "$RELEASE_TAG" "$name" --yes
             fi

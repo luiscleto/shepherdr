@@ -3,9 +3,9 @@ package herdr
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
-	"path/filepath"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -37,50 +37,72 @@ func TestRepeatedTransportFailureDoesNotRepublish(t *testing.T) {
 	}
 }
 
-func TestProjectorUsesOneReadAndOneDirtyFollowUpForAnEventBurst(t *testing.T) {
+func TestDirtyLatchIsOneSlotAndNonblocking(t *testing.T) {
+	dirty := make(chan struct{}, 1)
+	latchDirty(dirty)
+	latchDirty(dirty)
+
+	select {
+	case <-dirty:
+	default:
+		t.Fatal("dirty latch was empty after synchronous enqueue attempts")
+	}
+	select {
+	case <-dirty:
+		t.Fatal("dirty latch queued more than one signal")
+	default:
+	}
+
+	latchDirty(dirty)
+	select {
+	case <-dirty:
+	default:
+		t.Fatal("dirty latch could not be reused after draining")
+	}
+}
+
+func TestProjectorUsesOneReadAndOneDirtyFollowUpForEventDuringBlockedRead(t *testing.T) {
 	fixture := newLoopFixture(t, stableProjectorSnapshot())
 	fixture.blockSnapshot.Store(2)
+	fixture.snapshotForRead = func(number int32) Snapshot {
+		snapshot := stableProjectorSnapshot()
+		snapshot.Workspaces[0].Label = fmt.Sprintf("read %d", number)
+		return snapshot
+	}
 
 	projector := NewProjector(NewClient(fixture.socketPath, discardLogger()))
 	updates, unsubscribe := projector.Subscribe()
 	defer unsubscribe()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go projector.Run(ctx)
+	runDone := make(chan struct{})
+	go func() {
+		projector.Run(ctx)
+		close(runDone)
+	}()
 	<-updates
 
 	waitSignal(t, fixture.subscriptionReady, "subscription acknowledgement")
 	waitSignal(t, fixture.readStarted, "post-subscription snapshot")
-	written := make(chan struct{})
-	for index := 0; index < 24; index++ {
-		request := fixtureEvent{kind: "pane_updated"}
-		if index == 23 {
-			request.written = written
-		}
-		fixture.events <- request
-	}
-	waitSignal(t, written, "event burst")
+	fixture.events <- fixtureEvent{kind: "pane_updated"}
 	close(fixture.releaseRead)
 
-	live := waitForProjectorState(t, updates, func(state State) bool { return state.Connection == ConnectionLive })
+	live := waitForProjectorState(t, updates, func(state State) bool {
+		return state.Connection == ConnectionLive && len(state.Snapshot.Workspaces) == 1 && state.Snapshot.Workspaces[0].Label == "read 3"
+	})
 	if !live.HasHome {
-		t.Fatal("post-subscription snapshot did not publish a complete Home")
+		t.Fatal("follow-up snapshot did not publish a complete Home")
 	}
 	if live.HerdrVersion != "0.8.0" {
 		t.Fatalf("published Herdr version = %q, want 0.8.0", live.HerdrVersion)
 	}
-	waitForCount(t, &fixture.snapshots, 3)
-	time.Sleep(100 * time.Millisecond)
+	cancel()
+	waitSignal(t, runDone, "projector shutdown")
 	if got := fixture.snapshots.Load(); got != 3 {
-		t.Fatalf("event burst caused %d snapshots, want setup, post-subscription, and one follow-up", got)
+		t.Fatalf("one event caused %d snapshots, want setup, post-subscription, and one follow-up", got)
 	}
 	if got := fixture.maxActiveSnapshots.Load(); got != 1 {
 		t.Fatalf("maximum active snapshot reads = %d, want 1", got)
-	}
-	select {
-	case state := <-updates:
-		t.Fatalf("unchanged follow-up Home unexpectedly published %+v", state)
-	case <-time.After(50 * time.Millisecond):
 	}
 }
 
@@ -184,7 +206,7 @@ func TestPublishedSnapshotObserverRunsAfterCurrentStatePublication(t *testing.T)
 }
 
 func TestProjectorObservesDottedStatusAndNewPaneBeforeSilentReplacementBaseline(t *testing.T) {
-	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
+	socketPath := shortSocketPath(t)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)
@@ -239,10 +261,8 @@ func TestWorktreeEventRefreshesOnceWithoutGapOrRetry(t *testing.T) {
 	<-updates
 
 	first := waitForProjectorState(t, updates, func(state State) bool { return state.Connection == ConnectionLive })
-	written := make(chan struct{})
-	fixture.events <- fixtureEvent{kind: "worktree_created", written: written}
-	waitSignal(t, written, "worktree event")
-	waitForCount(t, &fixture.snapshots, 3)
+	fixture.events <- fixtureEvent{kind: "worktree_created"}
+	waitForSnapshotCompletion(t, fixture.snapshotCompleted, 3)
 
 	select {
 	case state := <-updates:
@@ -273,8 +293,7 @@ func TestRequestedHomeRefreshUsesOneCompleteRead(t *testing.T) {
 	waitForProjectorState(t, updates, func(state State) bool { return state.Connection == ConnectionLive })
 
 	projector.RequestRefresh()
-	waitForCount(t, &fixture.snapshots, 3)
-	time.Sleep(100 * time.Millisecond)
+	waitForSnapshotCompletion(t, fixture.snapshotCompleted, 3)
 	if got := fixture.snapshots.Load(); got != 3 {
 		t.Fatalf("one requested refresh caused %d total snapshots, want setup, post-subscription, and one refresh", got)
 	}
@@ -286,7 +305,7 @@ func TestRequestedHomeRefreshUsesOneCompleteRead(t *testing.T) {
 }
 
 func TestProjectorResubscribesBeforePublishingANewPane(t *testing.T) {
-	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
+	socketPath := shortSocketPath(t)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)
@@ -357,16 +376,16 @@ func TestSubscriptionCoverageRejectsPaneAddedBetweenSnapshots(t *testing.T) {
 }
 
 type fixtureEvent struct {
-	drop    bool
-	kind    string
-	written chan struct{}
+	drop bool
+	kind string
 }
 
 type loopFixture struct {
 	socketPath         string
-	snapshot           Snapshot
+	snapshotForRead    func(int32) Snapshot
 	events             chan fixtureEvent
 	subscriptionReady  chan struct{}
+	snapshotCompleted  chan int32
 	readStarted        chan struct{}
 	releaseRead        chan struct{}
 	blockSnapshot      atomic.Int32
@@ -379,7 +398,7 @@ type loopFixture struct {
 
 func newLoopFixture(t *testing.T, snapshot Snapshot) *loopFixture {
 	t.Helper()
-	socketPath := filepath.Join(t.TempDir(), "herdr.sock")
+	socketPath := shortSocketPath(t)
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatal(err)
@@ -387,9 +406,10 @@ func newLoopFixture(t *testing.T, snapshot Snapshot) *loopFixture {
 	ctx, cancel := context.WithCancel(context.Background())
 	fixture := &loopFixture{
 		socketPath:        socketPath,
-		snapshot:          snapshot,
-		events:            make(chan fixtureEvent, 64),
+		snapshotForRead:   func(int32) Snapshot { return snapshot },
+		events:            make(chan fixtureEvent),
 		subscriptionReady: make(chan struct{}, 8),
+		snapshotCompleted: make(chan int32, 16),
 		readStarted:       make(chan struct{}),
 		releaseRead:       make(chan struct{}),
 	}
@@ -422,25 +442,15 @@ func (fixture *loopFixture) serve(ctx context.Context, connection net.Conn) {
 	switch request.Method {
 	case "session.snapshot":
 		number := fixture.snapshots.Add(1)
-		active := fixture.activeSnapshots.Add(1)
-		for {
-			maximum := fixture.maxActiveSnapshots.Load()
-			if active <= maximum || fixture.maxActiveSnapshots.CompareAndSwap(maximum, active) {
-				break
-			}
+		snapshot, ok := fixture.prepareSnapshot(ctx, number)
+		if !ok {
+			return
 		}
-		defer fixture.activeSnapshots.Add(-1)
-		if number == fixture.blockSnapshot.Load() {
-			fixture.readStartedOnce.Do(func() { close(fixture.readStarted) })
-			select {
-			case <-ctx.Done():
-				return
-			case <-fixture.releaseRead:
-			}
+		if encoder.Encode(map[string]any{
+			"id": request.ID, "result": map[string]any{"type": "session_snapshot", "snapshot": snapshot},
+		}) == nil {
+			fixture.snapshotCompleted <- number
 		}
-		_ = encoder.Encode(map[string]any{
-			"id": request.ID, "result": map[string]any{"type": "session_snapshot", "snapshot": fixture.snapshot},
-		})
 	case "events.subscribe":
 		fixture.subscriptions.Add(1)
 		if encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"type": "subscription_started"}}) != nil {
@@ -458,12 +468,29 @@ func (fixture *loopFixture) serve(ctx context.Context, connection net.Conn) {
 				if encoder.Encode(map[string]any{"event": event.kind, "data": map[string]any{"type": event.kind}}) != nil {
 					return
 				}
-				if event.written != nil {
-					close(event.written)
-				}
 			}
 		}
 	}
+}
+
+func (fixture *loopFixture) prepareSnapshot(ctx context.Context, number int32) (Snapshot, bool) {
+	active := fixture.activeSnapshots.Add(1)
+	for {
+		maximum := fixture.maxActiveSnapshots.Load()
+		if active <= maximum || fixture.maxActiveSnapshots.CompareAndSwap(maximum, active) {
+			break
+		}
+	}
+	defer fixture.activeSnapshots.Add(-1)
+	if number == fixture.blockSnapshot.Load() {
+		fixture.readStartedOnce.Do(func() { close(fixture.readStarted) })
+		select {
+		case <-ctx.Done():
+			return Snapshot{}, false
+		case <-fixture.releaseRead:
+		}
+	}
+	return fixture.snapshotForRead(number), true
 }
 
 func stableProjectorSnapshot() Snapshot {
@@ -516,16 +543,23 @@ func waitSignal(t *testing.T, signal <-chan struct{}, description string) {
 	}
 }
 
-func waitForCount(t *testing.T, value *atomic.Int32, want int32) {
+func waitForSnapshotCompletion(t *testing.T, completed <-chan int32, want int32) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if value.Load() >= want {
-			return
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+	for {
+		select {
+		case number := <-completed:
+			if number == want {
+				return
+			}
+			if number > want {
+				t.Fatalf("snapshot %d completed before snapshot %d", number, want)
+			}
+		case <-timeout.C:
+			t.Fatalf("timed out waiting for snapshot %d", want)
 		}
-		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("count = %d, want at least %d", value.Load(), want)
 }
 
 func waitForSnapshotObservations(t *testing.T, observer *recordingSnapshotObserver, want int) []snapshotObservation {

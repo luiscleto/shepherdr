@@ -18,18 +18,18 @@ Release archives are the recommended installation. Open the stable [latest relea
 
 | System | Archive |
 | --- | --- |
-| Linux x86-64 | `shepherdr_0.1.0_linux_amd64.tar.gz` |
-| Linux ARM64 | `shepherdr_0.1.0_linux_arm64.tar.gz` |
-| macOS Intel | `shepherdr_0.1.0_darwin_amd64.tar.gz` |
-| macOS Apple silicon | `shepherdr_0.1.0_darwin_arm64.tar.gz` |
+| Linux x86-64 | `shepherdr_0.1.1_linux_amd64.tar.gz` |
+| Linux ARM64 | `shepherdr_0.1.1_linux_arm64.tar.gz` |
+| macOS Intel | `shepherdr_0.1.1_darwin_amd64.tar.gz` |
+| macOS Apple silicon | `shepherdr_0.1.1_darwin_arm64.tar.gz` |
 
 The macOS builds are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-Each archive unpacks to a folder with the same name as the archive. The folder contains `shepherdr`, `README.md`, `CHANGELOG.md`, and `LICENSE`. Verify the selected archive against `shepherdr_0.1.0_checksums.txt` before extracting it. For example, on Linux:
+Each archive unpacks to a folder with the same name as the archive. The folder contains `shepherdr`, `README.md`, `CHANGELOG.md`, and `LICENSE`. Verify the selected archive against `shepherdr_0.1.1_checksums.txt` before extracting it. For example, on Linux:
 
 ```sh
-archive=shepherdr_0.1.0_linux_amd64.tar.gz
-grep "  ${archive}$" shepherdr_0.1.0_checksums.txt | sha256sum -c -
+archive=shepherdr_0.1.1_linux_amd64.tar.gz
+grep "  ${archive}$" shepherdr_0.1.1_checksums.txt | sha256sum -c -
 tar -xzf "$archive"
 mkdir -p "$HOME/.local/bin"
 install -m 0755 "${archive%.tar.gz}/shepherdr" "$HOME/.local/bin/shepherdr"
@@ -44,10 +44,10 @@ The release archives remain the recommended path. Go users can install Shepherdr
 
 ```sh
 go install github.com/luiscleto/shepherdr@latest
-go install github.com/luiscleto/shepherdr@v0.1.0
+go install github.com/luiscleto/shepherdr@v0.1.1
 ```
 
-The first command follows the latest published module version; the second pins the first release. Go writes the executable to `GOBIN`, or to the Go bin directory when `GOBIN` is unset.
+The first command follows the latest published module version; the second pins the first published release. Go writes the executable to `GOBIN`, or to the Go bin directory when `GOBIN` is unset.
 
 ### Build from source
 
