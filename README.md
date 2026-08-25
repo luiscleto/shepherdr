@@ -23,6 +23,8 @@ Release archives are the recommended installation. Open the stable [latest relea
 | macOS Intel | `shepherdr_0.1.0_darwin_amd64.tar.gz` |
 | macOS Apple silicon | `shepherdr_0.1.0_darwin_arm64.tar.gz` |
 
+The macOS builds are unsigned and not notarized, so macOS may show a system warning before the first run.
+
 Each archive unpacks to a folder with the same name as the archive. The folder contains `shepherdr`, `README.md`, `CHANGELOG.md`, and `LICENSE`. Verify the selected archive against `shepherdr_0.1.0_checksums.txt` before extracting it. For example:
 
 ```sh
@@ -70,7 +72,7 @@ Do not remove the previous executable until the verified replacement is ready.
 
 ## Start
 
-Start Herdr first. Then start Shepherdr with sign-in and notifications configured:
+Start Herdr first. Sign-in needs a stable private HTTPS address. Tailscale Serve is one way to provide it; see [Private network](#private-network). Then start Shepherdr with sign-in and notifications configured. This example uses a Tailscale address:
 
 ```sh
 shepherdr \
@@ -78,9 +80,15 @@ shepherdr \
   -vapid-contact mailto:you@example.com
 ```
 
-Replace `https://machine-name.tailnet-name.ts.net` with Shepherdr's stable private HTTPS address. It must be a lowercase DNS name with no path. Replace `mailto:you@example.com` with a real contact address for browser notifications. An absolute HTTPS website is also accepted.
+Replace `https://machine-name.tailnet-name.ts.net` with Shepherdr's stable private HTTPS address. `-public-origin` must be exactly `https://` plus a lowercase DNS name, optionally followed by a nondefault port. Do not add a path, trailing slash, or `:443`.
 
-Shepherdr saves both values. On the first protected start, it prints a private setup link and terminal QR code that expire after ten minutes. It does not print that same link again after restart. Open the link on the computer or scan the QR code on a phone, name the trusted sign-in, and choose **Trust this device** to create its passkey. A new browser cannot trust itself without an invitation.
+Replace `mailto:you@example.com` with a real contact address for browser notifications, or use an absolute HTTPS website.
+
+Shepherdr saves the private address and the notification contact. The address cannot be changed later. A new valid contact updates the saved contact.
+
+On the first protected start, Shepherdr prints a private setup link and terminal QR code that expire after ten minutes. The printed link still works until it expires, but a restart does not print it again. If it expires or you miss it, stop Shepherdr and run `shepherdr access invite`. Open the link on the computer or scan the QR code on a phone, name the trusted sign-in, and choose **Trust this device** to create its passkey. A new browser cannot trust itself without an invitation.
+
+### Later starts
 
 After setup, protected visits use **Sign in with a passkey**. Later starts reuse the saved private address and notification contact:
 
@@ -88,30 +96,30 @@ After setup, protected visits use **Sign in with a passkey**. Later starts reuse
 shepherdr
 ```
 
-Shepherdr listens on `127.0.0.1:8787` by default. The local-computer address is <http://127.0.0.1:8787>.
+Open the same private HTTPS address that you set with `-public-origin`. `http://127.0.0.1:8787` is only the default local listen address; it is not a protected way to use Shepherdr.
 
 ### Without sign-in (not recommended)
 
-To start without passkeys:
+To start without passkeys for this run only:
 
 ```sh
 shepherdr -no-sign-in
 ```
 
-The interface shows **Sign-in is off.** Never use this outside a trusted private network. Anyone who can reach Shepherdr has operator authority.
+The interface shows **Sign-in is off**. Anyone who can reach Shepherdr has operator authority. The flag is not saved; the next start without it is protected again. Do not combine it with `-public-origin` or `-session-lifetime`.
 
 ### Additional options
 
-Protected sign-ins expire after 30 days by default, and using Shepherdr does not extend that time. Set the duration for new sign-ins to a whole number from `1d` through `365d`, or use `none` to let the browser decide how long its sign-in cookie remains:
+Protected sign-ins expire after 30 days by default, and using Shepherdr does not extend that time. Set the duration for new sign-ins to a whole number from `1d` through `365d`, or use `none` so Shepherdr does not expire the sign-in:
 
 ```sh
 shepherdr -session-lifetime 365d
 shepherdr -session-lifetime none
 ```
 
-The choice is saved. A browser can still discard the cookie earlier.
+The choice is saved. The browser may still drop the sign-in earlier, including when it closes.
 
-Use `-listen` to select another loopback address or port. Shepherdr does not accept non-loopback addresses:
+Shepherdr listens on `127.0.0.1:8787` by default. Use `-listen` to select another loopback address or port. Shepherdr does not accept non-loopback addresses:
 
 ```sh
 shepherdr -listen 127.0.0.1:8788
@@ -125,28 +133,19 @@ shepherdr -herdr-socket /absolute/path/to/herdr.sock
 
 The default is the `herdr/herdr.sock` file in your user configuration folder, normally `~/.config/herdr/herdr.sock` on Linux.
 
-## Private-network deployment
+## Private network
 
-Keep Shepherdr reachable only on a trusted private network containing only users and devices you are willing to give access to the machine running Herdr. Passkeys are an extra lock; they are not permission to publish Shepherdr publicly.
+Never make Shepherdr reachable outside a trusted private network containing only users and devices you are willing to give access to the machine running Herdr. Passkeys are an extra lock; they are not permission to publish Shepherdr publicly.
 
-The protected hostname is a lasting passkey boundary. Dedicate it to Shepherdr across every port, and always open that exact origin. Loopback, IP addresses, `localhost`, aliases, alternate ports, and forwarded host headers are not protected fallbacks.
+Use one private HTTPS name and open only that exact address. Give that name to Shepherdr on every port; do not put another HTTPS service on it. Do not open Shepherdr by loopback, IP address, `localhost`, another name, or another port.
 
-Tailscale Serve is one practical deployment. Replace the private hostname and contact below, then start Shepherdr on localhost:
-
-```sh
-shepherdr \
-  -listen 127.0.0.1:8787 \
-  -public-origin https://machine-name.tailnet-name.ts.net \
-  -vapid-contact mailto:you@example.com
-```
-
-In another terminal, publish that local port only inside the tailnet:
+Tailscale Serve is one practical deployment. In one terminal, publish Shepherdr's default local port only inside the tailnet:
 
 ```sh
 tailscale serve 8787
 ```
 
-Open the resulting private HTTPS address from another trusted tailnet device. Never use Tailscale Funnel or any other public exposure.
+In another terminal, use the Serve private HTTPS address as the exact `-public-origin` value in the Start command above. Open that same address from another trusted tailnet device. Never use Tailscale Funnel or any other public exposure.
 
 ## Trusted sign-ins
 
