@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/233f6030-c8c4-4ae8-827d-02913e2c4982
 
 ## Requirements
 
-Shepherdr works with Herdr 0.8.0 through 0.8.2. The `herdr` executable must be on `PATH`, and Herdr must be running locally. Shepherdr does not start with older versions. It starts with newer versions but warns that the version has not been tested.
+Shepherdr supports Herdr 0.8.0 through 0.8.2. The `herdr` executable must be on `PATH`, and Herdr must be running locally.
 
 Run Shepherdr and Herdr as the same operating-system account. Shepherdr needs that account's owner-only local Herdr socket, and Herdr agents need to be able to read files uploaded through Shepherdr. Files sent through Terminal become local paths on the machine running Shepherdr; they are not sent directly to a model.
 
@@ -25,17 +25,18 @@ Release archives are the recommended installation. Open the stable [latest relea
 
 The macOS builds are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-Each archive unpacks to a folder with the same name as the archive. The folder contains `shepherdr`, `README.md`, `CHANGELOG.md`, and `LICENSE`. Verify the selected archive against `shepherdr_0.1.0_checksums.txt` before extracting it. For example:
+Each archive unpacks to a folder with the same name as the archive. The folder contains `shepherdr`, `README.md`, `CHANGELOG.md`, and `LICENSE`. Verify the selected archive against `shepherdr_0.1.0_checksums.txt` before extracting it. For example, on Linux:
 
 ```sh
 archive=shepherdr_0.1.0_linux_amd64.tar.gz
-grep "  ${archive}$" shepherdr_0.1.0_checksums.txt | shasum -a 256 -c -
+grep "  ${archive}$" shepherdr_0.1.0_checksums.txt | sha256sum -c -
 tar -xzf "$archive"
+mkdir -p "$HOME/.local/bin"
 install -m 0755 "${archive%.tar.gz}/shepherdr" "$HOME/.local/bin/shepherdr"
 shepherdr --version
 ```
 
-Choose a directory already on `PATH` if `$HOME/.local/bin` is not on it.
+On macOS, use `shasum -a 256 -c -` instead of `sha256sum -c -`. Choose a directory already on `PATH` if `$HOME/.local/bin` is not on it.
 
 ### Optional Go installation
 
@@ -72,17 +73,21 @@ Do not remove the previous executable until the verified replacement is ready.
 
 ## Start
 
-Start Herdr first. Sign-in needs a stable private HTTPS address. Tailscale Serve is one way to provide it; see [Private network](#private-network). Then start Shepherdr with sign-in and notifications configured. This example uses a Tailscale address:
+Start Herdr first. Shepherdr needs a stable private HTTPS address for sign-in. Tailscale Serve is one practical way to provide it. Publish Shepherdr's default local port inside your tailnet:
+
+```sh
+tailscale serve --bg 8787
+```
+
+The command keeps Serve running in the background and prints a private HTTPS address. Your phone or other device must be signed in to the same tailnet. Copy the address without its trailing slash, then replace `PRIVATE_HTTPS_ADDRESS` below before running Shepherdr:
 
 ```sh
 shepherdr \
-  -public-origin https://machine-name.tailnet-name.ts.net \
+  -public-origin PRIVATE_HTTPS_ADDRESS \
   -vapid-contact mailto:you@example.com
 ```
 
-Replace `https://machine-name.tailnet-name.ts.net` with Shepherdr's stable private HTTPS address. `-public-origin` must be exactly `https://` plus a lowercase DNS name, optionally followed by a nondefault port. Do not add a path, trailing slash, or `:443`.
-
-Replace `mailto:you@example.com` with a real contact address for browser notifications, or use an absolute HTTPS website.
+`-public-origin` must be exactly `https://` plus a lowercase DNS name, optionally followed by a nondefault port. Do not add a path, trailing slash, or `:443`. Replace `mailto:you@example.com` with a real contact address for browser notifications, or use an absolute HTTPS website.
 
 Shepherdr saves the private address and the notification contact. The address cannot be changed later. A new valid contact updates the saved contact.
 
@@ -96,7 +101,7 @@ After setup, protected visits use **Sign in with a passkey**. Later starts reuse
 shepherdr
 ```
 
-Open the same private HTTPS address that you set with `-public-origin`. `http://127.0.0.1:8787` is only the default local listen address; it is not a protected way to use Shepherdr.
+Keep the private address published and open the same address that you set with `-public-origin`. `http://127.0.0.1:8787` is only the default local listen address; it is not a protected way to use Shepherdr.
 
 ### Without sign-in (not recommended)
 
@@ -106,7 +111,7 @@ To start without passkeys for this run only:
 shepherdr -no-sign-in
 ```
 
-The interface shows **Sign-in is off**. Anyone who can reach Shepherdr has operator authority. The flag is not saved; the next start without it is protected again. Do not combine it with `-public-origin` or `-session-lifetime`.
+Open the local listen address, by default `http://127.0.0.1:8787`. The interface shows **Sign-in is off**. Anyone who can reach Shepherdr has operator authority. The flag is not saved; the next start without it is protected again. Do not combine it with `-public-origin` or `-session-lifetime`.
 
 ### Additional options
 
@@ -117,13 +122,15 @@ shepherdr -session-lifetime 365d
 shepherdr -session-lifetime none
 ```
 
-The choice is saved. The browser may still drop the sign-in earlier, including when it closes.
+The choice is saved. The browser may still drop the sign-in earlier. With `none`, closing the browser can require signing in again.
 
 Shepherdr listens on `127.0.0.1:8787` by default. Use `-listen` to select another loopback address or port. Shepherdr does not accept non-loopback addresses:
 
 ```sh
 shepherdr -listen 127.0.0.1:8788
 ```
+
+If you change the port, use the same port with `tailscale serve --bg`.
 
 Normal Herdr setups use the default socket and do not need this option. If Herdr uses another socket, give its absolute path:
 
@@ -137,15 +144,7 @@ The default is the `herdr/herdr.sock` file in your user configuration folder, no
 
 Never make Shepherdr reachable outside a trusted private network containing only users and devices you are willing to give access to the machine running Herdr. Passkeys are an extra lock; they are not permission to publish Shepherdr publicly.
 
-Use one private HTTPS name and open only that exact address. Give that name to Shepherdr on every port; do not put another HTTPS service on it. Do not open Shepherdr by loopback, IP address, `localhost`, another name, or another port.
-
-Tailscale Serve is one practical deployment. In one terminal, publish Shepherdr's default local port only inside the tailnet:
-
-```sh
-tailscale serve 8787
-```
-
-In another terminal, use the Serve private HTTPS address as the exact `-public-origin` value in the Start command above. Open that same address from another trusted tailnet device. Never use Tailscale Funnel or any other public exposure.
+Use one private HTTPS hostname only for Shepherdr, and open only that exact address. Do not put another HTTPS service on the same hostname, on any port. When sign-in is on, do not open Shepherdr by loopback, IP address, `localhost`, another name, or another port. Never use Tailscale Funnel or any other public exposure.
 
 ## Trusted sign-ins
 
@@ -175,7 +174,7 @@ Before a browser can turn on notifications, set a real contact address:
 shepherdr -vapid-contact mailto:you@example.com
 ```
 
-An absolute HTTPS website is also accepted. The contact, notification keys, and subscriptions are stored outside the repository. Later starts reuse them; supplying another valid contact updates it without changing the keys or subscriptions. The contact is shared with browser push providers when notifications are set up.
+An absolute HTTPS website is also accepted. The contact, notification keys, and subscriptions are saved on this machine and reused on later starts. Supplying another valid contact updates it without changing the keys or subscriptions. The contact is shared with browser push providers when notifications are set up.
 
 Each browser or installed app manages its own choices under **Settings**. `blocked`, `done`, trusted sign-in added, and trusted sign-in removed start on; `working`, `idle`, `unknown`, workspace opened, and workspace closed start off. Android Chrome does not require installation. On iPhone or iPad, add Shepherdr to the Home Screen and open it there before enabling notifications.
 
