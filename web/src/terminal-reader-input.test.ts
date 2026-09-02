@@ -128,12 +128,12 @@ test("Reader input uses the latest measured viewport while its control is active
     },
   });
   queue.setTarget("pane-1", { cols: 80, rows: 24 }, "term-1");
-  queue.resize({ cols: 45, rows: 24 });
+  queue.resize({ cols: 45, rows: 35 });
   assert.equal(queue.enqueue("message"), true);
-  assert.deepEqual(sessions[0].connectedDimensions, { cols: 45, rows: 24 });
+  assert.deepEqual(sessions[0].connectedDimensions, { cols: 45, rows: 35 });
 
-  queue.resize({ cols: 40, rows: 24 });
-  assert.deepEqual(sessions[0].resized, [{ cols: 40, rows: 24 }]);
+  queue.resize({ cols: 40, rows: 51 });
+  assert.deepEqual(sessions[0].resized, [{ cols: 40, rows: 51 }]);
   sessions[0].acquire();
   sessions[0].forward();
 });

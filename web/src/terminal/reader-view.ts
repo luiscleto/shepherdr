@@ -80,6 +80,7 @@ export class ReaderView {
   #generation: number | undefined;
   #loading = false;
   #newOutput = false;
+  #observedRows: number | undefined;
   #output: HTMLDivElement;
   #pane = "";
   #pendingFiles: Array<{ file: File; preview?: string }> = [];
@@ -292,6 +293,12 @@ export class ReaderView {
     return this.#dimensions;
   }
 
+  observerRows(rows: number): TerminalDimensions {
+    this.#observedRows = rows;
+    this.#dimensions = { ...this.#dimensions, rows };
+    return this.#dimensions;
+  }
+
   async open(pane: string, terminalID?: string): Promise<TerminalDimensions> {
     this.#abort?.abort();
     this.#sendFeedback.hidden = true;
@@ -303,6 +310,7 @@ export class ReaderView {
     this.#historyRefreshPending = false;
     this.#lastANSI = "";
     this.#generation = undefined;
+    this.#observedRows = undefined;
     this.#setNewOutput(false);
     this.#allHistoryLoaded = false;
     await this.refresh(true, false);
@@ -344,7 +352,7 @@ export class ReaderView {
       if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
       const snapshot = await response.json() as ReaderSnapshot;
       if (this.#abort !== abort || this.#pane !== pane || !this.#validSnapshot(snapshot)) throw new Error("invalid terminal history response");
-      this.#dimensions = { cols: snapshot.cols, rows: snapshot.rows };
+      this.#dimensions = { cols: snapshot.cols, rows: this.#observedRows ?? snapshot.rows };
       this.#syncViewportColumns();
       if (preserveTop && snapshot.ansi === this.#lastANSI) {
         this.#allHistoryLoaded = true;
@@ -522,6 +530,7 @@ export class ReaderView {
     this.#pane = "";
     this.#terminalID = undefined;
     this.#generation = undefined;
+    this.#observedRows = undefined;
     this.#historyRefreshPending = false;
     this.#refreshQueued = undefined;
     this.#abort?.abort();

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { Window } from "happy-dom";
@@ -66,6 +67,28 @@ test("Reader derives whole terminal columns from the visible output width", () =
   assert.equal(readerViewportColumns(359.9, 8), 44, "a partial cell must not be advertised to the terminal");
   assert.equal(readerViewportColumns(15, 8), undefined, "Herdr requires at least two truthful columns");
   assert.equal(readerViewportColumns(360, 0), undefined);
+  const styles = readFileSync(new URL("./terminal-reader.css", import.meta.url), "utf8");
+  assert.match(styles, /padding-right:\s*max\(0\.65rem, env\(safe-area-inset-right\)\)/);
+  assert.match(styles, /padding-left:\s*max\(0\.65rem, env\(safe-area-inset-left\)\)/);
+});
+
+test("current observer rows remain authoritative over later history snapshots", async (t) => {
+  const { host } = withReaderBrowser(t);
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => snapshot("output");
+  t.after(() => globalThis.fetch = previousFetch);
+  const reader = new ReaderView(host, {
+    onLog: () => undefined,
+    onStatus: () => undefined,
+    onSubmit: () => true,
+  }, { endpoint: "/api/terminal/read" });
+
+  await reader.open("pane-1", "term-1");
+  assert.equal(reader.dimensions().rows, 24);
+  assert.equal(reader.observerRows(51).rows, 51);
+  await reader.refresh(true, false);
+  assert.equal(reader.dimensions().rows, 51);
+  reader.destroy();
 });
 
 test("the production Reader follows the primary coarse pointer even when another fine pointer exists", () => {
@@ -152,7 +175,7 @@ test("collapsed Reader keeps recovery visible but gates remote actions across di
   reader.destroy();
 });
 
-test("an open Reader composer remains the same local editor across observer reconnects", (t) => {
+test("an open Reader composer remains the same local editor across sizing and observer reconnects", (t) => {
   const { browser, host } = withReaderBrowser(t);
   let submissions = 0;
   const reader = new ReaderView(host, {
@@ -176,7 +199,7 @@ test("an open Reader composer remains the same local editor across observer reco
 
   reader.setActionAvailability(readerActionAvailability(false, "ready"));
   assert.equal(composer.hidden, false);
-  assert.equal(input.disabled, false, "observer loss must leave the open textarea locally editable");
+  assert.equal(input.disabled, false, "sizing or observer loss must leave the open textarea locally editable");
   assert.equal(send.disabled, true);
   assert.equal(input.value, "keep this reconnect draft");
   assert.equal(input.selectionStart, 5);
