@@ -4,6 +4,15 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+- Routine terminal connection details are now shown only when debug logging is enabled.
+
+### Fixed
+
+- Restored wheel and trackpad scrolling in the desktop terminal.
+- Improved terminal line layout on phones by using the available screen size when the terminal is free, without taking control from another client.
+
 ## [0.1.1]
 
 ### Fixed
