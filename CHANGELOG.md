@@ -6,17 +6,18 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ### Added
 
-- View every Herdr terminal in a workspace from a compact picker, and split, rename, or close terminals from the same screen.
-- Keep terminal actions fully visible in a phone-sized screen, including when a workspace has many terminals.
+- Split, rename, or close terminals from Home. When a workspace has several terminals, a terminal picker lists every one.
+- On a phone, terminal actions stay on screen even when a workspace has many terminals.
 
 ### Changed
 
-- Routine terminal connection details are now shown only when debug logging is enabled.
+- Routine terminal connection and notification details now appear in the log only when debug logging is enabled.
 
 ### Fixed
 
+- Recovered Home after returning from the background so it no longer reconnects repeatedly.
 - Restored wheel and trackpad scrolling in the desktop terminal.
-- Improved terminal line layout on phones by using the available screen size when the terminal is free, without taking control from another client.
+- Improved terminal line layout on phones so output fits the screen, without taking over a terminal someone else is using.
 
 ## [0.1.1]
 
