@@ -12,7 +12,7 @@ Shepherdr preserves Herdr's real hierarchy:
 
 **workspace → tab → terminal**
 
-Every real terminal appears exactly once. Shepherdr does not choose a representative or “current” terminal for a workspace with several terminals.
+Every real terminal appears exactly once in its workspace's terminal picker. Shepherdr does not choose a representative or “current” terminal for a workspace with several terminals.
 
 Workspace, tab, and pane IDs are opaque session-scoped keys. The pane ID and current terminal ID together identify the exact terminal to open or change. A complete Herdr snapshot replaces the previous Home state after reconnects and changes.
 
@@ -20,17 +20,17 @@ Status totals count real agents once. A terminal without an agent does not gain 
 
 ## Home
 
-A workspace with one terminal keeps the compact row used today. Its main target opens that terminal, and its three-dot menu contains both terminal and workspace actions.
+A workspace always keeps one consistent row on Home. Its heading shows the workspace name and nonzero agent-status totals.
 
-A workspace with several terminals gains an inline terminal section:
+With one terminal, the existing terminal control opens it directly. With several terminals, that same control shows a small terminal-count badge and opens the workspace's terminal picker. This works the same way for a top-level workspace and a workspace inside a worktree group.
 
-- the heading shows the workspace name, terminal count, and nonzero agent-status totals;
-- expanding it shows every terminal under that workspace;
-- the same rule applies inside worktree groups, including the top-level workspace;
-- real tab headings appear only when more than one nonempty tab needs to be distinguished; and
-- tabs are labels only in this work—there are no tab-management controls.
+On a phone, the picker is a bottom sheet. On a larger screen, it is a compact dialog. It shows the workspace name and terminal count, then lists every terminal exactly once. Real tab headings appear only when more than one nonempty tab needs to be distinguished. Tabs remain labels only; there are no tab-management controls.
 
-Terminal sections that contain a working or blocked agent start expanded. A person's later choice is kept for that visit. Filtering and **Blocked** reveal matching context without replacing saved choices. **Expand all** and **Collapse all** affect worktree groups and multi-terminal sections together.
+Each picker row shows the terminal name, agent and status when present, an open action, and a separate three-dot menu. The picker scrolls independently when needed and closing it restores Home's scroll and focus.
+
+Do not show an inline terminal list or add another terminal expand/collapse level to Home. Worktree groups remain the only inline disclosure. **Expand all** and **Collapse all** affect those groups only.
+
+Filtering and **Blocked** keep matching workspaces visible. Opening their picker shows the current terminals and statuses without changing the saved worktree-group choices.
 
 Counts remain exact totals for their workspace or group while a filter is active. They do not claim to count only visible rows.
 
@@ -38,7 +38,7 @@ Opening a terminal uses the existing Terminal destination. This work does not re
 
 ## Terminal rows and names
 
-Each terminal row has:
+Each terminal row in the picker has:
 
 - one main target to open the terminal;
 - the existing terminal icon; and
@@ -92,7 +92,7 @@ There is no canonical Herdr 0.8.1 release to verify. If a server literally repor
 Keep the work sequential because the server projection and Home interface share the same contract:
 
 1. Preserve the required Herdr fields and ordering, then add exact split, rename, close, and impact checks.
-2. Add multi-terminal disclosure, names, menus, confirmations, filtering behavior, accessibility, and place preservation to Home.
+2. Add the terminal picker, names, menus, confirmations, filtering behavior, accessibility, and place preservation to Home.
 3. Review the exact worker results independently, integrate only approved commits, and run the real workflow below.
 
 Do not add a durable Home store, partial event handling, optimistic success, a second runtime, new Herdr APIs, or speculative tab features.
@@ -102,8 +102,8 @@ Do not add a durable Home store, partial event handling, optimistic success, a s
 Use a production Shepherdr build, a real phone, and disposable real Herdr workspaces.
 
 - Compare Home with Herdr for one terminal, several terminals in one tab, several nonempty tabs, and worktree groups containing each case.
-- Verify every terminal appears once, tab membership and status totals are exact, single-terminal rows stay compact, and Home does not scroll horizontally.
-- Exercise both disclosure levels, global expand/collapse, filtering, **Blocked**, reconnect, rotation, focus, and returning from Terminal without losing place.
+- Verify Home keeps one row per workspace, every terminal appears once in its picker, tab membership and status totals are exact, single-terminal rows stay compact, and Home does not scroll horizontally.
+- Exercise worktree-group disclosure, global expand/collapse, opening and closing the picker, filtering, **Blocked**, reconnect, rotation, focus, and returning from Terminal without losing place.
 - Split a nonfocused terminal **Beside** and **Below**. Confirm the exact anchor, tab, directory, unchanged Herdr focus, complete refresh, and exact new terminal destination.
 - Rename, clear a name, and check duplicate automatic names without changing manual names.
 - Close an ordinary terminal, a tab's final terminal, a workspace's final terminal, and a workspace whose close affects linked worktrees. Confirm the exact warning and Herdr result each time.

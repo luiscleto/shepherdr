@@ -66,6 +66,8 @@ When Herdr confirms a worktree relationship, show one group with only nonzero ag
 
 Groups with working or blocked agents start expanded. Later choices win for the visit. Show **Expand all** or **Collapse all** only when useful. The attention area shows the working count and no zero-blocked text. **N blocked** opens **Blocked**; **Show all terminals** restores the prior Home expansion, scroll, and focus.
 
+Keep one row per workspace on Home. One terminal opens directly. When a workspace has several terminals, the same terminal control carries a small count badge and opens a terminal picker: a bottom sheet on a phone and a compact dialog on a larger screen. List every terminal there with its status, open action, and three-dot menu. Do not add another inline expand/collapse level for terminals.
+
 ## Connection and Home updates
 
 Reserve a stable top-right badge with exactly **Live**, **Reconnecting**, **Offline**, **Herdr is not running**, or **Cannot use this Herdr**. Reading Home never changes or animates a healthy badge. Keep the last complete Home until its complete replacement is ready, with no refresh banner or temporary row.

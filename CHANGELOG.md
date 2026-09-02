@@ -4,6 +4,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- View and manage every Herdr terminal in a workspace, including splitting, renaming, and closing terminals.
+
 ### Changed
 
 - Routine terminal connection details are now shown only when debug logging is enabled.
