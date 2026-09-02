@@ -1,6 +1,13 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
-import { terminalWheelRows, type TerminalAdapter, type TerminalAdapterEvents, type TerminalDimensions } from "./adapter";
+import {
+  initialTerminalWheelState,
+  terminalWheelRows,
+  type TerminalAdapter,
+  type TerminalAdapterEvents,
+  type TerminalDimensions,
+  type TerminalWheelState,
+} from "./adapter";
 
 export class XTermAdapter implements TerminalAdapter {
   readonly kind = "xterm" as const;
@@ -9,7 +16,7 @@ export class XTermAdapter implements TerminalAdapter {
   #outputQueue: Array<{ data: Uint8Array; full: boolean }> = [];
   #resizeObserver: ResizeObserver | undefined;
   #terminal: Terminal | undefined;
-  #wheelRemainder = 0;
+  #wheelState: TerminalWheelState = initialTerminalWheelState();
   #writing = false;
 
   async mount(host: HTMLElement, events: TerminalAdapterEvents): Promise<void> {
@@ -55,8 +62,8 @@ export class XTermAdapter implements TerminalAdapter {
       const screen = terminal.element?.querySelector<HTMLElement>(".xterm-screen");
       const bounds = screen?.getBoundingClientRect();
       if (!bounds || bounds.width <= 0 || bounds.height <= 0) return true;
-      const result = terminalWheelRows(event.deltaY, event.deltaMode, bounds.height / terminal.rows, terminal.rows, this.#wheelRemainder);
-      this.#wheelRemainder = result.remainder;
+      const result = terminalWheelRows(event.deltaY, event.deltaMode, bounds.height / terminal.rows, terminal.rows, this.#wheelState);
+      this.#wheelState = result.state;
       if (result.lines === 0) {
         event.preventDefault();
         return false;
@@ -118,7 +125,7 @@ export class XTermAdapter implements TerminalAdapter {
     this.#resizeObserver = undefined;
     this.#fit = undefined;
     this.#terminal = undefined;
-    this.#wheelRemainder = 0;
+    this.#wheelState = initialTerminalWheelState();
   }
 
   #drainOutput(): void {
