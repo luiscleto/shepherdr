@@ -14,6 +14,7 @@ export interface TerminalScroll {
 }
 
 const maximumScrollLines = 1_000;
+const defaultFastScrollSensitivity = 5;
 const likelyTrackpadScale = 0.3;
 
 export interface TerminalWheelState {
@@ -32,6 +33,7 @@ export function terminalWheelRows(
   rowHeight: number,
   viewportRows: number,
   state: TerminalWheelState,
+  altKey = false,
 ): { lines: number; state: TerminalWheelState } {
   if (!Number.isFinite(delta) || !Number.isFinite(rowHeight) || rowHeight <= 0 ||
     !Number.isFinite(state.applicationRemainder) || !Number.isFinite(state.historyRemainder) ||
@@ -47,7 +49,12 @@ export function terminalWheelRows(
   if (deltaMode === 0) {
     // Herdr uses lines for host history, but one command becomes one application wheel event.
     // Gate commands at xterm's application rate while retaining the full host-history distance.
-    const applicationTotal = rows * (Math.abs(delta) < 50 ? likelyTrackpadScale : 1) + applicationRemainder;
+    let applicationRows = rows;
+    if (Math.abs(delta) < 50) {
+      if (altKey) applicationRows *= defaultFastScrollSensitivity;
+      applicationRows *= likelyTrackpadScale;
+    }
+    const applicationTotal = applicationRows + applicationRemainder;
     emit = Math.trunc(applicationTotal) !== 0;
     applicationRemainder = applicationTotal - Math.trunc(applicationTotal);
   }

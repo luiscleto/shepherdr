@@ -23,6 +23,13 @@ test("likely trackpad pixels damp application events without losing host history
   assert.equal(routed.state.pendingHistoryLines, 0);
 });
 
+test("Alt applies xterm's fast-scroll scale before likely-trackpad damping", () => {
+  const routed = terminalWheelRows(-16, 0, 16, 24, initialTerminalWheelState(), true);
+  assert.equal(routed.lines, -1);
+  assert.equal(routed.state.applicationRemainder, -0.5);
+  assert.equal(routed.state.historyRemainder, 0);
+});
+
 test("the likely-trackpad boundary matches xterm mouse-report and alternate-scroll routing", () => {
   const initial = initialTerminalWheelState();
   const damped = terminalWheelRows(-49, 0, 49, 24, initial);

@@ -62,7 +62,7 @@ export class XTermAdapter implements TerminalAdapter {
       const screen = terminal.element?.querySelector<HTMLElement>(".xterm-screen");
       const bounds = screen?.getBoundingClientRect();
       if (!bounds || bounds.width <= 0 || bounds.height <= 0) return true;
-      const result = terminalWheelRows(event.deltaY, event.deltaMode, bounds.height / terminal.rows, terminal.rows, this.#wheelState);
+      const result = terminalWheelRows(event.deltaY, event.deltaMode, bounds.height / terminal.rows, terminal.rows, this.#wheelState, event.altKey);
       this.#wheelState = result.state;
       if (result.lines === 0) {
         event.preventDefault();
