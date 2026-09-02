@@ -55,6 +55,11 @@ export class ReaderInputQueue {
     this.#terminalID = terminalID;
   }
 
+  resize(dimensions: TerminalDimensions): void {
+    this.#dimensions = dimensions;
+    this.#session?.resize(dimensions);
+  }
+
   clearTarget(): void {
     this.#clearTimer();
     this.#session?.disconnect();

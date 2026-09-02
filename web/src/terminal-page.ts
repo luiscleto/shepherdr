@@ -6,6 +6,7 @@ import { sendTerminalFiles, uploadStateAfterLastFileRemoved } from "./terminal/f
 import { nextTerminalOwnership, terminalOwnershipAction, type TerminalOwnership } from "./terminal/ownership";
 import { readerActionAvailability, type ReaderInputState } from "./terminal/reader-availability";
 import { ReaderInputQueue } from "./terminal/reader-input";
+import { ReaderTerminalSizer } from "./terminal/reader-sizer";
 import { ReaderView, readerMessageAction } from "./terminal/reader-view";
 import { TerminalSession } from "./terminal/session";
 import { XTermAdapter } from "./terminal/xterm-adapter";
@@ -64,6 +65,7 @@ export class TerminalPage {
   #reader: ReaderView | undefined;
   #readerInput: ReaderInputQueue | undefined;
   #readerMode: boolean;
+  #readerSizer: ReaderTerminalSizer | undefined;
   #readerTextQueued = false;
   #uploadAbort: AbortController | undefined;
   #uploadAttempt = 0;
@@ -124,6 +126,8 @@ export class TerminalPage {
     controller?.disconnect();
     this.#readerInput?.clearTarget();
     this.#readerInput = undefined;
+    this.#readerSizer?.destroy();
+    this.#readerSizer = undefined;
     this.#uploadAttempt++;
     this.#uploadAbort?.abort();
     this.#uploadAbort = undefined;
@@ -146,8 +150,13 @@ export class TerminalPage {
         if (nextState === this.#uploadState) return;
         this.#uploadState = nextState;
         this.#reader?.clearInputRecovery();
+        this.#syncReaderResizeAvailability();
         this.#syncReaderActions();
         this.#renderReaderStatus();
+      },
+      onResize: (dimensions) => {
+        this.#readerInput?.resize(dimensions);
+        this.#readerSizer?.viewportChanged(dimensions);
       },
       onStatus: (message) => this.#setStatus(message),
       onSubmit: (text, files) => {
@@ -174,6 +183,7 @@ export class TerminalPage {
       }),
       onSending: (count) => reader.inputSending(count),
       onState: () => {
+        this.#syncReaderResizeAvailability();
         this.#syncReaderActions();
         this.#renderReaderStatus();
       },
@@ -183,9 +193,16 @@ export class TerminalPage {
       },
     }, { endpoint: "/api/terminal" });
     this.#readerInput = input;
+    const sizer = new ReaderTerminalSizer(this.paneID, this.terminalID, {
+      onActive: () => this.#syncReaderActions(),
+      onSettled: () => reader.refreshSoon(),
+    }, { endpoint: "/api/terminal" });
+    this.#readerSizer = sizer;
     const dimensions = await reader.open(this.paneID, this.terminalID);
     if (this.#destroyed) return;
     input.setTarget(this.paneID, dimensions, this.terminalID);
+    const viewport = reader.viewportDimensions();
+    if (viewport) sizer.viewportChanged(viewport);
     const controls = this.#readerControls(reader, input);
     this.#host.append(controls);
     this.#syncReaderActions();
@@ -222,10 +239,10 @@ export class TerminalPage {
     if (!this.#readerMode) return;
     const state = this.#uploadState !== "ready" ? this.#uploadState : this.#readerInput?.state() ?? "ready";
     const fileRecovery = this.#uploadState !== "ready" && this.#uploadState !== "uncertain";
-    const availability = readerActionAvailability(this.#observerReady, state);
+    const availability = readerActionAvailability(this.#observerReady && !this.#readerSizer?.active(), state);
     if (fileRecovery && this.#agentStatus === undefined) availability.recover = false;
     this.#reader?.setActionAvailability(availability);
-    this.#reader?.setFileSelectionAvailable(this.#observerReady && this.#agentStatus !== undefined && state === "ready");
+    this.#reader?.setFileSelectionAvailable(this.#observerReady && !this.#readerSizer?.active() && this.#agentStatus !== undefined && state === "ready");
     for (const button of this.#commandButtons) button.disabled = !availability.send;
   }
 
@@ -251,6 +268,8 @@ export class TerminalPage {
     if (!reader || this.#uploadState !== "ready" && this.#uploadState !== "failed" && this.#uploadState !== "occupied" ||
       !this.#observerReady || this.#agentStatus === undefined || !reader.hasPendingFiles()) return;
     this.#uploadState = "requesting";
+    this.#syncReaderResizeAvailability();
+    this.#readerSizer?.request();
     const attempt = ++this.#uploadAttempt;
     const abort = new AbortController();
     this.#uploadAbort?.abort();
@@ -282,6 +301,7 @@ export class TerminalPage {
         this.#uploadState = "uncertain";
         reader.inputUncertain(outcome.message, () => {
           this.#uploadState = "ready";
+          this.#syncReaderResizeAvailability();
           this.#syncReaderActions();
           this.#renderReaderStatus();
         });
@@ -296,10 +316,12 @@ export class TerminalPage {
       this.#uploadState = "uncertain";
       reader.inputUncertain("The result could not be confirmed. Check the terminal before sending the files again.", () => {
         this.#uploadState = "ready";
+        this.#syncReaderResizeAvailability();
         this.#syncReaderActions();
         this.#renderReaderStatus();
       });
     }
+    this.#syncReaderResizeAvailability();
     this.#syncReaderActions();
     this.#renderReaderStatus();
   }
@@ -334,6 +356,9 @@ export class TerminalPage {
         if (this.#observer !== session) return;
         if (this.#reader) {
           if (!receivedFrame && this.#hasObserved) this.#reader.connectionReset();
+          const currentDimensions = this.#reader.observerRows(frame.height);
+          this.#readerInput?.resize(currentDimensions);
+          this.#readerSizer?.observerFrame(currentDimensions);
           this.#reader.refreshSoon();
         } else {
           if (frame.full) this.#xterm?.replace(bytes);
@@ -345,6 +370,7 @@ export class TerminalPage {
         this.#ownership = nextTerminalOwnership(this.#ownership, "observer-ready");
         this.#hasObserved = true;
         if (this.#readerMode) {
+          this.#syncReaderResizeAvailability();
           this.#syncReaderActions();
           this.#renderReaderStatus();
         } else {
@@ -359,6 +385,8 @@ export class TerminalPage {
         if (event !== "session.close" || this.#observer !== session) return;
         this.#observer = undefined;
         this.#observerReady = false;
+        this.#syncReaderResizeAvailability();
+        this.#readerSizer?.observerLost();
         this.#reader?.pauseLiveRefresh();
         this.#syncReaderActions();
         if (this.#controller || this.#ownership === "controlling" || this.#ownership === "requesting") this.#desktopAutoAcquire = true;
@@ -372,6 +400,11 @@ export class TerminalPage {
     }, { endpoint: "/api/terminal", terminalID: this.terminalID });
     this.#observer = session;
     session.connect(this.paneID, dimensions);
+  }
+
+  #syncReaderResizeAvailability(): void {
+    const inputReady = this.#readerInput?.state() === "ready";
+    this.#readerSizer?.setAvailable(this.#observerReady && inputReady && this.#uploadState === "ready");
   }
 
   #scheduleObserverReconnect(): void {

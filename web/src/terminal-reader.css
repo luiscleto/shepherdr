@@ -19,6 +19,8 @@
   min-height: 100%;
   margin: 0;
   padding: 0.65rem;
+  padding-right: max(0.65rem, env(safe-area-inset-right));
+  padding-left: max(0.65rem, env(safe-area-inset-left));
   color: #e5e7df;
   user-select: text;
   -webkit-user-select: text;
