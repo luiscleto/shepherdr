@@ -24,6 +24,7 @@ import { parseCompleteHomeState } from "./home-parser";
 import { TerminalPage } from "./terminal-page";
 import { parseTerminalRoute, returningToHome, terminalRouteOutcome } from "./terminal-route";
 import { WorkspaceActionsClient } from "./workspace-actions";
+import { TerminalActionsClient, type TerminalActionTarget } from "./terminal-actions";
 import { NotificationsController } from "./notifications";
 import { settingsAction } from "./settings-action";
 
@@ -49,6 +50,7 @@ const notifications = new NotificationsController(notificationsNode);
 const accessNode = document.querySelector<HTMLElement>("#access");
 if (!accessNode) throw new Error("Access root is missing");
 const workspaceActions = new WorkspaceActionsClient();
+const terminalActions = new TerminalActionsClient();
 
 let state: HomeState = {
   connection: "reconnecting",
@@ -99,11 +101,14 @@ const homeView = new HomeView(app, {
     lastFocusedHomePane = paneID;
   },
   onOpen: openTerminal,
+  onOpenCreated: openCreatedTerminal,
   onNotifications: () => notifications.openSettings(),
   onShowAll: showAllTerminals,
   onShowBlocked: showBlockedTerminals,
   prepareWorkspaceAction: (request) => workspaceActions.prepare(request),
   runWorkspaceAction: (request) => workspaceActions.run(request),
+  prepareTerminalAction: (request) => terminalActions.prepare(request),
+  runTerminalAction: (request) => terminalActions.run(request),
 });
 
 function element<K extends keyof HTMLElementTagNameMap>(
@@ -445,6 +450,17 @@ function openTerminal(entry: TerminalEntry): void {
   homeHadListFocus = currentFocusedPane() === entry.terminal.pane_id;
   selectedTerminal = entry;
   window.location.hash = `terminal=${encodeURIComponent(entry.terminal.pane_id)}`;
+}
+
+function openCreatedTerminal(target: TerminalActionTarget): void {
+  homeScroll = window.scrollY;
+  homeFocusPane = target.pane_id;
+  homeAnchorTop = homeView.row(target.pane_id)?.getBoundingClientRect().top;
+  homeHadListFocus = false;
+  selectedTerminal = undefined;
+  const pane = encodeURIComponent(target.pane_id);
+  const terminal = encodeURIComponent(target.terminal_id);
+  window.location.hash = `terminal=${pane}&terminal_id=${terminal}`;
 }
 
 function renderTerminal(paneID: string, expectedTerminalID?: string): void {

@@ -6,7 +6,7 @@
   "scripts": {
     "build": "node --max-old-space-size=512 scripts/build.mjs",
     "test": "node --max-old-space-size=512 --import tsx --test src/*.test.ts",
-    "test:home": "node --max-old-space-size=512 --import tsx --test src/browser-state.test.ts src/home-actions.test.ts src/home-connection.test.ts src/home-model.test.ts src/home-parser.test.ts src/workspace-actions.test.ts",
+    "test:home": "node --max-old-space-size=512 --import tsx --test src/browser-state.test.ts src/home-actions.test.ts src/home-connection.test.ts src/home-model.test.ts src/home-parser.test.ts src/terminal-actions.test.ts src/workspace-actions.test.ts",
     "typecheck": "node --max-old-space-size=512 node_modules/typescript/bin/tsc --noEmit"
   },
   "devDependencies": {

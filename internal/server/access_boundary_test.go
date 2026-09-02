@@ -73,6 +73,8 @@ func TestProtectedRouteInventoryIsDenyByDefault(t *testing.T) {
 		{http.MethodPost, "/api/devices/revoke", routeProtected},
 		{http.MethodPost, "/api/workspace-actions/prepare", routeProtected},
 		{http.MethodPost, "/api/workspace-actions", routeProtected},
+		{http.MethodPost, "/api/terminal-actions/prepare", routeProtected},
+		{http.MethodPost, "/api/terminal-actions", routeProtected},
 		{http.MethodPost, "/api/notifications/config", routeProtected},
 		{http.MethodPost, "/api/notifications/settings/read", routeProtected},
 		{http.MethodPost, "/api/notifications/settings", routeProtected},

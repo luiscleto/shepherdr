@@ -29,12 +29,13 @@ const home: Home = {
           number: 1,
           terminals: [
             {
+              actions: ["split_terminal", "rename_terminal", "close_terminal"],
               agent: { kind: "codex", name: "Gate helper", status: "blocked" },
               pane_id: "pane/agent?<script>",
               terminal_id: "term-one",
               title: "Review 1",
             },
-            { pane_id: "pane/ordinary#two", terminal_id: "term-two", title: "Shell" },
+            { actions: [], pane_id: "pane/ordinary#two", terminal_id: "term-two", title: "Shell" },
           ],
         },
         {
@@ -42,7 +43,7 @@ const home: Home = {
           id: "tab/two",
           label: "Other",
           number: 2,
-          terminals: [{ pane_id: "pane/three", terminal_id: "term-three", title: "Review 2" }],
+          terminals: [{ actions: [], pane_id: "pane/three", terminal_id: "term-three", title: "Review 2" }],
         },
       ],
     },

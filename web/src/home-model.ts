@@ -2,6 +2,7 @@ import type { WorkspaceAction } from "./workspace-actions";
 
 export type AgentStatus = "working" | "blocked" | "idle" | "done" | "unknown";
 export type Connection = "reconnecting" | "live" | "not_running" | "incompatible";
+export type TerminalAction = "split_terminal" | "rename_terminal" | "close_terminal";
 
 export interface Agent {
   kind: string;
@@ -10,7 +11,9 @@ export interface Agent {
 }
 
 export interface Terminal {
+  actions: TerminalAction[];
   agent?: Agent;
+  manual_name?: string;
   pane_id: string;
   terminal_id: string;
   title: string;
@@ -28,6 +31,7 @@ export interface Workspace {
   actions: WorkspaceAction[];
   agent_counts?: AgentCounts;
   checkout_path?: string;
+  group_agent_counts?: AgentCounts;
   id: string;
   label: string;
   number: number;

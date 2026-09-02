@@ -16,6 +16,7 @@ function completeFrame(): Record<string, unknown> {
       workspaces: [{
         actions: ["create_worktree", "close_group"],
         agent_counts: { working: 1 },
+        group_agent_counts: { blocked: 1, working: 1 },
         checkout_path: "/work/<b>one</b>",
         id: "opaque-parent",
         label: "Parent <script>",
@@ -26,7 +27,9 @@ function completeFrame(): Record<string, unknown> {
           label: "Main",
           number: 1,
           terminals: [{
+            actions: ["split_terminal", "rename_terminal", "close_terminal"],
             agent: { kind: "codex", name: "Builder", status: "working" },
+            manual_name: "Builder",
             pane_id: "opaque-pane",
             terminal_id: "opaque-terminal",
             title: "Builder",
@@ -50,6 +53,9 @@ test("strictly parses documented Home actions and top-level checkout paths", () 
 
   assert.equal(parsed?.home.workspaces[0].actions.join(","), "create_worktree,close_group");
   assert.equal(parsed?.home.workspaces[0].checkout_path, "/work/<b>one</b>");
+  assert.equal(parsed?.home.workspaces[0].group_agent_counts?.blocked, 1);
+  assert.equal(parsed?.home.workspaces[0].tabs[0].terminals[0].actions.join(","), "split_terminal,rename_terminal,close_terminal");
+  assert.equal(parsed?.home.workspaces[0].tabs[0].terminals[0].manual_name, "Builder");
   assert.equal(parsed?.home.workspaces[0].worktrees?.[0].actions.join(","), "close_workspace,delete_checkout");
   assert.equal(parsed?.home.workspaces[0].label, "Parent <script>");
   assert.equal(parsed?.herdr_version, "0.8.0<script>");
@@ -67,6 +73,17 @@ test("rejects missing, duplicate, unknown, misplaced, or extra additive Home fie
   const unknown = completeFrame();
   (unknown.home as { workspaces: Array<Record<string, unknown>> }).workspaces[0].actions = ["remove_forcefully"];
   assert.equal(parseCompleteHomeState(unknown), undefined);
+
+  const unknownTerminal = completeFrame();
+  (unknownTerminal.home as { workspaces: Array<{ tabs: Array<{ terminals: Array<Record<string, unknown>> }> }> })
+    .workspaces[0].tabs[0].terminals[0].actions = ["split_terminal", "invent_terminal"];
+  assert.equal(parseCompleteHomeState(unknownTerminal), undefined);
+
+  const childGroupCounts = completeFrame();
+  const childWithCounts = (childGroupCounts.home as { workspaces: Array<{ worktrees: Array<Record<string, unknown>> }> })
+    .workspaces[0].worktrees[0];
+  childWithCounts.group_agent_counts = { working: 1 };
+  assert.equal(parseCompleteHomeState(childGroupCounts), undefined);
 
   const childPath = completeFrame();
   const child = (childPath.home as { workspaces: Array<{ worktrees: Array<Record<string, unknown>> }> }).workspaces[0]

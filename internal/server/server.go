@@ -83,6 +83,8 @@ func (s *Server) Handler() http.Handler {
 	if s.workspaceActions != nil {
 		mux.HandleFunc("POST /api/workspace-actions/prepare", s.workspaceActions.prepare)
 		mux.HandleFunc("POST /api/workspace-actions", s.workspaceActions.run)
+		mux.HandleFunc("POST /api/terminal-actions/prepare", s.workspaceActions.prepareTerminal)
+		mux.HandleFunc("POST /api/terminal-actions", s.workspaceActions.runTerminal)
 	}
 	if s.terminal != nil {
 		mux.HandleFunc("GET /api/terminal", s.terminalSocket)

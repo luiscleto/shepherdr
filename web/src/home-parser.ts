@@ -6,6 +6,7 @@ import type {
   HomeState,
   Tab,
   Terminal,
+  TerminalAction,
   Workspace,
 } from "./home-model";
 import type { WorkspaceAction } from "./workspace-actions";
@@ -18,6 +19,7 @@ const workspaceActions = new Set<WorkspaceAction>([
   "close_group",
   "delete_checkout",
 ]);
+const terminalActions = new Set<TerminalAction>(["split_terminal", "rename_terminal", "close_terminal"]);
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -44,16 +46,27 @@ function parseAgent(value: unknown): Agent | undefined {
 
 function parseTerminal(value: unknown): Terminal | undefined {
   const terminal = record(value);
-  if (!terminal || !exactKeys(terminal, ["pane_id", "terminal_id", "title"], ["agent"]) ||
+  if (!terminal || !exactKeys(terminal, ["actions", "pane_id", "terminal_id", "title"], ["agent", "manual_name"]) ||
+    !Array.isArray(terminal.actions) ||
     typeof terminal.pane_id !== "string" || typeof terminal.terminal_id !== "string" ||
-    typeof terminal.title !== "string") return undefined;
+    typeof terminal.title !== "string" ||
+    (Object.hasOwn(terminal, "manual_name") && typeof terminal.manual_name !== "string")) return undefined;
+  const actions: TerminalAction[] = [];
+  for (const action of terminal.actions) {
+    if (typeof action !== "string" || !terminalActions.has(action as TerminalAction) || actions.includes(action as TerminalAction)) {
+      return undefined;
+    }
+    actions.push(action as TerminalAction);
+  }
   const agent = Object.hasOwn(terminal, "agent") ? parseAgent(terminal.agent) : undefined;
   if (Object.hasOwn(terminal, "agent") && !agent) return undefined;
   return {
+    actions,
     pane_id: terminal.pane_id,
     terminal_id: terminal.terminal_id,
     title: terminal.title,
     ...(agent ? { agent } : {}),
+    ...(typeof terminal.manual_name === "string" ? { manual_name: terminal.manual_name } : {}),
   };
 }
 
@@ -89,7 +102,7 @@ function parseWorkspace(value: unknown, topLevel: boolean): Workspace | undefine
   if (!workspace || !exactKeys(
     workspace,
     ["actions", "id", "label", "number", "tabs"],
-    ["agent_counts", "checkout_path", "worktrees"],
+    ["agent_counts", "checkout_path", "group_agent_counts", "worktrees"],
   ) || typeof workspace.id !== "string" || typeof workspace.label !== "string" ||
     !nonnegativeInteger(workspace.number) || !Array.isArray(workspace.tabs) || !Array.isArray(workspace.actions)) {
     return undefined;
@@ -115,6 +128,12 @@ function parseWorkspace(value: unknown, topLevel: boolean): Workspace | undefine
     agentCounts = parseAgentCounts(workspace.agent_counts);
     if (!agentCounts) return undefined;
   }
+  let groupAgentCounts: AgentCounts | undefined;
+  if (Object.hasOwn(workspace, "group_agent_counts")) {
+    if (!topLevel) return undefined;
+    groupAgentCounts = parseAgentCounts(workspace.group_agent_counts);
+    if (!groupAgentCounts) return undefined;
+  }
   let worktrees: Workspace[] | undefined;
   if (Object.hasOwn(workspace, "worktrees")) {
     if (!topLevel || !Array.isArray(workspace.worktrees)) return undefined;
@@ -132,6 +151,7 @@ function parseWorkspace(value: unknown, topLevel: boolean): Workspace | undefine
     number: workspace.number,
     tabs,
     ...(agentCounts ? { agent_counts: agentCounts } : {}),
+    ...(groupAgentCounts ? { group_agent_counts: groupAgentCounts } : {}),
     ...(typeof workspace.checkout_path === "string" ? { checkout_path: workspace.checkout_path } : {}),
     ...(worktrees ? { worktrees } : {}),
   };

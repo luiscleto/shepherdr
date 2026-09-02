@@ -11,6 +11,12 @@ import type {
   RunWorkspaceActionRequest,
   RunWorkspaceActionResponse,
 } from "./workspace-actions.ts";
+import type {
+  PreparedTerminalActionResponse,
+  RunTerminalActionRequest,
+  RunTerminalActionResponse,
+  TerminalActionTarget,
+} from "./terminal-actions.ts";
 
 function actionHome(): Home {
   return {
@@ -18,7 +24,8 @@ function actionHome(): Home {
     working_count: 2,
     workspaces: [{
       actions: ["create_worktree", "close_group"],
-      agent_counts: { blocked: 1, working: 2 },
+      agent_counts: { working: 1 },
+      group_agent_counts: { blocked: 1, working: 2 },
       checkout_path: "/repo/<main>",
       id: "opaque-parent",
       label: "Parent <script>",
@@ -29,6 +36,7 @@ function actionHome(): Home {
         label: "Main",
         number: 1,
         terminals: [{
+          actions: [],
           agent: { kind: "codex", name: "Builder", status: "working" },
           pane_id: "parent-pane",
           terminal_id: "parent-terminal",
@@ -46,6 +54,7 @@ function actionHome(): Home {
           label: "Child",
           number: 1,
           terminals: [{
+            actions: [],
             agent: { kind: "codex", name: "Reviewer", status: "blocked" },
             pane_id: "child-pane",
             terminal_id: "child-terminal",
@@ -71,14 +80,57 @@ function actionHome(): Home {
   };
 }
 
+function terminalHome(): Home {
+  return {
+    blocked_count: 0,
+    working_count: 1,
+    workspaces: [{
+      actions: ["close_workspace"],
+      agent_counts: { idle: 1, working: 1 },
+      id: "terminal-workspace",
+      label: "Terminal workspace",
+      number: 1,
+      tabs: [{
+        current: true,
+        id: "terminal-tab-main",
+        label: "Main",
+        number: 1,
+        terminals: [{
+          actions: ["split_terminal", "rename_terminal", "close_terminal"],
+          agent: { kind: "codex", name: "Builder", status: "working" },
+          manual_name: "Build <script>",
+          pane_id: "pane:anchor",
+          terminal_id: "terminal:anchor",
+          title: "Build <script>",
+        }],
+      }, {
+        current: false,
+        id: "terminal-tab-other",
+        label: "Logs",
+        number: 2,
+        terminals: [{
+          actions: ["split_terminal", "rename_terminal", "close_terminal"],
+          agent: { kind: "codex", name: "Watcher", status: "idle" },
+          pane_id: "pane:other",
+          terminal_id: "terminal:other",
+          title: "Logs",
+        }],
+      }],
+    }],
+  };
+}
+
 function state(home = actionHome()): HomeState {
   return { connection: "live", gap: 0, has_home: true, herdr_version: "0.8.0", home, last_known: false };
 }
 
 interface ViewOverrides {
   isHomeActive?: () => boolean;
+  onOpenCreated?: (target: TerminalActionTarget) => void;
   prepare?: (request: { action: "close_workspace" | "close_group" | "delete_checkout"; workspace_id: string }) => Promise<PreparedWorkspaceActionResponse>;
+  prepareTerminal?: (request: { action: "close_terminal" } & TerminalActionTarget) => Promise<PreparedTerminalActionResponse>;
   run?: (request: RunWorkspaceActionRequest) => Promise<RunWorkspaceActionResponse>;
+  runTerminal?: (request: RunTerminalActionRequest) => Promise<RunTerminalActionResponse>;
 }
 
 function makeView(window: Window, overrides: ViewOverrides = {}, home = actionHome()) {
@@ -88,10 +140,13 @@ function makeView(window: Window, overrides: ViewOverrides = {}, home = actionHo
     isHomeActive: overrides.isHomeActive ?? (() => true),
     onFocusPane: () => undefined,
     onOpen: () => undefined,
+    onOpenCreated: overrides.onOpenCreated ?? (() => undefined),
     onShowAll: () => undefined,
     onShowBlocked: () => undefined,
     prepareWorkspaceAction: overrides.prepare ?? (async () => ({ outcome: "refused", reason: "not_applicable" })),
+    prepareTerminalAction: overrides.prepareTerminal ?? (async () => ({ outcome: "refused", reason: "not_applicable" })),
     runWorkspaceAction: overrides.run ?? (async () => ({ outcome: "succeeded" })),
+    runTerminalAction: overrides.runTerminal ?? (async () => ({ outcome: "succeeded" })),
   });
   view.render({ actionsAvailable: true, mode: "all", reachability: "current", state: state(home) });
   return { app, view };
@@ -247,7 +302,7 @@ test("workspace menu is immediately after Open and keyboard reaches fresh close 
   assert.equal(actionRow?.className, "workspace-action-row");
   assert.deepEqual(Array.from(actionRow.children, (node) => (node as HTMLElement).className), [
     "terminal-row",
-    "workspace-menu",
+    "workspace-menu terminal-menu",
   ]);
 
   const trigger = requiredElement<HTMLButtonElement>(actionRow, ".workspace-menu-trigger");
@@ -477,8 +532,195 @@ test("server refusal detail is displayed as inert text", async () => {
   window.close();
 });
 
-test("Home never infers workspace actions from grouping or checkout paths", () => {
+test("multi-terminal Home keeps exact totals, tab provenance, and saved disclosure state", () => {
   const window = new Window({ url: "http://localhost/" });
+  const { app } = makeView(window, {}, terminalHome());
+  const disclosure = requiredElement<HTMLButtonElement>(app, ".terminal-section-disclosure");
+  const body = requiredElement(app, ".terminal-section-body");
+
+  assert.equal(disclosure.getAttribute("aria-expanded"), "true");
+  assert.equal(requiredElement(app, ".terminal-section-count").textContent, "2 terminals");
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".terminal-section-summary .workspace-summary-status"), (node) => node.textContent),
+    ["1 working", "1 idle"],
+  );
+  assert.deepEqual(Array.from(app.querySelectorAll(".tab-heading h3"), (node) => node.textContent), ["Main", "Logs"]);
+  assert.equal(app.querySelectorAll(".terminal-row").length, 2);
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".terminal-agent"), (node) => node.textContent),
+    ["Terminal workspace · Builder", "Terminal workspace · Watcher"],
+  );
+
+  disclosure.click();
+  assert.equal(disclosure.getAttribute("aria-expanded"), "false");
+  assert.equal(body.hidden, true);
+  const filter = requiredElement<HTMLInputElement>(app, ".home-filter input");
+  filter.value = "Logs";
+  filter.dispatchEvent(new window.Event("input", { bubbles: true }));
+  assert.equal(disclosure.getAttribute("aria-expanded"), "true");
+  assert.equal(body.hidden, false);
+  assert.equal(requiredElement(app, ".terminal-section-count").textContent, "2 terminals");
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".terminal-section-summary .workspace-summary-status"), (node) => node.textContent),
+    ["1 working", "1 idle"],
+  );
+  filter.value = "";
+  filter.dispatchEvent(new window.Event("input", { bubbles: true }));
+  assert.equal(disclosure.getAttribute("aria-expanded"), "false");
+  assert.equal(body.hidden, true);
+  window.close();
+});
+
+test("terminal menu uses exact action order and split opens only the returned terminal", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  let request: RunTerminalActionRequest | undefined;
+  let opened: TerminalActionTarget | undefined;
+  const returned = {
+    workspace_id: "terminal-workspace",
+    tab_id: "terminal-tab-main",
+    pane_id: "pane:created",
+    terminal_id: "terminal:created",
+  };
+  const { app } = makeView(window, {
+    onOpenCreated: (target) => { opened = target; },
+    runTerminal: async (value) => {
+      request = value;
+      return { outcome: "succeeded", terminal: returned };
+    },
+  }, terminalHome());
+  const trigger = requiredMatchingElement<HTMLButtonElement>(
+    app,
+    ".terminal-menu .workspace-menu-trigger",
+    (button) => button.getAttribute("aria-label") === "Actions for Build <script>",
+  );
+  trigger.click();
+  const items = Array.from(trigger.parentElement!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+  assert.deepEqual(items.map((item) => item.textContent), ["New terminal", "Rename terminal", "Close terminal"]);
+  items[0].click();
+  assert.equal(requiredElement(app, ".home-action-title").textContent, "Split terminal");
+  assert.equal(app.querySelectorAll("script").length, 0);
+  const below = requiredMatchingElement<HTMLButtonElement>(app, ".home-action-buttons button", (button) => button.textContent === "Below");
+  below.click();
+  await settle();
+
+  assert.equal(JSON.stringify(request), JSON.stringify({
+    action: "split_terminal",
+    workspace_id: "terminal-workspace",
+    tab_id: "terminal-tab-main",
+    pane_id: "pane:anchor",
+    terminal_id: "terminal:anchor",
+    direction: "down",
+  }));
+  assert.deepEqual(opened, returned);
+  assert.equal((app.querySelector<HTMLElement>(".home-action-layer")?.hidden), true);
+  window.close();
+});
+
+test("rename sends the manual pane name exactly and blank remains available to clear it", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  let request: RunTerminalActionRequest | undefined;
+  const { app } = makeView(window, {
+    runTerminal: async (value) => {
+      request = value;
+      return { outcome: "succeeded" };
+    },
+  }, terminalHome());
+  const trigger = requiredMatchingElement<HTMLButtonElement>(
+    app,
+    ".terminal-menu .workspace-menu-trigger",
+    (button) => button.getAttribute("aria-label") === "Actions for Build <script>",
+  );
+  trigger.click();
+  requiredMatchingElement<HTMLButtonElement>(app, '[role="menuitem"]', (button) => button.textContent === "Rename terminal").click();
+  const name = requiredElement<HTMLInputElement>(app, 'input[name="terminal_name"]');
+  assert.equal(name.value, "Build <script>");
+  assert.match(requiredElement(app, ".home-action-help").textContent ?? "", /blank to use the automatic name/);
+  name.value = "  Exact <name>  ";
+  requiredElement<HTMLFormElement>(app, ".home-action-form")
+    .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await settle();
+  assert.equal(JSON.stringify(request), JSON.stringify({
+    action: "rename_terminal",
+    workspace_id: "terminal-workspace",
+    tab_id: "terminal-tab-main",
+    pane_id: "pane:anchor",
+    terminal_id: "terminal:anchor",
+    name: "  Exact <name>  ",
+  }));
+  assert.equal(app.querySelectorAll("script").length, 0);
+  window.close();
+});
+
+test("close terminal prepares fresh exact facts and names interruption and tab impact", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  let prepareRequest: ({ action: "close_terminal" } & TerminalActionTarget) | undefined;
+  let runRequest: RunTerminalActionRequest | undefined;
+  const closeFacts = {
+    target: {
+      workspace_id: "terminal-workspace",
+      tab_id: "terminal-tab-main",
+      pane_id: "pane:anchor",
+      terminal_id: "terminal:anchor",
+    },
+    workspace_label: "Terminal workspace",
+    tab_label: "Main",
+    terminal_title: "Build <script>",
+    agent: { kind: "codex", name: "Builder", status: "working" } as const,
+    closes_tab: true,
+  };
+  const { app } = makeView(window, {
+    prepareTerminal: async (value) => {
+      prepareRequest = value;
+      return { outcome: "prepared", action: "close_terminal", expected: closeFacts };
+    },
+    runTerminal: async (value) => {
+      runRequest = value;
+      return { outcome: "unknown" };
+    },
+  }, terminalHome());
+  const trigger = requiredMatchingElement<HTMLButtonElement>(
+    app,
+    ".terminal-menu .workspace-menu-trigger",
+    (button) => button.getAttribute("aria-label") === "Actions for Build <script>",
+  );
+  trigger.click();
+  requiredMatchingElement<HTMLButtonElement>(app, '[role="menuitem"]', (button) => button.textContent === "Close terminal").click();
+  await settle();
+  const panel = requiredElement(app, ".home-action-panel");
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "Close Build <script>?");
+  assert.equal(
+    requiredElement(panel, ".home-action-copy").textContent,
+    "Closing this terminal stops what is running there. Builder is working. The Main tab will also close.",
+  );
+  assert.equal(JSON.stringify(prepareRequest), JSON.stringify({ action: "close_terminal", ...closeFacts.target }));
+  requiredElement<HTMLButtonElement>(panel, ".home-action-primary").click();
+  await settle();
+  assert.equal(JSON.stringify(runRequest), JSON.stringify({ action: "close_terminal", expected: closeFacts }));
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "Result unknown");
+  assert.match(requiredElement(panel, ".home-action-copy").textContent ?? "", /Check Home before trying to close this terminal again/);
+  window.close();
+});
+
+test("one-terminal rows keep terminal and workspace actions in one compact menu", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const home = terminalHome();
+  home.workspaces[0].tabs = [home.workspaces[0].tabs[0]];
+  const { app } = makeView(window, {}, home);
+  assert.equal(app.querySelectorAll(".terminal-section").length, 0);
+  assert.equal(app.querySelectorAll(".terminal-row").length, 1);
+  const trigger = requiredElement<HTMLButtonElement>(app, ".terminal-menu .workspace-menu-trigger");
+  assert.equal(trigger.getAttribute("aria-label"), "Actions for Terminal workspace");
+  trigger.click();
+  assert.deepEqual(
+    Array.from(app.querySelectorAll('[role="menuitem"]'), (node) => node.textContent),
+    ["New terminal", "Rename terminal", "Close terminal", "Close workspace"],
+  );
+  window.close();
+});
+
+test("literal Herdr 0.8.1 remains openable while Home infers no management actions", () => {
+  const window = new Window({ url: "http://localhost/" });
+  let opened = 0;
   const home = actionHome();
   home.workspaces[0].actions = [];
   home.workspaces[1].actions = [];
@@ -489,16 +731,24 @@ test("Home never infers workspace actions from grouping or checkout paths", () =
   const view = new HomeView(app, {
     isHomeActive: () => true,
     onFocusPane: () => undefined,
-    onOpen: () => undefined,
+    onOpen: () => { opened++; },
+    onOpenCreated: () => undefined,
     onShowAll: () => undefined,
     onShowBlocked: () => undefined,
     prepareWorkspaceAction: async () => ({ outcome: "refused", reason: "not_applicable" }),
+    prepareTerminalAction: async () => ({ outcome: "refused", reason: "not_applicable" }),
     runWorkspaceAction: async () => ({ outcome: "succeeded" }),
+    runTerminalAction: async () => ({ outcome: "succeeded" }),
   });
-  view.render({ actionsAvailable: true, mode: "all", reachability: "current", state: state(home) });
+  const unverified = state(home);
+  unverified.herdr_version = "0.8.1";
+  view.render({ actionsAvailable: true, mode: "all", reachability: "current", state: unverified });
 
   assert.equal(app.querySelectorAll(".workspace-menu-trigger").length, 0);
   assert.equal(app.querySelectorAll(".new-space-action").length, 1);
+  requiredElement<HTMLButtonElement>(app, '[data-pane-key="parent-pane"]').click();
+  assert.equal(opened, 1);
+  assert.equal(app.querySelector(".herdr-version")?.textContent, "Herdr 0.8.1");
   window.close();
 });
 
@@ -511,7 +761,7 @@ test("collapsed groups with zero or multiple parent terminals keep their group a
       ? []
       : [
           terminals[0],
-          { pane_id: "second-parent-pane", terminal_id: "second-parent-terminal", title: "Second terminal" },
+          { actions: [], pane_id: "second-parent-pane", terminal_id: "second-parent-terminal", title: "Second terminal" },
         ];
     const { app } = makeView(window, {}, home);
     const disclosure = requiredElement<HTMLButtonElement>(app, ".workspace-set-disclosure");

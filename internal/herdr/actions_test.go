@@ -179,6 +179,16 @@ func TestClientSendsExactConfirmedWorkspaceMutations(t *testing.T) {
 		{"worktree.create", map[string]any{"cwd": "/ordinary/current", "focus": false}, map[string]any{"type": "worktree_created", "workspace": map[string]any{}, "tab": map[string]any{}, "root_pane": map[string]any{}, "worktree": map[string]any{}}},
 		{"workspace.close", map[string]any{"workspace_id": "opaque-child"}, map[string]any{"type": "ok"}},
 		{"worktree.remove", map[string]any{"workspace_id": "opaque-child", "force": false}, map[string]any{"type": "worktree_removed", "workspace_id": "opaque-child", "path": "/work/child", "forced": false}},
+		{"pane.split", map[string]any{"target_pane_id": "opaque-pane", "direction": "right", "cwd": "/work/current", "focus": false}, map[string]any{
+			"type": "pane_info", "pane": map[string]any{"workspace_id": "opaque-workspace", "tab_id": "opaque-tab", "pane_id": "created-pane", "terminal_id": "created-terminal", "cwd": "/work/current"},
+		}},
+		{"pane.rename", map[string]any{"pane_id": "opaque-pane", "label": "Useful terminal"}, map[string]any{
+			"type": "pane_info", "pane": map[string]any{"workspace_id": "opaque-workspace", "tab_id": "opaque-tab", "pane_id": "opaque-pane", "terminal_id": "opaque-terminal", "label": "Useful terminal"},
+		}},
+		{"pane.rename", map[string]any{"pane_id": "opaque-pane"}, map[string]any{
+			"type": "pane_info", "pane": map[string]any{"workspace_id": "opaque-workspace", "tab_id": "opaque-tab", "pane_id": "opaque-pane", "terminal_id": "opaque-terminal"},
+		}},
+		{"pane.close", map[string]any{"pane_id": "opaque-pane"}, map[string]any{"type": "ok"}},
 	}
 	serverDone := make(chan error, 1)
 	go func() {
@@ -210,7 +220,7 @@ func TestClientSendsExactConfirmedWorkspaceMutations(t *testing.T) {
 	}()
 
 	client := NewClient(socketPath, discardLogger())
-	label, branch := "Useful", "feature/exact"
+	label, branch, terminalLabel := "Useful", "feature/exact", "Useful terminal"
 	for index, call := range []func() error{
 		func() error { return client.CreateWorkspace(context.Background(), "/work", &label) },
 		func() error { return client.CreateWorkspace(context.Background(), "$HOME/literal", nil) },
@@ -222,6 +232,28 @@ func TestClientSendsExactConfirmedWorkspaceMutations(t *testing.T) {
 		},
 		func() error { return client.CloseWorkspace(context.Background(), "opaque-child") },
 		func() error { return client.RemoveWorktree(context.Background(), "opaque-child") },
+		func() error {
+			pane, splitErr := client.SplitTerminal(context.Background(), "opaque-pane", "/work/current", SplitRight)
+			if splitErr == nil && (pane.PaneID != "created-pane" || pane.TerminalID != "created-terminal") {
+				return &testError{"pane.split did not return the exact created pane"}
+			}
+			return splitErr
+		},
+		func() error {
+			pane, renameErr := client.RenameTerminal(context.Background(), "opaque-pane", &terminalLabel)
+			if renameErr == nil && (pane.Label == nil || *pane.Label != terminalLabel) {
+				return &testError{"pane.rename did not return the exact manual label"}
+			}
+			return renameErr
+		},
+		func() error {
+			pane, renameErr := client.RenameTerminal(context.Background(), "opaque-pane", nil)
+			if renameErr == nil && pane.Label != nil {
+				return &testError{"pane.rename did not clear the manual label"}
+			}
+			return renameErr
+		},
+		func() error { return client.CloseTerminal(context.Background(), "opaque-pane") },
 	} {
 		if err := call(); err != nil {
 			t.Fatalf("mutation %d: %v", index, err)

@@ -104,6 +104,15 @@ func ResolveWorkspaceAction(snapshot Snapshot, action WorkspaceAction, workspace
 	return target, true, true
 }
 
+func ResolveWorkspaceCloseAction(snapshot Snapshot, workspaceID string) (WorkspaceAction, bool) {
+	for _, action := range []WorkspaceAction{WorkspaceActionCloseWorkspace, WorkspaceActionCloseGroup} {
+		if _, found, applicable := ResolveWorkspaceAction(snapshot, action, workspaceID); found && applicable {
+			return action, true
+		}
+	}
+	return "", false
+}
+
 func findWorkspace(snapshot Snapshot, workspaceID string) (WorkspaceInfo, bool) {
 	for _, workspace := range snapshot.Workspaces {
 		if workspace.WorkspaceID == workspaceID {
@@ -285,10 +294,93 @@ func (c *Client) RemoveWorktree(ctx context.Context, workspaceID string) error {
 	})
 }
 
+type SplitDirection string
+
+const (
+	SplitRight SplitDirection = "right"
+	SplitDown  SplitDirection = "down"
+)
+
+func (c *Client) SplitTerminal(ctx context.Context, paneID, cwd string, direction SplitDirection) (PaneInfo, error) {
+	type params struct {
+		TargetPaneID string         `json:"target_pane_id"`
+		Direction    SplitDirection `json:"direction"`
+		CWD          string         `json:"cwd,omitempty"`
+		Focus        bool           `json:"focus"`
+	}
+	if paneID == "" || (direction != SplitRight && direction != SplitDown) {
+		return PaneInfo{}, &MutationError{Err: errors.New("split target or direction is invalid")}
+	}
+	raw, err := c.mutateResult(ctx, "pane-split", "pane.split", params{
+		TargetPaneID: paneID, Direction: direction, CWD: cwd, Focus: false,
+	}, validatePaneInfoMutation)
+	if err != nil {
+		return PaneInfo{}, err
+	}
+	pane, err := decodePaneInfoMutation(raw)
+	if err != nil {
+		return PaneInfo{}, &MutationError{Err: fmt.Errorf("decode Herdr pane.split response: %w", err), Submitted: true}
+	}
+	return pane, nil
+}
+
+func (c *Client) RenameTerminal(ctx context.Context, paneID string, label *string) (PaneInfo, error) {
+	type params struct {
+		PaneID string  `json:"pane_id"`
+		Label  *string `json:"label,omitempty"`
+	}
+	if paneID == "" {
+		return PaneInfo{}, &MutationError{Err: errors.New("rename target is invalid")}
+	}
+	raw, err := c.mutateResult(ctx, "pane-rename", "pane.rename", params{PaneID: paneID, Label: label}, validatePaneInfoMutation)
+	if err != nil {
+		return PaneInfo{}, err
+	}
+	pane, err := decodePaneInfoMutation(raw)
+	if err != nil {
+		return PaneInfo{}, &MutationError{Err: fmt.Errorf("decode Herdr pane.rename response: %w", err), Submitted: true}
+	}
+	return pane, nil
+}
+
+func (c *Client) CloseTerminal(ctx context.Context, paneID string) error {
+	if paneID == "" {
+		return &MutationError{Err: errors.New("close target is invalid")}
+	}
+	return c.mutate(ctx, "pane-close", "pane.close", struct {
+		PaneID string `json:"pane_id"`
+	}{PaneID: paneID}, expectMutationResult("ok"))
+}
+
+func validatePaneInfoMutation(raw json.RawMessage) error {
+	_, err := decodePaneInfoMutation(raw)
+	return err
+}
+
+func decodePaneInfoMutation(raw json.RawMessage) (PaneInfo, error) {
+	var result struct {
+		Pane PaneInfo `json:"pane"`
+		Type string   `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return PaneInfo{}, err
+	}
+	if result.Type != "pane_info" || result.Pane.PaneID == "" || result.Pane.TerminalID == "" ||
+		result.Pane.WorkspaceID == "" || result.Pane.TabID == "" {
+		return PaneInfo{}, errors.New("Herdr returned incomplete pane_info")
+	}
+	return result.Pane, nil
+}
+
 func (c *Client) mutate(ctx context.Context, prefix, method string, params any, validate func(json.RawMessage) error) error {
+	_, err := c.mutateResult(ctx, prefix, method, params, validate)
+	return err
+}
+
+func (c *Client) mutateResult(ctx context.Context, prefix, method string, params any, validate func(json.RawMessage) error) (json.RawMessage, error) {
 	conn, err := c.dial(ctx)
 	if err != nil {
-		return &MutationError{Err: err}
+		return nil, &MutationError{Err: err}
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(requestDeadline())
@@ -299,24 +391,24 @@ func (c *Client) mutate(ctx context.Context, prefix, method string, params any, 
 		Params any    `json:"params"`
 	}{ID: id, Method: method, Params: params}
 	if err := json.NewEncoder(conn).Encode(request); err != nil {
-		return &MutationError{Err: fmt.Errorf("write Herdr %s request: %w", method, err), Submitted: true}
+		return nil, &MutationError{Err: fmt.Errorf("write Herdr %s request: %w", method, err), Submitted: true}
 	}
 
 	var envelope responseEnvelope
 	if err := json.NewDecoder(conn).Decode(&envelope); err != nil {
-		return &MutationError{Err: fmt.Errorf("read Herdr %s response: %w", method, err), Submitted: true}
+		return nil, &MutationError{Err: fmt.Errorf("read Herdr %s response: %w", method, err), Submitted: true}
 	}
 	if err := validateResponse(envelope, id); err != nil {
 		var apiError *APIError
 		if errors.As(err, &apiError) {
-			return apiError
+			return nil, apiError
 		}
-		return &MutationError{Err: err, Submitted: true}
+		return nil, &MutationError{Err: err, Submitted: true}
 	}
 	if err := validate(envelope.Result); err != nil {
-		return &MutationError{Err: fmt.Errorf("validate Herdr %s response: %w", method, err), Submitted: true}
+		return nil, &MutationError{Err: fmt.Errorf("validate Herdr %s response: %w", method, err), Submitted: true}
 	}
-	return nil
+	return envelope.Result, nil
 }
 
 func expectMutationResult(resultType string, required ...string) func(json.RawMessage) error {

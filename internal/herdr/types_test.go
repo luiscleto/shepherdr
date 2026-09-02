@@ -96,8 +96,11 @@ func TestProjectGroupsOnlyExactWorktreeProvenanceAtTheParentPlace(t *testing.T) 
 	if got, want := workspaceIDs(parent.Worktrees), []string{"child-before", "child-after"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("nested workspaces = %v, want Herdr order %v", got, want)
 	}
-	if parent.AgentCounts == nil || *parent.AgentCounts != (AgentCounts{Working: 1, Blocked: 1, Done: 1}) {
-		t.Fatalf("group agent counts = %+v", parent.AgentCounts)
+	if parent.AgentCounts == nil || *parent.AgentCounts != (AgentCounts{Working: 1}) {
+		t.Fatalf("workspace agent counts = %+v", parent.AgentCounts)
+	}
+	if parent.GroupAgentCounts == nil || *parent.GroupAgentCounts != (AgentCounts{Working: 1, Blocked: 1, Done: 1}) {
+		t.Fatalf("group agent counts = %+v", parent.GroupAgentCounts)
 	}
 	if len(projectedTerminals(home)) != len(snapshot.Panes) {
 		t.Fatalf("projected %d terminals, want %d exactly once", len(projectedTerminals(home)), len(snapshot.Panes))
@@ -205,8 +208,8 @@ func TestProjectAssignsOnlyContextualCollisionTitles(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"w1:p1": "Same 1",
-		"w2:p1": "Same 2",
+		"w1:p1": "Same",
+		"w2:p1": "Same",
 		"w3:p1": "Build 1",
 		"w3:p2": "Build 2",
 		"w3:p3": "Build",
@@ -218,6 +221,73 @@ func TestProjectAssignsOnlyContextualCollisionTitles(t *testing.T) {
 	}
 	if !home.Workspaces[2].Tabs[0].Current || home.Workspaces[2].Tabs[1].Current {
 		t.Fatalf("current tab did not follow active_tab_id: %+v", home.Workspaces[2].Tabs)
+	}
+}
+
+func TestProjectUsesManualAgentAndAutomaticTerminalNamesWithoutRenumberingManualLabels(t *testing.T) {
+	manual := "Build"
+	agentKind := "codex"
+	agentName := "Planner"
+	snapshot := Snapshot{
+		Version:    "0.8.2",
+		Workspaces: []WorkspaceInfo{{ActiveTabID: "tab", WorkspaceID: "workspace", Label: "Repository"}},
+		Tabs:       []TabInfo{{TabID: "tab", WorkspaceID: "workspace"}},
+		Panes: []PaneInfo{
+			{CWD: "/work", Label: &manual, PaneID: "manual", TabID: "tab", TerminalID: "terminal-manual", TerminalTitleStripped: "Ignored", WorkspaceID: "workspace"},
+			{CWD: "/work", PaneID: "agent", TabID: "tab", TerminalID: "terminal-agent", TerminalTitleStripped: "Ignored", WorkspaceID: "workspace"},
+			{CWD: "/work", PaneID: "automatic-one", TabID: "tab", TerminalID: "terminal-one", TerminalTitleStripped: "Build", WorkspaceID: "workspace"},
+			{CWD: "/work", PaneID: "automatic-two", TabID: "tab", TerminalID: "terminal-two", TerminalTitleStripped: "Build", WorkspaceID: "workspace"},
+			{CWD: "/work", PaneID: "fallback", TabID: "tab", TerminalID: "terminal-fallback", WorkspaceID: "workspace"},
+		},
+		Agents: []AgentInfo{{
+			Agent: &agentKind, Name: &agentName, AgentStatus: StatusWorking, PaneID: "agent", TabID: "tab",
+			TerminalID: "terminal-agent", WorkspaceID: "workspace",
+		}},
+	}
+
+	home, err := Project(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"manual":        "Build",
+		"agent":         "Planner",
+		"automatic-one": "Build 1",
+		"automatic-two": "Build 2",
+		"fallback":      "Terminal",
+	}
+	for paneID, title := range want {
+		terminal := findProjectedTerminal(home, paneID)
+		if terminal == nil || terminal.Title != title {
+			t.Errorf("pane %s title = %+v, want %q", paneID, terminal, title)
+		}
+	}
+	terminal := findProjectedTerminal(home, "manual")
+	if terminal == nil || terminal.ManualName == nil || *terminal.ManualName != manual {
+		t.Fatalf("manual pane label was not preserved: %+v", terminal)
+	}
+	if got, want := terminal.Actions, []TerminalAction{TerminalActionSplit, TerminalActionRename, TerminalActionClose}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("terminal actions = %v, want %v", got, want)
+	}
+}
+
+func TestProjectDoesNotOfferSplitWithoutAFreshPaneWorkingDirectory(t *testing.T) {
+	snapshot := Snapshot{
+		Version:    "0.8.2",
+		Workspaces: []WorkspaceInfo{{ActiveTabID: "tab", WorkspaceID: "workspace"}},
+		Tabs:       []TabInfo{{TabID: "tab", WorkspaceID: "workspace"}},
+		Panes:      []PaneInfo{{PaneID: "pane", TabID: "tab", TerminalID: "terminal", WorkspaceID: "workspace"}},
+	}
+	home, err := Project(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal := findProjectedTerminal(home, "pane")
+	if terminal == nil {
+		t.Fatal("terminal was not projected")
+	}
+	if got, want := terminal.Actions, []TerminalAction{TerminalActionRename, TerminalActionClose}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("actions without cwd = %v, want %v", got, want)
 	}
 }
 

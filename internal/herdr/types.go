@@ -50,14 +50,15 @@ type AgentInfo struct {
 }
 
 type PaneInfo struct {
-	CWD                   string `json:"cwd"`
-	Focused               bool   `json:"focused"`
-	PaneID                string `json:"pane_id"`
-	TabID                 string `json:"tab_id"`
-	TerminalID            string `json:"terminal_id"`
-	TerminalTitle         string `json:"terminal_title"`
-	TerminalTitleStripped string `json:"terminal_title_stripped"`
-	WorkspaceID           string `json:"workspace_id"`
+	CWD                   string  `json:"cwd"`
+	Focused               bool    `json:"focused"`
+	Label                 *string `json:"label"`
+	PaneID                string  `json:"pane_id"`
+	TabID                 string  `json:"tab_id"`
+	TerminalID            string  `json:"terminal_id"`
+	TerminalTitle         string  `json:"terminal_title"`
+	TerminalTitleStripped string  `json:"terminal_title_stripped"`
+	WorkspaceID           string  `json:"workspace_id"`
 }
 
 type TabInfo struct {
@@ -146,11 +147,21 @@ type Agent struct {
 }
 
 type Terminal struct {
-	Agent      *Agent `json:"agent,omitempty"`
-	PaneID     string `json:"pane_id"`
-	TerminalID string `json:"terminal_id"`
-	Title      string `json:"title"`
+	Actions    []TerminalAction `json:"actions"`
+	Agent      *Agent           `json:"agent,omitempty"`
+	ManualName *string          `json:"manual_name,omitempty"`
+	PaneID     string           `json:"pane_id"`
+	TerminalID string           `json:"terminal_id"`
+	Title      string           `json:"title"`
 }
+
+type TerminalAction string
+
+const (
+	TerminalActionSplit  TerminalAction = "split_terminal"
+	TerminalActionRename TerminalAction = "rename_terminal"
+	TerminalActionClose  TerminalAction = "close_terminal"
+)
 
 type Tab struct {
 	Current   bool       `json:"current"`
@@ -161,14 +172,15 @@ type Tab struct {
 }
 
 type Workspace struct {
-	AgentCounts  *AgentCounts      `json:"agent_counts,omitempty"`
-	Actions      []WorkspaceAction `json:"actions"`
-	CheckoutPath string            `json:"checkout_path,omitempty"`
-	ID           string            `json:"id"`
-	Label        string            `json:"label"`
-	Number       uint              `json:"number"`
-	Tabs         []Tab             `json:"tabs"`
-	Worktrees    []Workspace       `json:"worktrees,omitempty"`
+	AgentCounts      *AgentCounts      `json:"agent_counts,omitempty"`
+	Actions          []WorkspaceAction `json:"actions"`
+	CheckoutPath     string            `json:"checkout_path,omitempty"`
+	GroupAgentCounts *AgentCounts      `json:"group_agent_counts,omitempty"`
+	ID               string            `json:"id"`
+	Label            string            `json:"label"`
+	Number           uint              `json:"number"`
+	Tabs             []Tab             `json:"tabs"`
+	Worktrees        []Workspace       `json:"worktrees,omitempty"`
 }
 
 type AgentCounts struct {
@@ -321,19 +333,39 @@ func Project(snapshot Snapshot) (Home, error) {
 				ID:      tabSource.TabID, Label: displayTabLabel(tabSource.Label), Number: tabSource.Number, Terminals: []Terminal{},
 			}
 			for _, pane := range orderPanes(panesByTab[tab.ID], layoutsByTab[tab.ID], workspace.ID, tab.ID) {
+				terminalActions := availableTerminalActions(snapshot.Version)
+				if pane.CWD == "" && len(terminalActions) > 0 {
+					terminalActions = []TerminalAction{TerminalActionRename}
+				}
 				terminal := Terminal{
-					PaneID: pane.PaneID, TerminalID: pane.TerminalID, Title: displayTerminalTitle(pane),
+					Actions: terminalActions, PaneID: pane.PaneID, TerminalID: pane.TerminalID,
 				}
 				if agent, exists := agentsByPane[pane.PaneID]; exists {
 					copy := agent
 					terminal.Agent = &copy
-					if agent.Name != "Agent" {
-						terminal.Title = agent.Name
-					}
 				}
+				terminal.ManualName = paneManualName(pane)
+				terminal.Title = displayTerminalTitle(pane, terminal.Agent, terminal.ManualName)
 				tab.Terminals = append(tab.Terminals, terminal)
 			}
 			workspace.Tabs = append(workspace.Tabs, tab)
+		}
+		counts := countAgents([]Workspace{workspace})
+		if counts.nonzero() {
+			workspace.AgentCounts = &counts
+		}
+		if terminalManagementAvailable(snapshot.Version) {
+			_, workspaceCanClose := ResolveWorkspaceCloseAction(snapshot, workspace.ID)
+			if terminalCount(workspace) > 1 || workspaceCanClose {
+				for tabIndex := range workspace.Tabs {
+					for terminalIndex := range workspace.Tabs[tabIndex].Terminals {
+						workspace.Tabs[tabIndex].Terminals[terminalIndex].Actions = append(
+							workspace.Tabs[tabIndex].Terminals[terminalIndex].Actions,
+							TerminalActionClose,
+						)
+					}
+				}
+			}
 		}
 		home.Workspaces = append(home.Workspaces, workspace)
 	}
@@ -400,10 +432,16 @@ func groupWorktrees(workspaces []Workspace, sources []WorkspaceInfo) []Workspace
 			members = append(members, candidate)
 		}
 		counts := countAgents(members)
-		workspace.AgentCounts = &counts
+		if counts.nonzero() {
+			workspace.GroupAgentCounts = &counts
+		}
 		grouped = append(grouped, workspace)
 	}
 	return grouped
+}
+
+func (c AgentCounts) nonzero() bool {
+	return c.Working != 0 || c.Blocked != 0 || c.Idle != 0 || c.Done != 0 || c.Unknown != 0
 }
 
 func countAgents(workspaces []Workspace) AgentCounts {
@@ -480,27 +518,16 @@ func orderPanes(panes []PaneInfo, layouts []LayoutInfo, workspaceID, tabID strin
 }
 
 func assignContextualTitles(home *Home) {
-	flattenedCounts := make(map[string]int)
 	for workspaceIndex := range home.Workspaces {
 		workspace := &home.Workspaces[workspaceIndex]
 		if terminalCount(*workspace) != 1 {
 			continue
 		}
-		flattenedCounts[workspace.Label]++
 		for tabIndex := range workspace.Tabs {
 			if len(workspace.Tabs[tabIndex].Terminals) == 1 {
-				workspace.Tabs[tabIndex].Terminals[0].Title = workspace.Label
-			}
-		}
-	}
-	flattenedSeen := make(map[string]int)
-	for workspaceIndex := range home.Workspaces {
-		workspace := &home.Workspaces[workspaceIndex]
-		if terminalCount(*workspace) == 1 && flattenedCounts[workspace.Label] > 1 {
-			flattenedSeen[workspace.Label]++
-			for tabIndex := range workspace.Tabs {
-				if len(workspace.Tabs[tabIndex].Terminals) == 1 {
-					workspace.Tabs[tabIndex].Terminals[0].Title = fmt.Sprintf("%s %d", workspace.Label, flattenedSeen[workspace.Label])
+				terminal := &workspace.Tabs[tabIndex].Terminals[0]
+				if terminal.ManualName == nil {
+					terminal.Title = workspace.Label
 				}
 			}
 		}
@@ -511,49 +538,28 @@ func assignContextualTitles(home *Home) {
 		if terminalCount(*workspace) <= 1 {
 			continue
 		}
-		showTabs := nonEmptyTabCount(*workspace) > 1
-		counts := make(map[string]int)
 		for tabIndex := range workspace.Tabs {
+			counts := make(map[string]int)
 			for terminalIndex := range workspace.Tabs[tabIndex].Terminals {
 				terminal := &workspace.Tabs[tabIndex].Terminals[terminalIndex]
-				counts[titleScope(tabIndex, terminal.Title, showTabs)]++
+				counts[terminal.Title]++
 			}
-		}
-		seen := make(map[string]int)
-		for tabIndex := range workspace.Tabs {
+			seen := make(map[string]int)
 			for terminalIndex := range workspace.Tabs[tabIndex].Terminals {
 				terminal := &workspace.Tabs[tabIndex].Terminals[terminalIndex]
-				key := titleScope(tabIndex, terminal.Title, showTabs)
-				if counts[key] > 1 {
-					seen[key]++
-					terminal.Title = fmt.Sprintf("%s %d", terminal.Title, seen[key])
+				if terminal.ManualName == nil && counts[terminal.Title] > 1 {
+					seen[terminal.Title]++
+					terminal.Title = fmt.Sprintf("%s %d", terminal.Title, seen[terminal.Title])
 				}
 			}
 		}
 	}
 }
 
-func titleScope(tabIndex int, title string, showTabs bool) string {
-	if showTabs {
-		return fmt.Sprintf("%d\x00%s", tabIndex, title)
-	}
-	return title
-}
-
 func terminalCount(workspace Workspace) int {
 	total := 0
 	for _, tab := range workspace.Tabs {
 		total += len(tab.Terminals)
-	}
-	return total
-}
-
-func nonEmptyTabCount(workspace Workspace) int {
-	total := 0
-	for _, tab := range workspace.Tabs {
-		if len(tab.Terminals) > 0 {
-			total++
-		}
 	}
 	return total
 }
@@ -572,7 +578,21 @@ func displayTabLabel(label string) string {
 	return label
 }
 
-func displayTerminalTitle(pane PaneInfo) string {
+func paneManualName(pane PaneInfo) *string {
+	if pane.Label == nil || *pane.Label == "" {
+		return nil
+	}
+	name := *pane.Label
+	return &name
+}
+
+func displayTerminalTitle(pane PaneInfo, agent *Agent, manualName *string) string {
+	if manualName != nil {
+		return *manualName
+	}
+	if agent != nil && agent.Name != "Agent" {
+		return agent.Name
+	}
 	if pane.TerminalTitleStripped != "" {
 		return pane.TerminalTitleStripped
 	}

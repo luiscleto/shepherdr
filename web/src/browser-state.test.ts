@@ -25,6 +25,7 @@ function flatHome(): Home {
             number: 1,
             terminals: [
               {
+                actions: [],
                 agent: { kind: "codex", name: "Agent one", status: "blocked" },
                 pane_id: "pane-one",
                 terminal_id: "terminal-one",
@@ -45,7 +46,8 @@ function groupedHome(): Home {
     workspaces: [
       {
         actions: ["create_worktree", "close_group"],
-        agent_counts: { blocked: 1, done: 1, idle: 1, unknown: 1, working: 1 },
+        agent_counts: { working: 1 },
+        group_agent_counts: { blocked: 1, done: 1, idle: 1, unknown: 1, working: 1 },
         id: "parent",
         label: "Main project <script>",
         number: 1,
@@ -57,12 +59,14 @@ function groupedHome(): Home {
             number: 1,
             terminals: [
               {
+                actions: [],
                 agent: { kind: "codex", name: "Builder", status: "working" },
                 pane_id: "parent-pane",
                 terminal_id: "parent-terminal",
                 title: "Builder",
               },
               {
+                actions: [],
                 pane_id: "ordinary-pane",
                 terminal_id: "ordinary-terminal",
                 title: "Shell & notes",
@@ -84,6 +88,7 @@ function groupedHome(): Home {
                 number: 1,
                 terminals: [
                   {
+                    actions: [],
                     agent: { kind: "codex", name: "Reviewer", status: "blocked" },
                     pane_id: "blocked-pane",
                     terminal_id: "blocked-terminal",
@@ -106,18 +111,21 @@ function groupedHome(): Home {
                 number: 1,
                 terminals: [
                   {
+                    actions: [],
                     agent: { kind: "codex", name: "Finished", status: "done" },
                     pane_id: "quiet-pane",
                     terminal_id: "quiet-terminal",
                     title: "Quiet branch",
                   },
                   {
+                    actions: [],
                     agent: { kind: "codex", name: "Waiting", status: "idle" },
                     pane_id: "idle-pane",
                     terminal_id: "idle-terminal",
                     title: "Waiting",
                   },
                   {
+                    actions: [],
                     agent: { kind: "codex", name: "Unknown", status: "unknown" },
                     pane_id: "unknown-pane",
                     terminal_id: "unknown-terminal",
@@ -151,13 +159,19 @@ function makeView(window: Window, actions: Partial<ConstructorParameters<typeof 
     isHomeActive: actions.isHomeActive ?? (() => true),
     onFocusPane: actions.onFocusPane ?? (() => undefined),
     onOpen: actions.onOpen ?? (() => undefined),
+    onOpenCreated: actions.onOpenCreated ?? (() => undefined),
     onShowAll: actions.onShowAll ?? (() => undefined),
     onShowBlocked: actions.onShowBlocked ?? (() => undefined),
     prepareWorkspaceAction: actions.prepareWorkspaceAction ?? (async () => ({
       outcome: "refused",
       reason: "not_applicable",
     })),
+    prepareTerminalAction: actions.prepareTerminalAction ?? (async () => ({
+      outcome: "refused",
+      reason: "not_applicable",
+    })),
     runWorkspaceAction: actions.runWorkspaceAction ?? (async () => ({ outcome: "succeeded" })),
+    runTerminalAction: actions.runTerminalAction ?? (async () => ({ outcome: "succeeded" })),
   });
   return { app, view };
 }
@@ -403,8 +417,8 @@ test("opaque workspace and tab ids cannot collide during reconciliation", () => 
             label: "First tab",
             number: 1,
             terminals: [
-              { pane_id: "first-a", terminal_id: "first-terminal-a", title: "First A" },
-              { pane_id: "first-b", terminal_id: "first-terminal-b", title: "First B" },
+              { actions: [], pane_id: "first-a", terminal_id: "first-terminal-a", title: "First A" },
+              { actions: [], pane_id: "first-b", terminal_id: "first-terminal-b", title: "First B" },
             ],
           },
         ],
@@ -421,8 +435,8 @@ test("opaque workspace and tab ids cannot collide during reconciliation", () => 
             label: "Second tab",
             number: 1,
             terminals: [
-              { pane_id: "second-a", terminal_id: "second-terminal-a", title: "Second A" },
-              { pane_id: "second-b", terminal_id: "second-terminal-b", title: "Second B" },
+              { actions: [], pane_id: "second-a", terminal_id: "second-terminal-a", title: "Second A" },
+              { actions: [], pane_id: "second-b", terminal_id: "second-terminal-b", title: "Second B" },
             ],
           },
         ],
@@ -475,7 +489,7 @@ test("worktree sets keep the parent Open separate from the worktree disclosure",
   );
   assert.equal(requiredElement(parentRow, ".status").textContent, "working");
   assert.equal(app.querySelectorAll(".terminal-row").length, 5);
-  assert.equal(requiredElement(app, ".workspace-expand-action").textContent, "Collapse all");
+  assert.equal(requiredElement(app, ".workspace-expand-action").textContent, "Expand all");
   assert.equal(app.querySelector("script") === null, true);
 
   parentRow.click();
@@ -490,7 +504,7 @@ test("worktree sets keep the parent Open separate from the worktree disclosure",
   assert.equal(requiredElement(app, ".workspace-expand-action").textContent, "Expand all");
 
   const quieter = structuredClone(current);
-  quieter.home.workspaces[0].agent_counts = { blocked: 1 };
+  quieter.home.workspaces[0].group_agent_counts = { blocked: 1 };
   const blockedBadge = requiredElement(parentRow, ".workspace-summary-blocked");
   render(view, quieter);
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
@@ -529,7 +543,7 @@ test("Home filters visible names locally without changing group expansion or glo
   assert.equal(expandAction.hidden, true);
   assert.deepEqual(
     Array.from(app.querySelectorAll(".workspace-summary-status"), (badge) => badge.textContent),
-    ["1 blocked"],
+    ["1 working", "1 blocked", "1 idle", "1 done", "1 unknown"],
   );
   assert.equal(requiredElement(app, ".attention-bar strong").textContent, "1 working");
   assert.equal(blockedAction.hidden, false);

@@ -195,6 +195,26 @@ func TestHerdrCompatibilityPolicy(t *testing.T) {
 	}
 }
 
+func TestTerminalManagementIsPublishedOnlyForConfirmedStableReleases(t *testing.T) {
+	tests := map[string]bool{
+		"0.8.0":         true,
+		"0.8.0+build.1": true,
+		"0.8.2":         true,
+		"0.8.2+build.1": true,
+		"0.8.1":         false,
+		"0.8.0-rc.1":    false,
+		"0.8.2-rc.1":    false,
+		"0.8.3":         false,
+		"not-semver":    false,
+		"":              false,
+	}
+	for version, want := range tests {
+		if got := TerminalManagementAvailable(version); got != want {
+			t.Errorf("TerminalManagementAvailable(%q) = %t, want %t", version, got, want)
+		}
+	}
+}
+
 func TestClientSendsOneCompatibilityWarningToConfiguredLogger(t *testing.T) {
 	socketPath := shortSocketPath(t)
 	listener, err := net.Listen("unix", socketPath)

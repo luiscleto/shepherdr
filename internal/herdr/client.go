@@ -136,6 +136,24 @@ func parseSemanticVersion(version string) (string, bool) {
 	return parsed, strings.Count(core, ".") == 2 && semver.IsValid(parsed)
 }
 
+func terminalManagementAvailable(version string) bool {
+	parsed, ok := parseSemanticVersion(version)
+	if !ok || semver.Prerelease(parsed) != "" {
+		return false
+	}
+	stable := strings.TrimPrefix(semver.Canonical(parsed), "v")
+	return stable == minimumSupportedVersion || stable == maximumSupportedVersion
+}
+
+func TerminalManagementAvailable(version string) bool { return terminalManagementAvailable(version) }
+
+func availableTerminalActions(version string) []TerminalAction {
+	if !terminalManagementAvailable(version) {
+		return []TerminalAction{}
+	}
+	return []TerminalAction{TerminalActionSplit, TerminalActionRename}
+}
+
 type Subscription struct {
 	conn    net.Conn
 	decoder *json.Decoder

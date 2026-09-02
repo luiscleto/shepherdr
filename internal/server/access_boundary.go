@@ -140,6 +140,7 @@ func classifyProtectedRoute(path, method string) protectedRoute {
 			}
 		case "/api/auth/reauthenticate/begin", "/api/auth/reauthenticate/finish", "/api/auth/sign-out",
 			"/api/devices/invitations", "/api/devices/revoke", "/api/workspace-actions/prepare", "/api/workspace-actions",
+			"/api/terminal-actions/prepare", "/api/terminal-actions",
 			"/api/notifications/config", "/api/notifications/settings/read", "/api/notifications/settings", "/api/terminal/files":
 			if method == http.MethodPost || path == "/api/notifications/settings" && method == http.MethodDelete {
 				return routeProtected

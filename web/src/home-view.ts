@@ -10,6 +10,7 @@ import {
   type Home,
   type HomeState,
   type Tab,
+  type TerminalAction,
   type TerminalEntry,
   type Workspace,
 } from "./home-model";
@@ -25,6 +26,14 @@ import {
   type RunWorkspaceActionResponse,
   type WorkspaceAction,
 } from "./workspace-actions";
+import {
+  type PreparedTerminalActionResponse,
+  type PrepareTerminalCloseRequest,
+  type RunTerminalActionRequest,
+  type RunTerminalActionResponse,
+  type TerminalActionTarget,
+  type TerminalCloseFacts,
+} from "./terminal-actions";
 
 type HomeMode = "all" | "blocked";
 
@@ -32,11 +41,14 @@ interface HomeViewActions {
   isHomeActive: () => boolean;
   onFocusPane: (paneID: string) => void;
   onOpen: (entry: TerminalEntry) => void;
+  onOpenCreated: (target: TerminalActionTarget) => void;
   onNotifications?: () => void;
   onShowAll: () => void;
   onShowBlocked: () => void;
   prepareWorkspaceAction: (request: PrepareWorkspaceActionRequest) => Promise<PreparedWorkspaceActionResponse>;
   runWorkspaceAction: (request: RunWorkspaceActionRequest) => Promise<RunWorkspaceActionResponse>;
+  prepareTerminalAction: (request: PrepareTerminalCloseRequest) => Promise<PreparedTerminalActionResponse>;
+  runTerminalAction: (request: RunTerminalActionRequest) => Promise<RunTerminalActionResponse>;
 }
 
 export interface HomeViewRender {
@@ -49,13 +61,21 @@ export interface HomeViewRender {
 }
 
 interface WorkspaceNodes {
+  body: HTMLElement;
+  count: HTMLElement;
+  disclosure: HTMLButtonElement;
   heading: HTMLHeadingElement;
+  headingBlock: HTMLElement;
+  header: HTMLElement;
+  marker: HTMLElement;
   section: HTMLElement;
+  summary: HTMLElement;
+  summaryStatuses: Map<keyof AgentCounts, HTMLElement>;
 }
 
 interface WorkspaceMenuNodes {
   container: HTMLElement;
-  items: Map<WorkspaceAction, HTMLButtonElement>;
+  items: Map<string, HTMLButtonElement>;
   menu: HTMLElement;
   menuRoot: HTMLElement;
   trigger: HTMLButtonElement;
@@ -151,6 +171,7 @@ export class HomeView {
   readonly #empty: HTMLElement;
   readonly #expandAction: HTMLButtonElement;
   readonly #expandedSets = new Map<string, boolean>();
+  readonly #expandedWorkspaces = new Map<string, boolean>();
   readonly #filterLabel: HTMLLabelElement;
   readonly #filterInput: HTMLInputElement;
   readonly #header: HTMLElement;
@@ -170,13 +191,14 @@ export class HomeView {
   readonly #workspaces = new Map<string, WorkspaceNodes>();
   readonly #workspaceSets = new Map<string, WorkspaceSetNodes>();
   readonly #workspaceMenus = new Map<string, WorkspaceMenuNodes>();
+  readonly #terminalMenus = new Map<string, WorkspaceMenuNodes>();
   readonly #workspaceValues = new Map<string, Workspace>();
   readonly #entries = new Map<string, TerminalEntry>();
   #actionCancel: (() => void) | undefined;
   #actionRunning = false;
   #filterValue = "";
   #lastRender: HomeViewRender | undefined;
-  #openMenuWorkspaceID: string | undefined;
+  #openMenuKey: string | undefined;
   #returnFocus: HTMLElement | undefined;
   #workspaceHeadingSequence = 0;
   #workspaceSetSequence = 0;
@@ -228,11 +250,15 @@ export class HomeView {
     this.#attention.append(this.#attentionWorking, this.#attentionBlocked, this.#attentionShowAll);
 
     this.#expandAction = this.#button("", () => {
-      const expand = workspaceSets(this.#lastRender?.state.home ?? { blocked_count: 0, working_count: 0, workspaces: [] })
-        .some((workspace) => !this.#expandedSets.get(workspace.id));
-      for (const workspace of workspaceSets(this.#lastRender?.state.home ?? { blocked_count: 0, working_count: 0, workspaces: [] })) {
+      const home = this.#lastRender?.state.home ?? { blocked_count: 0, working_count: 0, workspaces: [] };
+      const sets = workspaceSets(home);
+      const sections = allWorkspaces(home).filter((workspace) => terminalCount(workspace) > 1);
+      const expand = sets.some((workspace) => !this.#expandedSets.get(workspace.id)) ||
+        sections.some((workspace) => !this.#expandedWorkspaces.get(workspace.id));
+      for (const workspace of sets) {
         this.#expandedSets.set(workspace.id, expand);
       }
+      for (const workspace of sections) this.#expandedWorkspaces.set(workspace.id, expand);
       if (this.#lastRender) this.render(this.#lastRender);
     });
     this.#expandAction.className = "workspace-expand-action";
@@ -315,26 +341,34 @@ export class HomeView {
 
       if (model.mode === "blocked") {
         for (const workspace of allWorkspaceValues) {
-          const section = this.#renderWorkspace(workspace, true, model.actionsAvailable, false, usedTabs);
+          const section = this.#renderWorkspace(workspace, true, model.actionsAvailable, false, usedTabs, false, true);
           if (section) desired.push(section);
         }
       } else {
         const sets = workspaceSets(visibleHome);
         for (const workspace of sets) {
           if (!this.#expandedSets.has(workspace.id)) {
-            const counts = workspace.agent_counts ?? {};
+            const counts = workspace.group_agent_counts ?? {};
             this.#expandedSets.set(workspace.id, (counts.working ?? 0) > 0 || (counts.blocked ?? 0) > 0);
           }
         }
-        setHidden(this.#expandAction, filterActive || sets.length === 0);
+        const expandableWorkspaces = allWorkspaces(model.state.home).filter((workspace) => terminalCount(workspace) > 1);
+        for (const workspace of expandableWorkspaces) {
+          if (!this.#expandedWorkspaces.has(workspace.id)) {
+            const counts = workspace.agent_counts ?? {};
+            this.#expandedWorkspaces.set(workspace.id, (counts.working ?? 0) > 0 || (counts.blocked ?? 0) > 0);
+          }
+        }
+        setHidden(this.#expandAction, filterActive || (sets.length === 0 && expandableWorkspaces.length === 0));
         reconcileChildren(this.#homeTools, [
           this.#filterLabel,
           this.#expandAction,
           ...(managementAvailable ? [this.#newSpaceAction] : []),
         ]);
         desired.push(this.#homeTools);
-        if (sets.length > 0 && !filterActive) {
-          const expand = sets.some((workspace) => !this.#expandedSets.get(workspace.id));
+        if ((sets.length > 0 || expandableWorkspaces.length > 0) && !filterActive) {
+          const expand = sets.some((workspace) => !this.#expandedSets.get(workspace.id)) ||
+            expandableWorkspaces.some((workspace) => !this.#expandedWorkspaces.get(workspace.id));
           setText(this.#expandAction, expand ? "Expand all" : "Collapse all");
         }
         if (filterActive && allWorkspaceValues.length === 0) desired.push(this.#noMatches);
@@ -350,7 +384,15 @@ export class HomeView {
             ));
             continue;
           }
-          const section = this.#renderWorkspace(workspace, false, model.actionsAvailable, managementAvailable, usedTabs);
+          const section = this.#renderWorkspace(
+            workspace,
+            false,
+            model.actionsAvailable,
+            managementAvailable,
+            usedTabs,
+            false,
+            filterActive,
+          );
           if (section) desired.push(section);
         }
       }
@@ -418,6 +460,8 @@ export class HomeView {
     managementAvailable: boolean,
     usedTabs: UsedTabs,
     hideTitle = false,
+    forceExpanded = false,
+    includeWorkspaceActions = true,
   ): HTMLElement | undefined {
     const tabs = visibleTabs(workspace, blockedOnly);
     if (blockedOnly && tabs.length === 0) return undefined;
@@ -431,6 +475,8 @@ export class HomeView {
       usedTabs,
       hideTitle,
       blockedOnly,
+      forceExpanded,
+      includeWorkspaceActions,
     );
     return nodes.section;
   }
@@ -448,7 +494,7 @@ export class HomeView {
     setAttribute(nodes.disclosure, "aria-label", `${expanded ? "Collapse" : "Expand"} ${workspace.label} worktrees`);
     setText(nodes.marker, expanded ? "⌄" : "›");
     setText(nodes.title, workspace.label);
-    this.#updateGroupSummary(nodes, workspace.agent_counts ?? {});
+    this.#updateGroupSummary(nodes, workspace.group_agent_counts ?? {});
     setHidden(nodes.body, !expanded);
 
     const parentTerminalCount = terminalCount(workspace);
@@ -457,9 +503,11 @@ export class HomeView {
           workspace,
           false,
           actionsAvailable,
-          parentTerminalCount === 1 && managementAvailable,
+          managementAvailable,
           usedTabs,
-          true,
+          parentTerminalCount === 1,
+          forceExpanded,
+          parentTerminalCount === 1,
         )
       : undefined;
     if (parentTerminalCount === 1 && parent) {
@@ -469,7 +517,7 @@ export class HomeView {
         parentMain.insertBefore(nodes.summary, parentMeta ?? null);
       }
       const parentRow = parent.querySelector<HTMLElement>(".terminal-row");
-      const summaryLabel = this.#groupSummaryLabel(workspace.agent_counts ?? {});
+      const summaryLabel = this.#groupSummaryLabel(workspace.group_agent_counts ?? {});
       const rowLabel = parentRow?.getAttribute("aria-label");
       if (parentRow && rowLabel && summaryLabel) {
         setAttribute(parentRow, "aria-label", `${rowLabel}, workspace totals: ${summaryLabel}`);
@@ -486,7 +534,15 @@ export class HomeView {
     }
     const contents: Node[] = [];
     for (const worktree of workspace.worktrees ?? []) {
-      const section = this.#renderWorkspace(worktree, false, actionsAvailable, managementAvailable, usedTabs);
+      const section = this.#renderWorkspace(
+        worktree,
+        false,
+        actionsAvailable,
+        managementAvailable,
+        usedTabs,
+        false,
+        forceExpanded,
+      );
       if (section) contents.push(section);
     }
     reconcileChildren(nodes.contents, contents);
@@ -525,21 +581,30 @@ export class HomeView {
   }
 
   #updateGroupSummary(nodes: WorkspaceSetNodes, counts: AgentCounts): void {
+    this.#updateSummary(nodes.summary, nodes.summaryStatuses, counts);
+  }
+
+  #updateSummary(
+    summary: HTMLElement,
+    summaryStatuses: Map<keyof AgentCounts, HTMLElement>,
+    counts: AgentCounts,
+    leading?: HTMLElement,
+  ): void {
     const statuses = ["working", "blocked", "idle", "done", "unknown"] as const;
-    const parts: Node[] = [];
+    const parts: Node[] = leading ? [leading] : [];
     for (const status of statuses) {
       const count = counts[status] ?? 0;
       if (count > 0) {
-        let badge = nodes.summaryStatuses.get(status);
+        let badge = summaryStatuses.get(status);
         if (!badge) {
           badge = element(this.#document, "span", `workspace-summary-status workspace-summary-${status}`);
-          nodes.summaryStatuses.set(status, badge);
+          summaryStatuses.set(status, badge);
         }
         setText(badge, `${count} ${status}`);
         parts.push(badge);
       }
     }
-    reconcileChildren(nodes.summary, parts);
+    reconcileChildren(summary, parts);
   }
 
   #groupSummaryLabel(counts: AgentCounts): string {
@@ -554,11 +619,41 @@ export class HomeView {
     const existing = this.#workspaces.get(workspace.id);
     if (existing) return existing;
     const section = element(this.#document, "section", "workspace");
+    const header = element(this.#document, "div", "terminal-section-header");
+    const disclosure = this.#button("", () => {
+      this.#expandedWorkspaces.set(workspace.id, !this.#expandedWorkspaces.get(workspace.id));
+      if (this.#lastRender) this.render(this.#lastRender);
+    });
+    disclosure.className = "terminal-section-disclosure";
+    const marker = element(this.#document, "span", "terminal-section-marker");
+    marker.setAttribute("aria-hidden", "true");
+    disclosure.append(marker);
+    const headingBlock = element(this.#document, "div", "terminal-section-heading");
     const heading = element(this.#document, "h2");
+    const summary = element(this.#document, "span", "workspace-set-summary terminal-section-summary");
+    const count = element(this.#document, "span", "terminal-section-count");
+    summary.append(count);
+    headingBlock.append(heading, summary);
+    const body = element(this.#document, "div", "terminal-section-body");
     const headingID = `workspace-heading-${++this.#workspaceHeadingSequence}`;
     heading.id = headingID;
     section.setAttribute("aria-labelledby", headingID);
-    const nodes = { heading, section };
+    body.id = `${headingID}-terminals`;
+    disclosure.setAttribute("aria-controls", body.id);
+    header.append(disclosure, headingBlock);
+    section.append(header, body);
+    const nodes = {
+      body,
+      count,
+      disclosure,
+      heading,
+      headingBlock,
+      header,
+      marker,
+      section,
+      summary,
+      summaryStatuses: new Map<keyof AgentCounts, HTMLElement>(),
+    };
     this.#workspaces.set(workspace.id, nodes);
     return nodes;
   }
@@ -572,15 +667,18 @@ export class HomeView {
     usedTabs: UsedTabs,
     hideTitle: boolean,
     blockedOnly: boolean,
+    forceExpanded: boolean,
+    includeWorkspaceActions: boolean,
   ): void {
+    const workspaceManagementAvailable = managementAvailable && includeWorkspaceActions;
     if (tabs.length === 0) {
       setClass(
         nodes.section,
-        managementAvailable && workspace.actions.length > 0 ? "workspace workspace-heading-menu" : "workspace",
+        workspaceManagementAvailable && workspace.actions.length > 0 ? "workspace workspace-heading-menu" : "workspace",
       );
       setClass(nodes.heading, hideTitle ? "visually-hidden" : "workspace-title");
       setText(nodes.heading, workspace.label);
-      if (managementAvailable && workspace.actions.length > 0) {
+      if (workspaceManagementAvailable && workspace.actions.length > 0) {
         const menu = this.#workspaceMenu(workspace.id);
         this.#updateWorkspaceMenu(menu, workspace);
         setClass(menu.menuRoot, "workspace-menu workspace-menu-heading");
@@ -593,8 +691,10 @@ export class HomeView {
 
     setClass(nodes.section, "workspace");
 
-    const flattened = !blockedOnly && terminalCount(workspace) === 1;
-    const tabsShown = showTabHeadings(workspace);
+    const fullWorkspace = this.#workspaceValues.get(workspace.id) ?? workspace;
+    const fullTerminalCount = terminalCount(fullWorkspace);
+    const flattened = !blockedOnly && fullTerminalCount === 1;
+    const tabsShown = showTabHeadings(fullWorkspace);
     if (flattened) {
       const terminal = tabs[0].terminals[0];
       const entry = { workspace, tab: tabs[0].tab, terminal };
@@ -602,19 +702,42 @@ export class HomeView {
       setText(nodes.heading, terminal.title);
       reconcileChildren(nodes.section, [
         nodes.heading,
-        this.#workspaceActionRow(
-          workspace,
+        this.#terminalActionRow(
+          entry,
           this.#terminalRow(entry, false, actionsAvailable).row,
           managementAvailable,
+          includeWorkspaceActions,
         ),
       ]);
       return;
     }
 
-    setClass(nodes.heading, hideTitle ? "visually-hidden" : "workspace-title");
-    setText(nodes.heading, workspace.label);
-    const children: Node[] = [nodes.heading];
-    let managementPending = managementAvailable;
+    const expandable = fullTerminalCount > 1;
+    if (expandable) {
+      const counts = fullWorkspace.agent_counts ?? {};
+      if (!this.#expandedWorkspaces.has(workspace.id)) {
+        this.#expandedWorkspaces.set(workspace.id, (counts.working ?? 0) > 0 || (counts.blocked ?? 0) > 0);
+      }
+      const expanded = forceExpanded || blockedOnly || (this.#expandedWorkspaces.get(workspace.id) ?? false);
+      setClass(nodes.section, "workspace terminal-section");
+      setClass(nodes.heading, hideTitle ? "visually-hidden" : "workspace-title");
+      setText(nodes.heading, workspace.label);
+      setText(nodes.count, `${fullTerminalCount} terminals`);
+      this.#updateSummary(nodes.summary, nodes.summaryStatuses, counts, nodes.count);
+      setText(nodes.marker, expanded ? "⌄" : "›");
+      setAttribute(nodes.disclosure, "aria-expanded", String(expanded));
+      setAttribute(nodes.disclosure, "aria-label", `${expanded ? "Collapse" : "Expand"} ${workspace.label} terminals`);
+      setHidden(nodes.body, !expanded);
+      reconcileChildren(nodes.header, [
+        nodes.disclosure,
+        this.#workspaceActionRow(workspace, nodes.headingBlock, workspaceManagementAvailable),
+      ]);
+    } else {
+      setClass(nodes.heading, hideTitle ? "visually-hidden" : "workspace-title");
+      setText(nodes.heading, workspace.label);
+      setHidden(nodes.body, false);
+    }
+    const children: Node[] = [];
     for (const group of tabs) {
       let workspaceTabs = usedTabs.get(workspace.id);
       if (!workspaceTabs) {
@@ -630,12 +753,16 @@ export class HomeView {
         group.terminals,
         tabsShown,
         actionsAvailable,
-        managementPending,
+        managementAvailable,
       );
-      managementPending = false;
       children.push(tab.group);
     }
-    reconcileChildren(nodes.section, children);
+    reconcileChildren(nodes.body, children);
+    if (expandable) {
+      reconcileChildren(nodes.section, [nodes.header, nodes.body]);
+    } else {
+      reconcileChildren(nodes.section, [nodes.heading, nodes.body]);
+    }
   }
 
   #tab(workspaceID: string, tabID: string): TabNodes {
@@ -669,13 +796,11 @@ export class HomeView {
     const headingChildren: Node[] = [nodes.title];
     if (tab.current) headingChildren.push(nodes.current);
     reconcileChildren(nodes.heading, headingChildren);
-    const items = terminals.map((terminal, index) => {
+    const items = terminals.map((terminal) => {
       const entry = { workspace, tab, terminal };
       const item = this.#item(terminal.pane_id);
       const row = this.#terminalRow(entry, tabsShown, actionsAvailable).row;
-      reconcileChildren(item, [
-        index === 0 && showManagement ? this.#workspaceActionRow(workspace, row, true) : row,
-      ]);
+      reconcileChildren(item, [this.#terminalActionRow(entry, row, showManagement, false)]);
       return item;
     });
     reconcileChildren(nodes.list, items);
@@ -694,19 +819,47 @@ export class HomeView {
   #workspaceMenu(workspaceID: string): WorkspaceMenuNodes {
     const existing = this.#workspaceMenus.get(workspaceID);
     if (existing) return existing;
+    const nodes = this.#actionMenu(`workspace:${workspaceID}`);
+    this.#workspaceMenus.set(workspaceID, nodes);
+    return nodes;
+  }
+
+  #terminalActionRow(
+    entry: TerminalEntry,
+    primary: HTMLElement,
+    managementAvailable: boolean,
+    includeWorkspace: boolean,
+  ): HTMLElement {
+    if (!managementAvailable ||
+      (entry.terminal.actions.length === 0 && (!includeWorkspace || entry.workspace.actions.length === 0))) return primary;
+    const nodes = this.#terminalMenu(entry.terminal.pane_id);
+    this.#updateTerminalMenu(nodes, entry, includeWorkspace);
+    setClass(nodes.menuRoot, "workspace-menu terminal-menu");
+    reconcileChildren(nodes.container, [primary, nodes.menuRoot]);
+    return nodes.container;
+  }
+
+  #terminalMenu(paneID: string): WorkspaceMenuNodes {
+    const existing = this.#terminalMenus.get(paneID);
+    if (existing) return existing;
+    const nodes = this.#actionMenu(`terminal:${paneID}`);
+    this.#terminalMenus.set(paneID, nodes);
+    return nodes;
+  }
+
+  #actionMenu(key: string): WorkspaceMenuNodes {
     const container = element(this.#document, "div", "workspace-action-row");
     const menuRoot = element(this.#document, "div", "workspace-menu");
-    const trigger = this.#button("⋮", () => this.#toggleMenu(workspaceID));
+    const trigger = this.#button("⋮", () => this.#toggleMenu(key));
     trigger.className = "workspace-menu-trigger";
     trigger.setAttribute("aria-haspopup", "menu");
     trigger.setAttribute("aria-expanded", "false");
     const menu = element(this.#document, "div", "workspace-menu-popover");
     menu.setAttribute("role", "menu");
     menu.hidden = true;
-    menu.addEventListener("keydown", (event) => this.#handleMenuKey(event, workspaceID));
+    menu.addEventListener("keydown", (event) => this.#handleMenuKey(event, key));
     menuRoot.append(trigger, menu);
     const nodes = { container, items: new Map(), menu, menuRoot, trigger };
-    this.#workspaceMenus.set(workspaceID, nodes);
     return nodes;
   }
 
@@ -731,25 +884,71 @@ export class HomeView {
       items.push(item);
     }
     reconcileChildren(nodes.menu, items);
-    const open = this.#openMenuWorkspaceID === workspace.id;
+    const open = this.#openMenuKey === `workspace:${workspace.id}`;
     setHidden(nodes.menu, !open);
     setAttribute(nodes.trigger, "aria-expanded", String(open));
   }
 
-  #toggleMenu(workspaceID: string): void {
-    this.#openMenuWorkspaceID = this.#openMenuWorkspaceID === workspaceID ? undefined : workspaceID;
+  #updateTerminalMenu(nodes: WorkspaceMenuNodes, entry: TerminalEntry, includeWorkspace: boolean): void {
+    setAttribute(nodes.trigger, "aria-label", `Actions for ${includeWorkspace ? entry.workspace.label : entry.terminal.title}`);
+    const items: Node[] = [];
+    const terminalOrder: TerminalAction[] = ["split_terminal", "rename_terminal", "close_terminal"];
+    const terminalLabels: Record<TerminalAction, string> = {
+      split_terminal: "New terminal",
+      rename_terminal: "Rename terminal",
+      close_terminal: "Close terminal",
+    };
+    for (const action of terminalOrder) {
+      if (!entry.terminal.actions.includes(action)) continue;
+      const key = `terminal:${action}`;
+      let item = nodes.items.get(key);
+      if (!item) {
+        item = this.#button(terminalLabels[action], () => this.#chooseTerminalAction(entry.terminal.pane_id, action, nodes.trigger));
+        item.setAttribute("role", "menuitem");
+        nodes.items.set(key, item);
+      }
+      items.push(item);
+    }
+    if (includeWorkspace) {
+      const workspaceOrder: WorkspaceAction[] = ["create_worktree", "close_workspace", "close_group", "delete_checkout"];
+      const labels: Record<WorkspaceAction, string> = {
+        create_worktree: "New worktree",
+        close_workspace: "Close workspace",
+        close_group: "Close workspace",
+        delete_checkout: "Delete checkout",
+      };
+      for (const action of workspaceOrder) {
+        if (!entry.workspace.actions.includes(action)) continue;
+        const key = `workspace:${action}`;
+        let item = nodes.items.get(key);
+        if (!item) {
+          item = this.#button(labels[action], () => this.#chooseWorkspaceAction(entry.workspace.id, action, nodes.trigger));
+          item.setAttribute("role", "menuitem");
+          nodes.items.set(key, item);
+        }
+        items.push(item);
+      }
+    }
+    reconcileChildren(nodes.menu, items);
+    const open = this.#openMenuKey === `terminal:${entry.terminal.pane_id}`;
+    setHidden(nodes.menu, !open);
+    setAttribute(nodes.trigger, "aria-expanded", String(open));
+  }
+
+  #toggleMenu(key: string): void {
+    this.#openMenuKey = this.#openMenuKey === key ? undefined : key;
     if (this.#lastRender) this.render(this.#lastRender);
-    if (this.#openMenuWorkspaceID === workspaceID) {
-      const first = this.#workspaceMenus.get(workspaceID)?.menu.querySelector<HTMLButtonElement>("button");
+    if (this.#openMenuKey === key) {
+      const first = this.#menuForKey(key)?.menu.querySelector<HTMLButtonElement>("button");
       first?.focus({ preventScroll: true });
     }
   }
 
   #closeMenu(returnFocus = false): void {
-    const workspaceID = this.#openMenuWorkspaceID;
-    if (!workspaceID) return;
-    this.#openMenuWorkspaceID = undefined;
-    const nodes = this.#workspaceMenus.get(workspaceID);
+    const key = this.#openMenuKey;
+    if (!key) return;
+    this.#openMenuKey = undefined;
+    const nodes = this.#menuForKey(key);
     if (nodes) {
       nodes.menu.hidden = true;
       setAttribute(nodes.trigger, "aria-expanded", "false");
@@ -757,8 +956,15 @@ export class HomeView {
     }
   }
 
-  #handleMenuKey(event: KeyboardEvent, workspaceID: string): void {
-    const nodes = this.#workspaceMenus.get(workspaceID);
+  #menuForKey(key: string): WorkspaceMenuNodes | undefined {
+    const separator = key.indexOf(":");
+    const kind = key.slice(0, separator);
+    const id = key.slice(separator + 1);
+    return kind === "workspace" ? this.#workspaceMenus.get(id) : this.#terminalMenus.get(id);
+  }
+
+  #handleMenuKey(event: KeyboardEvent, key: string): void {
+    const nodes = this.#menuForKey(key);
     if (!nodes) return;
     if (event.key === "Escape") {
       event.preventDefault();
@@ -824,15 +1030,25 @@ export class HomeView {
     if (actionsAvailable) setAttribute(nodes.row, "aria-label", accessibleTerminalName(entry, tabsShown));
     setText(nodes.name, entry.terminal.title);
     if (entry.terminal.agent) {
-      const secondary = entry.terminal.agent.name === entry.terminal.title ? "" : entry.terminal.agent.name;
+      const secondary = [
+        ...(terminalCount(entry.workspace) > 1 || entry.terminal.title !== entry.workspace.label
+          ? [entry.workspace.label]
+          : []),
+        ...(entry.terminal.agent.name !== entry.terminal.title && entry.terminal.agent.name !== entry.workspace.label
+          ? [entry.terminal.agent.name]
+          : []),
+      ].join(" · ");
       setText(nodes.agent, secondary);
       setHidden(nodes.agent, secondary === "");
       setClass(nodes.status, `status status-${entry.terminal.agent.status}`);
       setText(nodes.status, entry.terminal.agent.status);
       setHidden(nodes.status, false);
     } else {
-      setText(nodes.agent, "");
-      setHidden(nodes.agent, true);
+      const workspaceContext = terminalCount(entry.workspace) > 1 || entry.terminal.title !== entry.workspace.label
+        ? entry.workspace.label
+        : "";
+      setText(nodes.agent, workspaceContext);
+      setHidden(nodes.agent, workspaceContext === "");
       setClass(nodes.status, "");
       setText(nodes.status, "");
       setHidden(nodes.status, true);
@@ -940,6 +1156,188 @@ export class HomeView {
     const cancelButton = this.#button("Cancel", cancel);
     container.append(primary, cancelButton);
     return { container, primary };
+  }
+
+  #chooseTerminalAction(paneID: string, action: TerminalAction, returnFocus: HTMLElement): void {
+    const entry = this.#entries.get(paneID);
+    if (!entry || !entry.terminal.actions.includes(action) || this.#actionRunning) return;
+    this.#closeMenu();
+    this.#returnFocus = returnFocus;
+    if (action === "split_terminal") {
+      this.#openSplitTerminal(entry);
+    } else if (action === "rename_terminal") {
+      this.#openRenameTerminal(entry);
+    } else {
+      void this.#prepareTerminalClose(this.#terminalTarget(entry));
+    }
+  }
+
+  #terminalTarget(entry: TerminalEntry): TerminalActionTarget {
+    return {
+      workspace_id: entry.workspace.id,
+      tab_id: entry.tab.id,
+      pane_id: entry.terminal.pane_id,
+      terminal_id: entry.terminal.terminal_id,
+    };
+  }
+
+  #openSplitTerminal(entry: TerminalEntry): void {
+    const copy = element(
+      this.#document,
+      "p",
+      "home-action-copy",
+      `This splits ${entry.terminal.title} and opens the new terminal.`,
+    );
+    const choices = element(this.#document, "div", "home-action-buttons terminal-split-actions");
+    const beside = this.#button("Beside", () => void this.#submitTerminalAction({
+      action: "split_terminal",
+      ...this.#terminalTarget(entry),
+      direction: "right",
+    }));
+    beside.className = "home-action-primary";
+    const below = this.#button("Below", () => void this.#submitTerminalAction({
+      action: "split_terminal",
+      ...this.#terminalTarget(entry),
+      direction: "down",
+    }));
+    below.className = "home-action-primary";
+    const cancel = this.#button("Cancel", () => this.#closeActionLayer());
+    choices.append(beside, below, cancel);
+    this.#showActionLayer("Split terminal", [copy, choices], () => this.#closeActionLayer(), beside);
+  }
+
+  #openRenameTerminal(entry: TerminalEntry): void {
+    const form = element(this.#document, "form", "home-action-form");
+    const field = element(this.#document, "label", "home-action-field");
+    field.append(element(this.#document, "span", undefined, "Name"));
+    const name = element(this.#document, "input");
+    name.name = "terminal_name";
+    name.value = entry.terminal.manual_name ?? "";
+    name.autocomplete = "off";
+    field.append(name);
+    const help = element(this.#document, "p", "home-action-help", "Leave the name blank to use the automatic name.");
+    const actions = this.#formActions("Rename terminal", () => this.#closeActionLayer());
+    form.append(field, help, actions.container);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void this.#submitTerminalAction({
+        action: "rename_terminal",
+        ...this.#terminalTarget(entry),
+        name: name.value,
+      });
+    });
+    this.#showActionLayer(`Rename ${entry.terminal.title}`, [form], () => this.#closeActionLayer(), name);
+  }
+
+  async #prepareTerminalClose(target: TerminalActionTarget): Promise<void> {
+    if (this.#actionRunning) return;
+    this.#actionRunning = true;
+    this.#showWorking("Checking terminal");
+    this.#renderAgain();
+    let response: PreparedTerminalActionResponse | undefined;
+    try {
+      response = await this.#actions.prepareTerminalAction({ action: "close_terminal", ...target });
+    } catch {
+      // Preparing performs no mutation, so a failed check is not an unknown action result.
+    }
+    this.#actionRunning = false;
+    this.#renderAgain();
+    if (!response) {
+      this.#showResult("Could not check this terminal", "Home has not changed. Check the connection, then open the action again.");
+      return;
+    }
+    if (response.outcome === "refused") {
+      this.#showRefusal(response);
+      return;
+    }
+    this.#openTerminalCloseConfirmation(response.expected);
+  }
+
+  #openTerminalCloseConfirmation(facts: TerminalCloseFacts): void {
+    const content: Node[] = [];
+    const closesWorkspace = facts.workspace_expected !== undefined;
+    if (closesWorkspace) {
+      content.push(element(
+        this.#document,
+        "p",
+        "home-action-copy",
+        this.#closeConfirmationCopy(facts.workspace_expected!),
+      ));
+      const warning = this.#interruptionWarning(facts.workspace_expected!);
+      if (warning) content.push(warning);
+    } else {
+      const sentences = ["Closing this terminal stops what is running there."];
+      if (facts.agent) sentences.push(`${facts.agent.name} is ${facts.agent.status}.`);
+      if (facts.closes_tab) sentences.push(`The ${facts.tab_label} tab will also close.`);
+      content.push(element(this.#document, "p", "home-action-copy", sentences.join(" ")));
+    }
+    const actions = this.#formActions(closesWorkspace ? "Close workspace" : "Close terminal", () => this.#closeActionLayer());
+    actions.primary.addEventListener("click", (event) => {
+      event.preventDefault();
+      void this.#submitTerminalAction({ action: "close_terminal", expected: facts });
+    });
+    content.push(actions.container);
+    this.#showActionLayer(
+      closesWorkspace ? `Close ${facts.workspace_label}?` : `Close ${facts.terminal_title}?`,
+      content,
+      () => this.#closeActionLayer(),
+      actions.primary,
+    );
+  }
+
+  async #submitTerminalAction(request: RunTerminalActionRequest): Promise<void> {
+    if (this.#actionRunning) return;
+    this.#actionRunning = true;
+    const headings: Record<RunTerminalActionRequest["action"], string> = {
+      split_terminal: "Splitting terminal",
+      rename_terminal: "Renaming terminal",
+      close_terminal: request.action === "close_terminal" && request.expected.workspace_expected
+        ? "Closing workspace"
+        : "Closing terminal",
+    };
+    this.#showWorking(headings[request.action]);
+    this.#renderAgain();
+    let response: RunTerminalActionResponse;
+    try {
+      response = await this.#actions.runTerminalAction(request);
+    } catch {
+      response = { outcome: "unknown" };
+    }
+    this.#actionRunning = false;
+    this.#renderAgain();
+    if (response.outcome === "refused") {
+      this.#showRefusal(response);
+      return;
+    }
+    if (response.outcome === "unknown") {
+      this.#showResult(
+        "Result unknown",
+        request.action === "split_terminal"
+          ? "Check Home before splitting this terminal again."
+          : request.action === "rename_terminal"
+            ? "Check Home before renaming this terminal again."
+            : "Check Home before trying to close this terminal again.",
+      );
+      return;
+    }
+    if (request.action === "split_terminal") {
+      if (!response.terminal) {
+        this.#showResult("Result unknown", "Check Home before splitting this terminal again.");
+        return;
+      }
+      this.#closeActionLayer();
+      this.#actions.onOpenCreated(response.terminal);
+      return;
+    }
+    if (request.action === "rename_terminal") {
+      this.#showResult("Terminal renamed", "The new name is ready on Home.");
+      return;
+    }
+    if (request.expected.workspace_expected) {
+      this.#showResult("Workspace closed", "Its terminals are closed. The folder and branch remain.");
+    } else {
+      this.#showResult("Terminal closed", "The terminal is no longer open.");
+    }
   }
 
   #chooseWorkspaceAction(workspaceID: string, action: WorkspaceAction, returnFocus: HTMLElement): void {
@@ -1222,21 +1620,7 @@ export class HomeView {
       .filter((worktree): worktree is Workspace => worktree !== undefined);
     if (tabs.length === 0 && worktrees.length === 0) return undefined;
 
-    const filtered = { ...workspace, tabs, worktrees };
-    if (workspace.agent_counts) filtered.agent_counts = this.#agentCounts(filtered);
-    return filtered;
-  }
-
-  #agentCounts(workspace: Workspace): AgentCounts {
-    const counts: AgentCounts = {};
-    for (const current of [workspace, ...(workspace.worktrees ?? [])]) {
-      for (const tab of current.tabs) {
-        for (const terminal of tab.terminals) {
-          if (terminal.agent) counts[terminal.agent.status] = (counts[terminal.agent.status] ?? 0) + 1;
-        }
-      }
-    }
-    return counts;
+    return { ...workspace, tabs, worktrees };
   }
 
   #prune(usedWorkspaces: Set<string>, usedTabs: UsedTabs, usedSets: Set<string>, paneIDs: Set<string>): void {
@@ -1244,7 +1628,7 @@ export class HomeView {
       if (!usedWorkspaces.has(key)) {
         this.#workspaces.delete(key);
         this.#workspaceMenus.delete(key);
-        if (this.#openMenuWorkspaceID === key) this.#openMenuWorkspaceID = undefined;
+        if (this.#openMenuKey === `workspace:${key}`) this.#openMenuKey = undefined;
       }
     }
     for (const [key, nodes] of this.#workspaceSets) {
@@ -1268,6 +1652,8 @@ export class HomeView {
         this.#rows.delete(key);
         this.#items.delete(key);
         this.#entries.delete(key);
+        this.#terminalMenus.delete(key);
+        if (this.#openMenuKey === `terminal:${key}`) this.#openMenuKey = undefined;
       }
     }
   }
