@@ -271,6 +271,36 @@ func TestProjectUsesManualAgentAndAutomaticTerminalNamesWithoutRenumberingManual
 	}
 }
 
+func TestProjectAvoidsSecondAutomaticNameCollisionsWithinTab(t *testing.T) {
+	snapshot := Snapshot{
+		Version:    "0.8.2",
+		Workspaces: []WorkspaceInfo{{ActiveTabID: "tab", WorkspaceID: "workspace", Label: "Repository"}},
+		Tabs:       []TabInfo{{TabID: "tab", WorkspaceID: "workspace"}},
+		Panes: []PaneInfo{
+			{CWD: "/work", PaneID: "build-one", TabID: "tab", TerminalID: "terminal-one", TerminalTitleStripped: "Build", WorkspaceID: "workspace"},
+			{CWD: "/work", PaneID: "build-two", TabID: "tab", TerminalID: "terminal-two", TerminalTitleStripped: "Build", WorkspaceID: "workspace"},
+			{CWD: "/work", PaneID: "build-numbered", TabID: "tab", TerminalID: "terminal-numbered", TerminalTitleStripped: "Build 1", WorkspaceID: "workspace"},
+		},
+	}
+
+	home, err := Project(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, 3)
+	for _, paneID := range []string{"build-one", "build-two", "build-numbered"} {
+		terminal := findProjectedTerminal(home, paneID)
+		if terminal == nil {
+			t.Fatalf("pane %s was not projected", paneID)
+		}
+		got = append(got, terminal.Title)
+	}
+	want := []string{"Build 2", "Build 3", "Build 1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("terminal titles = %v, want %v", got, want)
+	}
+}
+
 func TestProjectDoesNotOfferSplitWithoutAFreshPaneWorkingDirectory(t *testing.T) {
 	snapshot := Snapshot{
 		Version:    "0.8.2",

@@ -571,6 +571,31 @@ test("multi-terminal Home keeps exact totals, tab provenance, and saved disclosu
   window.close();
 });
 
+test("Home filters by a tab name only when its heading is displayed", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const home = terminalHome();
+  const workspace = home.workspaces[0];
+  workspace.tabs[0].label = "Hidden tab name";
+  workspace.tabs[0].terminals.push(workspace.tabs[1].terminals[0]);
+  workspace.tabs[1].terminals = [];
+  const { app } = makeView(window, {}, home);
+  const filter = requiredElement<HTMLInputElement>(app, ".home-filter input");
+
+  assert.equal(app.querySelectorAll(".tab-heading").length, 0);
+  filter.value = "Hidden tab name";
+  filter.dispatchEvent(new window.Event("input", { bubbles: true }));
+  assert.equal(app.querySelectorAll(".terminal-row").length, 0);
+  assert.equal(requiredElement(app, ".home-no-matches strong").textContent, "No matches");
+
+  filter.value = "Builder";
+  filter.dispatchEvent(new window.Event("input", { bubbles: true }));
+  assert.equal(app.querySelectorAll(".terminal-row").length, 1);
+  assert.equal(requiredElement(app, ".terminal-name").textContent, "Build <script>");
+  assert.equal(requiredElement(app, ".terminal-section-count").textContent, "2 terminals");
+  assert.equal(app.querySelectorAll(".tab-heading").length, 0);
+  window.close();
+});
+
 test("terminal menu uses exact action order and split opens only the returned terminal", async () => {
   const window = new Window({ url: "http://localhost/" });
   let request: RunTerminalActionRequest | undefined;

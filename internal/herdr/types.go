@@ -540,16 +540,27 @@ func assignContextualTitles(home *Home) {
 		}
 		for tabIndex := range workspace.Tabs {
 			counts := make(map[string]int)
+			used := make(map[string]struct{})
 			for terminalIndex := range workspace.Tabs[tabIndex].Terminals {
 				terminal := &workspace.Tabs[tabIndex].Terminals[terminalIndex]
 				counts[terminal.Title]++
+				used[terminal.Title] = struct{}{}
 			}
-			seen := make(map[string]int)
+			nextSuffix := make(map[string]int)
 			for terminalIndex := range workspace.Tabs[tabIndex].Terminals {
 				terminal := &workspace.Tabs[tabIndex].Terminals[terminalIndex]
 				if terminal.ManualName == nil && counts[terminal.Title] > 1 {
-					seen[terminal.Title]++
-					terminal.Title = fmt.Sprintf("%s %d", terminal.Title, seen[terminal.Title])
+					base := terminal.Title
+					for {
+						nextSuffix[base]++
+						candidate := fmt.Sprintf("%s %d", base, nextSuffix[base])
+						if _, exists := used[candidate]; exists {
+							continue
+						}
+						terminal.Title = candidate
+						used[candidate] = struct{}{}
+						break
+					}
 				}
 			}
 		}

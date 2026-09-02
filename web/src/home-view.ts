@@ -1607,10 +1607,11 @@ export class HomeView {
     const matches = (value: string | undefined): boolean => value?.toLocaleLowerCase().includes(query) ?? false;
     if (matches(workspace.label)) return workspace;
 
+    const tabsShown = showTabHeadings(workspace);
     const tabs = workspace.tabs
       .map((tab) => ({
         ...tab,
-        terminals: matches(tab.label)
+        terminals: tabsShown && matches(tab.label)
           ? tab.terminals
           : tab.terminals.filter((terminal) => matches(terminal.title) || matches(terminal.agent?.name)),
       }))
