@@ -5,7 +5,7 @@ import { Window } from "happy-dom";
 
 import { terminalReaderForDevice } from "./terminal/device";
 import { readerActionAvailability } from "./terminal/reader-availability";
-import { pauseReaderLiveRefresh, ReaderView, readerAtLatest } from "./terminal/reader-view";
+import { pauseReaderLiveRefresh, ReaderView, readerAtLatest, readerViewportColumns } from "./terminal/reader-view";
 
 class TestIntersectionObserver {
   readonly root = null;
@@ -59,6 +59,13 @@ test("Reader pauses moving output while someone is reading away from latest", ()
   assert.equal(pauseReaderLiveRefresh(false, false), true, "live replacement pauses away from latest");
   assert.equal(pauseReaderLiveRefresh(true, true), true, "live replacement pauses during selection");
   assert.equal(pauseReaderLiveRefresh(true, false), false, "returning to latest permits one fresh snapshot");
+});
+
+test("Reader derives whole terminal columns from the visible output width", () => {
+  assert.equal(readerViewportColumns(360, 8), 45);
+  assert.equal(readerViewportColumns(359.9, 8), 44, "a partial cell must not be advertised to the terminal");
+  assert.equal(readerViewportColumns(15, 8), undefined, "Herdr requires at least two truthful columns");
+  assert.equal(readerViewportColumns(360, 0), undefined);
 });
 
 test("the production Reader follows the primary coarse pointer even when another fine pointer exists", () => {

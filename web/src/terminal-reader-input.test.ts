@@ -8,10 +8,12 @@ import type { SessionMode, TerminalFrame, TerminalSessionEvents, TerminalSession
 
 class FakeTerminalSession implements TerminalSessionLike {
   connected = false;
+  connectedDimensions: { cols: number; rows: number } | undefined;
   disconnected = false;
   events: TerminalSessionEvents;
   mode: SessionMode;
   nextRequestID = 10;
+  resized: Array<{ cols: number; rows: number }> = [];
   sent: string[][] = [];
 
   constructor(mode: SessionMode, events: TerminalSessionEvents) {
@@ -19,8 +21,9 @@ class FakeTerminalSession implements TerminalSessionLike {
     this.events = events;
   }
 
-  connect(): void {
+  connect(_pane: string, dimensions: { cols: number; rows: number }): void {
     this.connected = true;
+    this.connectedDimensions = dimensions;
   }
 
   disconnect(): void {
@@ -37,7 +40,9 @@ class FakeTerminalSession implements TerminalSessionLike {
     return this.nextRequestID;
   }
 
-  resize(): void {}
+  resize(dimensions: { cols: number; rows: number }): void {
+    this.resized.push(dimensions);
+  }
 
   acquire(): void {
     const frame: TerminalFrame = {
@@ -102,6 +107,35 @@ test("Reader input matches the forwarded request ID before releasing control", (
   assert.equal(forwarded, 1);
   assert.equal(queue.state(), "ready");
   assert.equal(sessions[0].disconnected, true, "transient Reader control must release after forwarding");
+});
+
+test("Reader input uses the latest measured viewport while its control is active", (t) => {
+  withBrowser(t);
+  const sessions: FakeTerminalSession[] = [];
+  const queue = new ReaderInputQueue({
+    onFailed: () => assert.fail("input unexpectedly failed"),
+    onForwarded: () => undefined,
+    onLog: () => undefined,
+    onOccupied: () => assert.fail("input was unexpectedly occupied"),
+    onSending: () => undefined,
+    onUncertain: () => assert.fail("input unexpectedly became uncertain"),
+  }, {
+    endpoint: "/api/terminal",
+    createSession: (mode, events) => {
+      const session = new FakeTerminalSession(mode, events);
+      sessions.push(session);
+      return session;
+    },
+  });
+  queue.setTarget("pane-1", { cols: 80, rows: 24 }, "term-1");
+  queue.resize({ cols: 45, rows: 24 });
+  assert.equal(queue.enqueue("message"), true);
+  assert.deepEqual(sessions[0].connectedDimensions, { cols: 45, rows: 24 });
+
+  queue.resize({ cols: 40, rows: 24 });
+  assert.deepEqual(sessions[0].resized, [{ cols: 40, rows: 24 }]);
+  sessions[0].acquire();
+  sessions[0].forward();
 });
 
 test("Reader input stays queued when occupied and offers only explicit takeover", (t) => {
