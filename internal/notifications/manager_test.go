@@ -86,7 +86,7 @@ func TestAccessChangeNotificationsUseLabelsAndExcludeRemovedTrust(t *testing.T) 
 	remainingTrust := "AgAAAAAAAAAAAAAAAAAAAA"
 	authority := &selectiveTrustAuthority{active: map[string]bool{removedTrust: true, remainingTrust: true}}
 	var logs strings.Builder
-	manager := NewManager(store, slog.New(slog.NewTextHandler(&logs, nil)))
+	manager := NewManager(store, slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	if err := manager.EnableProtected(authority, map[string]struct{}{removedTrust: {}, remainingTrust: {}}); err != nil {
 		t.Fatal(err)
 	}
@@ -274,6 +274,52 @@ func TestProtectedRevocationWaitsForPreCutoffPushAndPreventsANewSend(t *testing.
 	}
 }
 
+func TestNotificationLifecycleDiagnosticsRespectLogLevel(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		level slog.Leveler
+		want  bool
+	}{
+		{name: "default info"},
+		{name: "debug", level: slog.LevelDebug, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, err := OpenStore(t.TempDir()+"/notifications.json", "mailto:operator@example.com")
+			if err != nil {
+				t.Fatal(err)
+			}
+			subscription := validSubscription(t, "https://push.example/debug-level", EventSettings{Blocked: true})
+			if err := store.Upsert(subscription); err != nil {
+				t.Fatal(err)
+			}
+			var logs strings.Builder
+			options := &slog.HandlerOptions{Level: test.level}
+			manager := NewManager(store, slog.New(slog.NewTextHandler(&logs, options)))
+			manager.sender = fixedSender{outcome: sendAccepted}
+
+			manager.ObserveSnapshot(notificationSnapshot("working", "w1"), true)
+			manager.ObserveSnapshot(notificationSnapshot("blocked", "w1"), false)
+			event := <-manager.events
+			manager.deliverEvent(context.Background(), event)
+			event.pending.Done()
+
+			got := logs.String()
+			for _, message := range []string{
+				"Notification candidate observed",
+				"Notification candidate enqueued",
+				"Push service accepted notification",
+			} {
+				if present := strings.Contains(got, `msg="`+message+`"`); present != test.want {
+					t.Errorf("log message %q present = %t, want %t: %s", message, present, test.want, got)
+				}
+				if test.want {
+					requireLogEntry(t, got, message, "level=DEBUG", "event_kind=status", `workspace_name="Workspace w1"`, "herdr_status=blocked")
+				}
+			}
+		})
+	}
+}
+
 func TestDeliveryDiagnosticsReportStatusFieldsWithoutPrivateData(t *testing.T) {
 	store, err := OpenStore(t.TempDir()+"/notifications.json", "mailto:operator@example.com")
 	if err != nil {
@@ -284,7 +330,7 @@ func TestDeliveryDiagnosticsReportStatusFieldsWithoutPrivateData(t *testing.T) {
 		t.Fatal(err)
 	}
 	var logs strings.Builder
-	manager := NewManager(store, slog.New(slog.NewTextHandler(&logs, nil)))
+	manager := NewManager(store, slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 
 	manager.ObserveSnapshot(notificationSnapshot("working", "w1"), true)
 	manager.ObserveSnapshot(notificationSnapshot("blocked", "w1"), false)
@@ -335,7 +381,7 @@ func TestDeliveryDiagnosticsReportWorkspaceFieldsAndEmptyBurstName(t *testing.T)
 		t.Fatal(err)
 	}
 	var logs strings.Builder
-	manager := NewManager(store, slog.New(slog.NewTextHandler(&logs, nil)))
+	manager := NewManager(store, slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	base := herdr.WorkspaceInfo{WorkspaceID: "secret-base", Label: "Base"}
 	temporary := herdr.WorkspaceInfo{WorkspaceID: "secret-temporary", Label: "Temporary <script>"}
 	one := herdr.WorkspaceInfo{WorkspaceID: "secret-one", Label: "One"}

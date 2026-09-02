@@ -2,10 +2,38 @@ package main
 
 import (
 	"bytes"
+	"log/slog"
 	"runtime/debug"
 	"strings"
 	"testing"
 )
+
+func TestParseLogLevel(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  slog.Level
+	}{
+		{value: "debug", want: slog.LevelDebug},
+		{value: "info", want: slog.LevelInfo},
+		{value: "warn", want: slog.LevelWarn},
+		{value: "error", want: slog.LevelError},
+	} {
+		t.Run(test.value, func(t *testing.T) {
+			got, err := parseLogLevel(test.value)
+			if err != nil || got != test.want {
+				t.Fatalf("parseLogLevel(%q) = %v, %v; want %v, nil", test.value, got, err, test.want)
+			}
+		})
+	}
+
+	for _, value := range []string{"", "DEBUG", "warning", "trace", " info"} {
+		t.Run("invalid "+value, func(t *testing.T) {
+			if _, err := parseLogLevel(value); err == nil || err.Error() != "-log-level must be debug, info, warn, or error" {
+				t.Fatalf("parseLogLevel(%q) error = %v", value, err)
+			}
+		})
+	}
+}
 
 func TestBuildVersionSelection(t *testing.T) {
 	moduleBuild := &debug.BuildInfo{Main: debug.Module{Version: "v0.1.0"}}

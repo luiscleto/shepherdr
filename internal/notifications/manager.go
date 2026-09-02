@@ -60,7 +60,7 @@ func (m *Manager) ObserveSnapshot(snapshot herdr.Snapshot, baseline bool) {
 	events := m.evaluator.Observe(snapshot, baseline)
 	m.evaluatorMu.Unlock()
 	for _, event := range events {
-		m.logger.Info("Notification candidate observed", notificationLogFields(event)...)
+		m.logger.Debug("Notification candidate observed", notificationLogFields(event)...)
 		m.enqueue(event)
 	}
 }
@@ -201,7 +201,7 @@ func (m *Manager) enqueue(event Event) {
 	event.pending = &m.pending
 	select {
 	case m.events <- event:
-		m.logger.Info("Notification candidate enqueued", notificationLogFields(event)...)
+		m.logger.Debug("Notification candidate enqueued", notificationLogFields(event)...)
 	default:
 		m.pending.Done()
 		m.logger.Info("Notification candidate dropped", notificationLogFields(event)...)
@@ -237,7 +237,7 @@ func (m *Manager) deliverEvent(ctx context.Context, event Event) {
 		}
 		switch outcome {
 		case sendAccepted:
-			m.logger.Info("Push service accepted notification", notificationLogFields(event)...)
+			m.logger.Debug("Push service accepted notification", notificationLogFields(event)...)
 		case sendFailed:
 			m.logger.Info("Notification push failed", notificationLogFields(event)...)
 		case sendGone:

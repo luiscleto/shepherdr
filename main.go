@@ -60,10 +60,15 @@ func run() error {
 	showVersion := flag.Bool("version", false, "print the Shepherdr version and exit")
 	uploadParent := flag.String("upload-parent", os.TempDir(), "parent directory for workspace file uploads")
 	uploadLimitText := flag.String("upload-limit", "50MiB", "decoded file bytes allowed per send: bytes, KiB, MiB, GiB, or none")
+	logLevelText := flag.String("log-level", "info", "minimum log level: debug, info, warn, or error")
 	flag.Parse()
 	if *showVersion {
 		fmt.Printf("shepherdr %s\n", buildVersion(releaseVersion, readBuildInfo()))
 		return nil
+	}
+	logLevel, err := parseLogLevel(*logLevelText)
+	if err != nil {
+		return err
 	}
 
 	notificationPath, notificationPathErr := notifications.DefaultStatePath()
@@ -78,7 +83,7 @@ func run() error {
 		}
 		if *noSignIn || publicOrigin.set || sessionLifetime.set || vapidContact.set || *resetNotifications ||
 			flagWasSet("listen") || flagWasSet("herdr-socket") || flagWasSet("terminal-lab") ||
-			flagWasSet("upload-parent") || flagWasSet("upload-limit") {
+			flagWasSet("upload-parent") || flagWasSet("upload-limit") || flagWasSet("log-level") {
 			return errors.New("access commands cannot be combined with server configuration flags")
 		}
 		if notificationPathErr != nil {
@@ -132,7 +137,7 @@ func run() error {
 		return fmt.Errorf("open embedded browser assets: %w", err)
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel}))
 	var accessStore *access.Store
 	var accessManager *access.Manager
 	var protectedOrigin access.Origin
@@ -272,6 +277,21 @@ func buildVersion(linkerVersion string, information *debug.BuildInfo) string {
 		return information.Main.Version
 	}
 	return "devel"
+}
+
+func parseLogLevel(value string) (slog.Level, error) {
+	switch value {
+	case "debug":
+		return slog.LevelDebug, nil
+	case "info":
+		return slog.LevelInfo, nil
+	case "warn":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	default:
+		return 0, errors.New("-log-level must be debug, info, warn, or error")
+	}
 }
 
 type optionalStringFlag struct {
