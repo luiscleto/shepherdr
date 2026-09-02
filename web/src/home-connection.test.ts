@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   HomeConnectionOwner,
+  HOME_FIRST_VALID_FRAME_WINDOW_MS,
   HOME_RECOVERY_LIMIT_MS,
   HOME_RETRY_DELAY_MS,
   HOME_STALE_AFTER_MS,
@@ -86,7 +87,7 @@ test("Offline keeps the existing restrained retry cadence", () => {
   assert.equal(nextHomeCheckDelay(lastValidHomeFrameAt, offlineAt, true), HOME_RETRY_DELAY_MS);
 });
 
-test("an Offline due check replaces one OPEN or CONNECTING silent socket without stale duplicates", () => {
+test("an Offline attempt gets the full bounded window for a delayed first frame", () => {
   for (const readyState of ["open", "connecting"] as const) {
     const owner = new HomeConnectionOwner<FakeHomeConnection>();
     let created = 0;
@@ -98,17 +99,37 @@ test("an Offline due check replaces one OPEN or CONNECTING silent socket without
         ownedCloses++;
       });
     };
-    const first = owner.replace(create, activate);
+    const offlineAt = HOME_RECOVERY_LIMIT_MS;
+    const first = owner.replace(create, activate, offlineAt);
 
-    const outcome = maintainHomeConnection(
+    assert.equal(
+      nextHomeCheckDelay(0, offlineAt, true, owner.attemptStartedAt),
+      HOME_FIRST_VALID_FRAME_WINDOW_MS,
+    );
+
+    const insideWindow = maintainHomeConnection(
       "offline",
       owner,
       fakeConnectionActive,
       create,
       activate,
+      offlineAt + HOME_FIRST_VALID_FRAME_WINDOW_MS - 1,
     );
 
-    assert.equal(outcome, "replaced");
+    assert.equal(insideWindow, "waiting");
+    assert.equal(first.closes, 0);
+    assert.equal(created, 1);
+
+    const atDeadline = maintainHomeConnection(
+      "offline",
+      owner,
+      fakeConnectionActive,
+      create,
+      activate,
+      offlineAt + HOME_FIRST_VALID_FRAME_WINDOW_MS,
+    );
+
+    assert.equal(atDeadline, "replaced");
     assert.equal(first.closes, 1);
     assert.equal(created, 2);
     assert.equal(owner.current?.id, 2);
@@ -128,6 +149,7 @@ test("an Offline due check connects once when no socket is owned", () => {
     fakeConnectionActive,
     () => new FakeHomeConnection(++created, "connecting"),
     () => undefined,
+    HOME_RECOVERY_LIMIT_MS,
   );
 
   assert.equal(outcome, "connected");
@@ -151,6 +173,7 @@ test("protected unauthenticated and invitation states never create Home", () => 
       fakeConnectionActive,
       () => new FakeHomeConnection(++created, "connecting"),
       () => undefined,
+      HOME_RECOVERY_LIMIT_MS,
       false,
       homeConnectionAllowed(mode, authorityReady),
     );
@@ -161,32 +184,38 @@ test("protected unauthenticated and invitation states never create Home", () => 
   }
 });
 
-test("authenticated and sign-in-off Home both retry automatically", () => {
+test("authenticated and sign-in-off Home both retry automatically when no viable attempt exists", () => {
   for (const [mode, authorityReady] of [["active", true], ["sign-in-off", false]] as const) {
     const owner = new HomeConnectionOwner<FakeHomeConnection>();
     let created = 0;
     const create = () => new FakeHomeConnection(++created, "connecting");
+    const activate = (connection: FakeHomeConnection) => {
+      connection.addCloseListener(() => owner.release(connection));
+    };
     const first = maintainHomeConnection(
       "offline",
       owner,
       fakeConnectionActive,
       create,
-      () => undefined,
+      activate,
+      HOME_RECOVERY_LIMIT_MS,
       false,
       homeConnectionAllowed(mode, authorityReady),
     );
+    owner.current?.close();
     const retried = maintainHomeConnection(
       "offline",
       owner,
       fakeConnectionActive,
       create,
-      () => undefined,
+      activate,
+      HOME_RECOVERY_LIMIT_MS + HOME_RETRY_DELAY_MS,
       false,
       homeConnectionAllowed(mode, authorityReady),
     );
 
     assert.equal(first, "connected");
-    assert.equal(retried, "replaced");
+    assert.equal(retried, "connected");
     assert.equal(created, 2);
     assert.equal(owner.current?.id, 2);
   }
@@ -201,13 +230,14 @@ test("sign-out, revocation, reset, expiry, and invitation entry stop old Home ow
     const owner = new HomeConnectionOwner<FakeHomeConnection>();
     let created = 0;
     const create = () => new FakeHomeConnection(++created, "open");
-    const oldAuthority = owner.replace(create, () => undefined);
+    const oldAuthority = owner.replace(create, () => undefined, 0);
     const stopped = maintainHomeConnection(
       "offline",
       owner,
       fakeConnectionActive,
       create,
       () => undefined,
+      HOME_RECOVERY_LIMIT_MS,
       false,
       homeConnectionAllowed(mode, authorityReady),
     );
@@ -217,6 +247,7 @@ test("sign-out, revocation, reset, expiry, and invitation entry stop old Home ow
       fakeConnectionActive,
       create,
       () => undefined,
+      HOME_RECOVERY_LIMIT_MS,
       false,
       homeConnectionAllowed(mode, authorityReady),
     );
@@ -244,7 +275,8 @@ test("visibility recovery preserves an active Terminal route, identity, and draf
   const activate = (connection: FakeHomeConnection) => {
     connection.addCloseListener(() => owner.release(connection));
   };
-  const first = owner.replace(create, activate);
+  const first = owner.replace(create, activate, 0);
+  owner.recordValidFrame(first);
   const renderHome = () => {
     terminalPage.destroys++;
     terminalPage.draft = "";
@@ -257,12 +289,13 @@ test("visibility recovery preserves an active Terminal route, identity, and draf
       fakeConnectionActive,
       create,
       activate,
+      HOME_RECOVERY_LIMIT_MS,
       true,
     );
   };
 
   const hiddenResumed = resumeHomeConnection(
-    "hidden",
+    false,
     route === undefined,
     renderHome,
     reconnect,
@@ -272,7 +305,7 @@ test("visibility recovery preserves an active Terminal route, identity, and draf
   assert.equal(reconnectOutcome, "not-run");
 
   const visibleResumed = resumeHomeConnection(
-    "visible",
+    true,
     route === undefined,
     renderHome,
     reconnect,
@@ -290,4 +323,77 @@ test("visibility recovery preserves an active Terminal route, identity, and draf
   assert.equal(terminalPage.terminalID, "term-1");
   assert.equal(currentRoute?.paneID, "pane/one");
   assert.equal(currentRoute?.terminalID, "term-1");
+});
+
+test("clustered resume events keep the same fresh viable attempt", () => {
+  const owner = new HomeConnectionOwner<FakeHomeConnection>();
+  let now = HOME_RECOVERY_LIMIT_MS;
+  let created = 0;
+  let renders = 0;
+  const create = () => new FakeHomeConnection(++created, "connecting");
+  const activate = (connection: FakeHomeConnection) => {
+    connection.addCloseListener(() => owner.release(connection));
+  };
+  const old = owner.replace(create, activate, 0);
+  owner.recordValidFrame(old);
+  const reconnect = () => {
+    maintainHomeConnection(
+      "current",
+      owner,
+      fakeConnectionActive,
+      create,
+      activate,
+      now,
+      true,
+    );
+  };
+
+  assert.equal(resumeHomeConnection(true, true, () => {
+    renders++;
+  }, reconnect), true);
+  const resumed = owner.current;
+  assert.equal(resumed?.id, 2);
+  assert.equal(old.closes, 1);
+
+  if (resumed) owner.recordValidFrame(resumed);
+  now += 25;
+  assert.equal(resumeHomeConnection(true, true, () => {
+    renders++;
+  }, reconnect), true);
+  now += 25;
+  assert.equal(resumeHomeConnection(true, true, () => {
+    renders++;
+  }, reconnect), true);
+
+  assert.equal(created, 2);
+  assert.equal(resumed?.closes, 0);
+  assert.equal(owner.current?.id, 2);
+  assert.equal(renders, 3);
+});
+
+test("a valid frame immediately restores current evidence and keeps its socket", () => {
+  const owner = new HomeConnectionOwner<FakeHomeConnection>();
+  let created = 0;
+  let lastValidHomeFrameAt = 0;
+  const offlineAt = HOME_RECOVERY_LIMIT_MS;
+  const create = () => new FakeHomeConnection(++created, "open");
+  const socket = owner.replace(create, () => undefined, offlineAt);
+
+  assert.equal(homeReachability(lastValidHomeFrameAt, offlineAt), "offline");
+  const frameAt = offlineAt + 500;
+  assert.equal(owner.recordValidFrame(socket), true);
+  lastValidHomeFrameAt = frameAt;
+  assert.equal(homeReachability(lastValidHomeFrameAt, frameAt), "current");
+
+  const outcome = maintainHomeConnection(
+    homeReachability(lastValidHomeFrameAt, frameAt),
+    owner,
+    fakeConnectionActive,
+    create,
+    () => undefined,
+    frameAt,
+  );
+  assert.equal(outcome, "waiting");
+  assert.equal(created, 1);
+  assert.equal(socket.closes, 0);
 });

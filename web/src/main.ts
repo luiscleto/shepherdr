@@ -161,6 +161,7 @@ function activateHomeSocket(socket: WebSocket): void {
       const now = performance.now();
       const wasCurrent = homeEvidenceCurrent();
       if (isHomeHeartbeat(parsed)) {
+        homeConnections.recordValidFrame(socket);
         lastValidHomeFrameAt = now;
         if (!wasCurrent) render();
         scheduleHomeCheck();
@@ -168,6 +169,7 @@ function activateHomeSocket(socket: WebSocket): void {
       }
       const completeState = parseCompleteHomeState(parsed);
       if (!completeState) throw new Error("invalid Home frame");
+      homeConnections.recordValidFrame(socket);
       lastValidHomeFrameAt = now;
       const next = completeState;
       const changed = raw !== publishedStateSignature ||
@@ -200,6 +202,7 @@ function connectHome(replaceActive = false): void {
     homeSocketIsActive,
     createHomeSocket,
     activateHomeSocket,
+    performance.now(),
     replaceActive,
     homeConnectionAllowed(accessMode, homeAuthorityReady),
   );
@@ -246,7 +249,12 @@ function scheduleHomeCheck(): void {
   window.clearTimeout(homeTimer);
   homeTimer = undefined;
   const now = performance.now();
-  const delay = nextHomeCheckDelay(lastValidHomeFrameAt, now, homeSocketActive());
+  const delay = nextHomeCheckDelay(
+    lastValidHomeFrameAt,
+    now,
+    homeSocketActive(),
+    homeConnections.awaitingFirstValidFrame ? homeConnections.attemptStartedAt : undefined,
+  );
   homeTimer = window.setTimeout(checkHomeConnection, delay);
 }
 
@@ -571,10 +579,19 @@ function leaveTerminal(): void {
 window.addEventListener("hashchange", () => {
   if (!enterInvitationFromHash()) render();
 });
-window.addEventListener("online", () => connectHome());
+const resumeHome = () => {
+  resumeHomeConnection(
+    true,
+    homeInterfaceActive(),
+    renderHome,
+    () => connectHome(true),
+  );
+};
+window.addEventListener("online", resumeHome);
+window.addEventListener("pageshow", resumeHome);
 document.addEventListener("visibilitychange", () => {
   resumeHomeConnection(
-    document.visibilityState,
+    document.visibilityState === "visible",
     homeInterfaceActive(),
     renderHome,
     () => connectHome(true),
