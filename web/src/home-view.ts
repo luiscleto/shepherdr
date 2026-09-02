@@ -128,10 +128,15 @@ interface TerminalPickerNodes {
   body: HTMLElement;
   close: HTMLButtonElement;
   count: HTMLElement;
-  header: HTMLElement;
   layer: HTMLElement;
   panel: HTMLElement;
   title: HTMLHeadingElement;
+}
+
+interface AutomaticallyClosedPicker {
+  paneID?: string;
+  returnFocus?: HTMLElement;
+  scroll: number;
 }
 
 interface ConnectionCopy {
@@ -335,7 +340,6 @@ export class HomeView {
       body: pickerBody,
       close: pickerClose,
       count: pickerCount,
-      header: pickerHeader,
       layer: pickerLayer,
       panel: pickerPanel,
       title: pickerTitle,
@@ -448,7 +452,7 @@ export class HomeView {
       desired.push(this.#attention);
     }
 
-    this.#updateTerminalPicker(model.actionsAvailable, managementAvailable, usedTabs);
+    const automaticallyClosedPicker = this.#updateTerminalPicker(model.actionsAvailable, managementAvailable, usedTabs);
     if (this.#pickerWorkspaceID) usedWorkspaces.add(this.#pickerWorkspaceID);
     desired.push(this.#picker.layer, this.#actionLayer);
 
@@ -468,6 +472,7 @@ export class HomeView {
     } else if (model.restore?.focusWorkspace) {
       this.#workspacePickerRows.get(model.restore.focusWorkspace)?.row.focus({ preventScroll: true });
     }
+    if (automaticallyClosedPicker) this.#restoreAutomaticallyClosedPicker(automaticallyClosedPicker);
   }
 
   row(paneID: string): HTMLElement | undefined {
@@ -819,18 +824,24 @@ export class HomeView {
     actionsAvailable: boolean,
     managementAvailable: boolean,
     usedTabs: UsedTabs,
-  ): void {
+  ): AutomaticallyClosedPicker | undefined {
     if (!this.#pickerWorkspaceID) {
       setHidden(this.#picker.layer, true);
       return;
     }
     const workspace = this.#workspaceValues.get(this.#pickerWorkspaceID);
     if (!workspace || terminalCount(workspace) <= 1) {
+      const remaining = workspace ? visibleTabs(workspace, false)[0]?.terminals[0] : undefined;
+      const closed = {
+        paneID: remaining?.pane_id,
+        returnFocus: this.#pickerReturnFocus,
+        scroll: this.#pickerScroll,
+      };
       this.#pickerWorkspaceID = undefined;
       this.#pickerReturnFocus = undefined;
       reconcileChildren(this.#picker.body, []);
       setHidden(this.#picker.layer, true);
-      return;
+      return closed;
     }
 
     setText(this.#picker.title, workspace.label);
@@ -864,13 +875,41 @@ export class HomeView {
   #closeTerminalPicker(): void {
     if (!this.#pickerWorkspaceID || this.#actionRunning) return;
     this.#closeMenu();
+    const returnFocus = this.#pickerReturnFocus;
     this.#pickerWorkspaceID = undefined;
     setHidden(this.#picker.layer, true);
     reconcileChildren(this.#picker.body, []);
     this.#document.defaultView?.scrollTo(0, this.#pickerScroll);
-    const target = this.#pickerReturnFocus?.isConnected ? this.#pickerReturnFocus : this.#filterInput;
     this.#pickerReturnFocus = undefined;
+    this.#backgroundFocusTarget(returnFocus)?.focus({ preventScroll: true });
+  }
+
+  #restoreAutomaticallyClosedPicker(closed: AutomaticallyClosedPicker): void {
+    this.#document.defaultView?.scrollTo(0, closed.scroll);
+    const target = this.#backgroundFocusTarget(closed.returnFocus, closed.paneID);
+    if (!target) return;
+    if (!this.#actionLayer.hidden) {
+      if (!this.#returnFocus?.isConnected || this.#picker.layer.contains(this.#returnFocus)) {
+        this.#returnFocus = target;
+      }
+      return;
+    }
     target.focus({ preventScroll: true });
+  }
+
+  #backgroundFocusTarget(preferred?: HTMLElement, paneID?: string): HTMLElement | undefined {
+    if (preferred?.isConnected &&
+      !this.#picker.layer.contains(preferred) &&
+      !this.#actionLayer.contains(preferred)) return preferred;
+    const row = paneID ? this.#rows.get(paneID)?.row : undefined;
+    if (row?.isConnected && row.localName === "button") return row;
+    if (this.#filterInput.isConnected) return this.#filterInput;
+    if (this.#attentionShowAll.isConnected && !this.#attentionShowAll.hidden) return this.#attentionShowAll;
+    return Array.from(this.#app.querySelectorAll<HTMLElement>("button, input")).find((node) =>
+      node.closest("[hidden]") === null &&
+      !this.#picker.layer.contains(node) &&
+      !this.#actionLayer.contains(node),
+    );
   }
 
   #handlePickerKey(event: KeyboardEvent): void {
@@ -1692,12 +1731,16 @@ export class HomeView {
 
   #closeActionLayer(): void {
     if (this.#actionRunning) return;
+    const pickerOpen = this.#pickerWorkspaceID !== undefined && !this.#picker.layer.hidden;
+    const returnFocus = this.#returnFocus;
     this.#actionLayer.hidden = true;
     this.#actionCancel = undefined;
     reconcileChildren(this.#actionPanel, []);
-    const target = this.#returnFocus?.isConnected ? this.#returnFocus : this.#filterInput;
     this.#returnFocus = undefined;
-    target.focus({ preventScroll: true });
+    const target = pickerOpen
+      ? (returnFocus?.isConnected && this.#picker.panel.contains(returnFocus) ? returnFocus : this.#picker.close)
+      : this.#backgroundFocusTarget(returnFocus);
+    target?.focus({ preventScroll: true });
   }
 
   #handleDialogKey(event: KeyboardEvent): void {

@@ -768,6 +768,82 @@ test("close terminal prepares fresh exact facts and names interruption and tab i
   window.close();
 });
 
+test("successful terminal closes keep picker focus contained and restore the remaining row", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  const thirdTerminal = {
+    actions: ["split_terminal", "rename_terminal", "close_terminal"] as const,
+    pane_id: "pane:third",
+    terminal_id: "terminal:third",
+    title: "Third",
+  };
+  const initial = terminalHome();
+  initial.workspaces[0].agent_counts = { idle: 1, unknown: 1, working: 1 };
+  initial.workspaces[0].tabs[1].terminals.push({ ...thirdTerminal, actions: [...thirdTerminal.actions] });
+  const { app, view } = makeView(window, {
+    prepareTerminal: async ({ action: _, ...target }) => ({
+      action: "close_terminal",
+      expected: {
+        closes_tab: target.pane_id === "pane:anchor",
+        tab_label: target.pane_id === "pane:anchor" ? "Main" : "Logs",
+        target,
+        terminal_title: target.pane_id === "pane:anchor" ? "Build <script>" : "Logs",
+        workspace_label: "Terminal workspace",
+      },
+      outcome: "prepared",
+    }),
+    runTerminal: async () => ({ outcome: "succeeded" }),
+  }, initial);
+
+  async function closeTerminal(title: string): Promise<void> {
+    const menu = requiredMatchingElement<HTMLButtonElement>(
+      app,
+      ".terminal-menu .workspace-menu-trigger",
+      (button) => button.getAttribute("aria-label") === `Actions for ${title}`,
+    );
+    menu.click();
+    requiredMatchingElement<HTMLButtonElement>(
+      app,
+      '[role="menuitem"]',
+      (button) => button.textContent === "Close terminal",
+    ).click();
+    await settle();
+    requiredElement<HTMLButtonElement>(app, ".home-action-panel .home-action-primary").click();
+    await settle();
+    assert.equal(requiredElement(app, ".home-action-title").textContent, "Terminal closed");
+  }
+
+  requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
+  await closeTerminal("Build <script>");
+
+  const afterFirst = terminalHome();
+  afterFirst.workspaces[0].agent_counts = { idle: 1, unknown: 1 };
+  afterFirst.workspaces[0].tabs[0].terminals = [];
+  afterFirst.workspaces[0].tabs[1].terminals.push({ ...thirdTerminal, actions: [...thirdTerminal.actions] });
+  view.render({ actionsAvailable: true, mode: "all", reachability: "current", state: state(afterFirst) });
+  requiredElement<HTMLButtonElement>(app, ".home-action-panel button").click();
+  assert.equal((window.document.activeElement as HTMLElement | null)?.className, "terminal-picker-close");
+  assert.equal(requiredElement(app, ".terminal-picker-layer").hidden, false);
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".terminal-picker-body .terminal-name"), (node) => node.textContent),
+    ["Logs", "Third"],
+  );
+
+  await closeTerminal("Logs");
+  window.scrollTo(0, 371);
+  const afterSecond = terminalHome();
+  afterSecond.workspaces[0].agent_counts = { unknown: 1 };
+  afterSecond.workspaces[0].tabs = [{
+    ...afterSecond.workspaces[0].tabs[1],
+    terminals: [{ ...thirdTerminal, actions: [...thirdTerminal.actions] }],
+  }];
+  view.render({ actionsAvailable: true, mode: "all", reachability: "current", state: state(afterSecond) });
+  assert.equal(requiredElement(app, ".terminal-picker-layer").hidden, true);
+  assert.equal(window.scrollY, 0);
+  requiredElement<HTMLButtonElement>(app, ".home-action-panel button").click();
+  assert.equal((window.document.activeElement as HTMLElement | null)?.dataset.paneKey, "pane:third");
+  window.close();
+});
+
 test("one-terminal rows keep terminal and workspace actions in one compact menu", () => {
   const window = new Window({ url: "http://localhost/" });
   const home = terminalHome();
@@ -864,5 +940,6 @@ test("Home action controls retain phone-sized touch targets in the Home-owned st
   assert.match(styles, /\.terminal-picker-close\s*\{[^}]*width:\s*44px;[^}]*min-width:\s*44px;[^}]*min-height:\s*44px;/s);
   assert.match(styles, /\.terminal-picker-body\s*\{[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/s);
   assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.terminal-picker-layer\s*\{[^}]*place-items:\s*end center;/);
+  assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.terminal-picker-header\s*\{[^}]*safe-area-inset-right[^}]*safe-area-inset-left/);
   assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.home-filter\s*\{[^}]*grid-column:\s*1 \/ -1;/);
 });

@@ -1618,6 +1618,11 @@ button.terminal-row:hover {
     border-radius: 5px 5px 0 0;
   }
 
+  .terminal-picker-header {
+    padding-right: max(0.7rem, env(safe-area-inset-right));
+    padding-left: max(1rem, env(safe-area-inset-left));
+  }
+
   .terminal-picker-body {
     padding-right: max(0.75rem, env(safe-area-inset-right));
     padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
