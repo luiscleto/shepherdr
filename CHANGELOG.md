@@ -4,6 +4,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-02
+
 ### Added
 
 - Split, rename, or close terminals from Home. When a workspace has several terminals, a terminal picker lists every one.
@@ -46,6 +48,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Works with Herdr 0.8.0 through 0.8.2. Older versions do not start; newer versions start with a warning that they have not been tested.
 - macOS downloads are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/luiscleto/shepherdr/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/luiscleto/shepherdr/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/luiscleto/shepherdr/releases/tag/v0.1.0
