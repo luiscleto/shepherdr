@@ -6,7 +6,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ### Added
 
-- View and manage every Herdr terminal in a workspace, including splitting, renaming, and closing terminals.
+- View every Herdr terminal in a workspace from a compact picker, and split, rename, or close terminals from the same screen.
+- Keep terminal actions fully visible in a phone-sized screen, including when a workspace has many terminals.
 
 ### Changed
 
