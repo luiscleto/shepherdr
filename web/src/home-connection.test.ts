@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   HomeConnectionOwner,
+  HomeResumeTracker,
   HOME_FIRST_VALID_FRAME_WINDOW_MS,
   HOME_RECOVERY_LIMIT_MS,
   HOME_RETRY_DELAY_MS,
@@ -174,7 +175,7 @@ test("protected unauthenticated and invitation states never create Home", () => 
       () => new FakeHomeConnection(++created, "connecting"),
       () => undefined,
       HOME_RECOVERY_LIMIT_MS,
-      false,
+      "when-needed",
       homeConnectionAllowed(mode, authorityReady),
     );
 
@@ -199,7 +200,7 @@ test("authenticated and sign-in-off Home both retry automatically when no viable
       create,
       activate,
       HOME_RECOVERY_LIMIT_MS,
-      false,
+      "when-needed",
       homeConnectionAllowed(mode, authorityReady),
     );
     owner.current?.close();
@@ -210,7 +211,7 @@ test("authenticated and sign-in-off Home both retry automatically when no viable
       create,
       activate,
       HOME_RECOVERY_LIMIT_MS + HOME_RETRY_DELAY_MS,
-      false,
+      "when-needed",
       homeConnectionAllowed(mode, authorityReady),
     );
 
@@ -238,7 +239,7 @@ test("sign-out, revocation, reset, expiry, and invitation entry stop old Home ow
       create,
       () => undefined,
       HOME_RECOVERY_LIMIT_MS,
-      false,
+      "when-needed",
       homeConnectionAllowed(mode, authorityReady),
     );
     const stillStopped = maintainHomeConnection(
@@ -248,7 +249,7 @@ test("sign-out, revocation, reset, expiry, and invitation entry stop old Home ow
       create,
       () => undefined,
       HOME_RECOVERY_LIMIT_MS,
-      false,
+      "when-needed",
       homeConnectionAllowed(mode, authorityReady),
     );
 
@@ -290,7 +291,7 @@ test("visibility recovery preserves an active Terminal route, identity, and draf
       create,
       activate,
       HOME_RECOVERY_LIMIT_MS,
-      true,
+      "after-attempt-window",
     );
   };
 
@@ -325,29 +326,31 @@ test("visibility recovery preserves an active Terminal route, identity, and draf
   assert.equal(currentRoute?.terminalID, "term-1");
 });
 
-test("clustered resume events keep the same fresh viable attempt", () => {
+test("the first return event replaces a young pre-return attempt and clustered events preserve it", () => {
   const owner = new HomeConnectionOwner<FakeHomeConnection>();
-  let now = HOME_RECOVERY_LIMIT_MS;
+  const resumeTracker = new HomeResumeTracker();
+  let now = 5_000;
   let created = 0;
   let renders = 0;
+  const outcomes: string[] = [];
   const create = () => new FakeHomeConnection(++created, "connecting");
   const activate = (connection: FakeHomeConnection) => {
     connection.addCloseListener(() => owner.release(connection));
   };
-  const old = owner.replace(create, activate, 0);
-  owner.recordValidFrame(old);
+  const old = owner.replace(create, activate, now - 1_000);
   const reconnect = () => {
-    maintainHomeConnection(
+    outcomes.push(maintainHomeConnection(
       "current",
       owner,
       fakeConnectionActive,
       create,
       activate,
       now,
-      true,
-    );
+      resumeTracker.resumeReplacement(),
+    ));
   };
 
+  resumeTracker.markNonForeground();
   assert.equal(resumeHomeConnection(true, true, () => {
     renders++;
   }, reconnect), true);
@@ -355,7 +358,10 @@ test("clustered resume events keep the same fresh viable attempt", () => {
   assert.equal(resumed?.id, 2);
   assert.equal(old.closes, 1);
 
-  if (resumed) owner.recordValidFrame(resumed);
+  if (resumed) {
+    resumed.readyState = "open";
+    owner.recordValidFrame(resumed);
+  }
   now += 25;
   assert.equal(resumeHomeConnection(true, true, () => {
     renders++;
@@ -369,6 +375,7 @@ test("clustered resume events keep the same fresh viable attempt", () => {
   assert.equal(resumed?.closes, 0);
   assert.equal(owner.current?.id, 2);
   assert.equal(renders, 3);
+  assert.deepEqual(outcomes, ["replaced", "waiting", "waiting"]);
 });
 
 test("a valid frame immediately restores current evidence and keeps its socket", () => {

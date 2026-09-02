@@ -3,6 +3,7 @@ import { AccessController, hasInvitationFragment, invitationToken, type AccessPr
 import { HomeView } from "./home-view";
 import {
   HomeConnectionOwner,
+  HomeResumeTracker,
   homeConnectionAllowed,
   homeReachability as deriveHomeReachability,
   maintainHomeConnection,
@@ -10,6 +11,7 @@ import {
   refreshHomeConnectionView,
   resumeHomeConnection,
   type HomeAccessMode,
+  type HomeConnectionReplacement,
   type HomeReachability,
 } from "./home-connection";
 import {
@@ -62,6 +64,7 @@ let state: HomeState = {
   last_known: false,
 };
 const homeConnections = new HomeConnectionOwner<WebSocket>();
+const homeResumeTracker = new HomeResumeTracker();
 let homeTimer: number | undefined;
 let lastValidHomeFrameAt = performance.now();
 let selectedTerminal: TerminalEntry | undefined;
@@ -194,7 +197,7 @@ function activateHomeSocket(socket: WebSocket): void {
   scheduleHomeCheck();
 }
 
-function connectHome(replaceActive = false): void {
+function connectHome(replacement: HomeConnectionReplacement = "when-needed"): void {
   if (accessMode === "checking" || (accessMode === "active" && !homeAuthorityReady)) probeAccess();
   const maintenance = maintainHomeConnection(
     homeReachability(),
@@ -203,7 +206,7 @@ function connectHome(replaceActive = false): void {
     createHomeSocket,
     activateHomeSocket,
     performance.now(),
-    replaceActive,
+    replacement,
     homeConnectionAllowed(accessMode, homeAuthorityReady),
   );
   if (maintenance === "waiting") scheduleHomeCheck();
@@ -580,22 +583,24 @@ window.addEventListener("hashchange", () => {
   if (!enterInvitationFromHash()) render();
 });
 const resumeHome = () => {
+  const replacement = homeResumeTracker.resumeReplacement();
   resumeHomeConnection(
     true,
     homeInterfaceActive(),
     renderHome,
-    () => connectHome(true),
+    () => connectHome(replacement),
   );
 };
+window.addEventListener("offline", () => homeResumeTracker.markNonForeground());
 window.addEventListener("online", resumeHome);
+window.addEventListener("pagehide", () => homeResumeTracker.markNonForeground());
 window.addEventListener("pageshow", resumeHome);
 document.addEventListener("visibilitychange", () => {
-  resumeHomeConnection(
-    document.visibilityState === "visible",
-    homeInterfaceActive(),
-    renderHome,
-    () => connectHome(true),
-  );
+  if (document.visibilityState !== "visible") {
+    homeResumeTracker.markNonForeground();
+    return;
+  }
+  resumeHome();
 });
 
 render();

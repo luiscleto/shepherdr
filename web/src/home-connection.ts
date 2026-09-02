@@ -5,6 +5,7 @@ export const HOME_FIRST_VALID_FRAME_WINDOW_MS = 10_000;
 
 export type HomeReachability = "current" | "offline" | "reconnecting";
 export type HomeAccessMode = "active" | "checking" | "sign-in-off" | "signed-out" | "trust";
+export type HomeConnectionReplacement = "after-attempt-window" | "now" | "when-needed";
 
 export interface HomeConnectionHandle {
   close(): void;
@@ -69,6 +70,20 @@ export class HomeConnectionOwner<T extends HomeConnectionHandle> {
   }
 }
 
+export class HomeResumeTracker {
+  #freshAttemptRequired = false;
+
+  markNonForeground(): void {
+    this.#freshAttemptRequired = true;
+  }
+
+  resumeReplacement(): HomeConnectionReplacement {
+    const replacement = this.#freshAttemptRequired ? "now" : "after-attempt-window";
+    this.#freshAttemptRequired = false;
+    return replacement;
+  }
+}
+
 export type HomeConnectionMaintenance = "connected" | "replaced" | "stopped" | "waiting";
 
 export function homeConnectionAllowed(accessMode: HomeAccessMode, authorityReady: boolean): boolean {
@@ -115,7 +130,7 @@ export function maintainHomeConnection<T extends HomeConnectionHandle>(
   create: () => T,
   activate: (connection: T) => void,
   now: number,
-  replaceActive = false,
+  replacement: HomeConnectionReplacement = "when-needed",
   allowed = true,
 ): HomeConnectionMaintenance {
   if (!allowed) {
@@ -123,10 +138,12 @@ export function maintainHomeConnection<T extends HomeConnectionHandle>(
     return "stopped";
   }
   const active = owner.active(isActive);
-  if (active && owner.attemptStartedAt !== undefined) {
-    const attemptAge = Math.max(0, now - owner.attemptStartedAt);
-    if (attemptAge < HOME_FIRST_VALID_FRAME_WINDOW_MS) return "waiting";
-    if (!owner.awaitingFirstValidFrame && reachability === "current" && !replaceActive) {
+  if (active && replacement !== "now") {
+    if (owner.attemptStartedAt !== undefined) {
+      const attemptAge = Math.max(0, now - owner.attemptStartedAt);
+      if (attemptAge < HOME_FIRST_VALID_FRAME_WINDOW_MS) return "waiting";
+    }
+    if (!owner.awaitingFirstValidFrame && reachability === "current" && replacement === "when-needed") {
       return "waiting";
     }
   }
