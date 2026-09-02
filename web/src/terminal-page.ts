@@ -336,6 +336,7 @@ export class TerminalPage {
       onResize: (dimensions) => {
         if (this.#ownership === "controlling") this.#controller?.resize(dimensions);
       },
+      onScroll: (scroll) => this.#ownership === "controlling" && this.#controller?.scroll(scroll) === true,
     });
     if (this.#destroyed) {
       terminal.destroy();

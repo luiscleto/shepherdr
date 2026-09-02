@@ -5,9 +5,76 @@ export interface TerminalDimensions {
   rows: number;
 }
 
+export interface TerminalScroll {
+  column: number;
+  direction: "down" | "up";
+  lines: number;
+  modifiers: number;
+  row: number;
+}
+
+const maximumScrollLines = 1_000;
+const defaultFastScrollSensitivity = 5;
+const likelyTrackpadScale = 0.3;
+
+export interface TerminalWheelState {
+  applicationRemainder: number;
+  historyRemainder: number;
+  pendingHistoryLines: number;
+}
+
+export function initialTerminalWheelState(): TerminalWheelState {
+  return { applicationRemainder: 0, historyRemainder: 0, pendingHistoryLines: 0 };
+}
+
+export function terminalWheelRows(
+  delta: number,
+  deltaMode: number,
+  rowHeight: number,
+  viewportRows: number,
+  state: TerminalWheelState,
+  altKey = false,
+): { lines: number; state: TerminalWheelState } {
+  if (!Number.isFinite(delta) || !Number.isFinite(rowHeight) || rowHeight <= 0 ||
+    !Number.isFinite(state.applicationRemainder) || !Number.isFinite(state.historyRemainder) ||
+    !Number.isFinite(state.pendingHistoryLines)) {
+    return { lines: 0, state: initialTerminalWheelState() };
+  }
+  const rows = deltaMode === 1 ? delta : deltaMode === 2 ? delta * viewportRows : delta / rowHeight;
+  const historyTotal = rows + state.historyRemainder;
+  const wholeHistoryRows = Math.trunc(historyTotal);
+  const pendingHistoryLines = state.pendingHistoryLines + wholeHistoryRows;
+  let applicationRemainder = state.applicationRemainder;
+  let emit = rows !== 0;
+  if (deltaMode === 0) {
+    // Herdr uses lines for host history, but one command becomes one application wheel event.
+    // Gate commands at xterm's application rate while retaining the full host-history distance.
+    let applicationRows = rows;
+    if (Math.abs(delta) < 50) {
+      if (altKey) applicationRows *= defaultFastScrollSensitivity;
+      applicationRows *= likelyTrackpadScale;
+    }
+    const applicationTotal = applicationRows + applicationRemainder;
+    emit = Math.trunc(applicationTotal) !== 0;
+    applicationRemainder = applicationTotal - Math.trunc(applicationTotal);
+  }
+  const nextState = {
+    applicationRemainder,
+    historyRemainder: historyTotal - wholeHistoryRows,
+    pendingHistoryLines: emit ? 0 : pendingHistoryLines,
+  };
+  if (!emit) return { lines: 0, state: nextState };
+  const lines = pendingHistoryLines === 0 ? (delta < 0 ? -1 : 1) : pendingHistoryLines;
+  return {
+    lines: Math.max(-maximumScrollLines, Math.min(maximumScrollLines, lines)),
+    state: nextState,
+  };
+}
+
 export interface TerminalAdapterEvents {
   onData(data: string): void;
   onResize(dimensions: TerminalDimensions): void;
+  onScroll?(scroll: TerminalScroll): boolean;
 }
 
 export interface TerminalAdapter {

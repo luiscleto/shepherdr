@@ -44,6 +44,10 @@ class FakeTerminalSession implements TerminalSessionLike {
     this.resized.push(dimensions);
   }
 
+  scroll(): boolean {
+    return false;
+  }
+
   acquire(): void {
     const frame: TerminalFrame = {
       bytes: "",

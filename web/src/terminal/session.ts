@@ -1,4 +1,4 @@
-import type { TerminalDimensions } from "./adapter";
+import type { TerminalDimensions, TerminalScroll } from "./adapter";
 
 export type SessionMode = "observe" | "control" | "takeover";
 
@@ -41,6 +41,7 @@ export interface TerminalSessionLike {
   input(text: string): number | undefined;
   inputBatch(chunks: string[]): number | undefined;
   resize(dimensions: TerminalDimensions): void;
+  scroll(scroll: TerminalScroll): boolean;
 }
 
 interface TerminalSessionOptions {
@@ -200,6 +201,11 @@ export class TerminalSession implements TerminalSessionLike {
     this.#events.onLog("viewport.resize", dimensions);
     if (this.#mode === "observe") return;
     this.#send({ type: "terminal.resize", ...dimensions });
+  }
+
+  scroll(scroll: TerminalScroll): boolean {
+    if (this.#mode === "observe") return false;
+    return this.#send({ type: "terminal.scroll", source: "wheel", ...scroll });
   }
 
   disconnect(): void {
