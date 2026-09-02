@@ -1628,6 +1628,11 @@ button.terminal-row:hover {
     padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
     padding-left: max(0.75rem, env(safe-area-inset-left));
   }
+
+  .terminal-picker-body .terminal-menu .workspace-menu-popover {
+    top: auto;
+    bottom: calc(100% - 0.3rem);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

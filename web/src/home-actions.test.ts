@@ -941,5 +941,6 @@ test("Home action controls retain phone-sized touch targets in the Home-owned st
   assert.match(styles, /\.terminal-picker-body\s*\{[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/s);
   assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.terminal-picker-layer\s*\{[^}]*place-items:\s*end center;/);
   assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.terminal-picker-header\s*\{[^}]*safe-area-inset-right[^}]*safe-area-inset-left/);
+  assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.terminal-picker-body \.terminal-menu \.workspace-menu-popover\s*\{[^}]*top:\s*auto;[^}]*bottom:\s*calc\(100% - 0\.3rem\);/);
   assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.home-filter\s*\{[^}]*grid-column:\s*1 \/ -1;/);
 });
