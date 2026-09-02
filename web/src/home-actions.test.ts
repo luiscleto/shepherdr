@@ -532,42 +532,73 @@ test("server refusal detail is displayed as inert text", async () => {
   window.close();
 });
 
-test("multi-terminal Home keeps exact totals, tab provenance, and saved disclosure state", () => {
+test("multi-terminal Home keeps one row and opens the complete terminal picker", () => {
   const window = new Window({ url: "http://localhost/" });
   const { app } = makeView(window, {}, terminalHome());
-  const disclosure = requiredElement<HTMLButtonElement>(app, ".terminal-section-disclosure");
-  const body = requiredElement(app, ".terminal-section-body");
+  const trigger = requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger");
 
-  assert.equal(disclosure.getAttribute("aria-expanded"), "true");
-  assert.equal(requiredElement(app, ".terminal-section-count").textContent, "2 terminals");
+  assert.equal(trigger.localName, "button");
+  assert.equal(trigger.getAttribute("aria-label"), "Choose a terminal in Terminal workspace, 2 terminals, 1 working, 1 idle");
+  assert.equal(requiredElement(trigger, ".terminal-count-badge").textContent, "2");
   assert.deepEqual(
-    Array.from(app.querySelectorAll(".terminal-section-summary .workspace-summary-status"), (node) => node.textContent),
+    Array.from(trigger.querySelectorAll(".workspace-summary-status"), (node) => node.textContent),
     ["1 working", "1 idle"],
   );
-  assert.deepEqual(Array.from(app.querySelectorAll(".tab-heading h3"), (node) => node.textContent), ["Main", "Logs"]);
-  assert.equal(app.querySelectorAll(".terminal-row").length, 2);
+  assert.equal(app.querySelectorAll(".terminal-section, .terminal-section-disclosure").length, 0);
+  assert.equal(app.querySelectorAll(".terminal-picker-body .terminal-row").length, 0);
+
+  trigger.focus();
+  window.scrollTo(0, 218);
+  trigger.click();
+  const layer = requiredElement(app, ".terminal-picker-layer");
+  assert.equal(layer.hidden, false);
+  assert.equal(requiredElement(app, ".terminal-picker-panel").getAttribute("role"), "dialog");
+  assert.equal(requiredElement(app, ".terminal-picker-panel").getAttribute("aria-modal"), "true");
+  assert.equal(requiredElement(app, ".terminal-picker-title").textContent, "Terminal workspace");
+  assert.equal(requiredElement(app, ".terminal-picker-count").textContent, "2 terminals");
+  assert.equal(window.document.activeElement === requiredElement(app, ".terminal-picker-close"), true);
   assert.deepEqual(
-    Array.from(app.querySelectorAll(".terminal-agent"), (node) => node.textContent),
+    Array.from(app.querySelectorAll(".terminal-picker-body .tab-heading h3"), (node) => node.textContent),
+    ["Main", "Logs"],
+  );
+  assert.equal(app.querySelectorAll(".terminal-picker-body .terminal-row").length, 2);
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".terminal-picker-body .terminal-agent"), (node) => node.textContent),
     ["Terminal workspace · Builder", "Terminal workspace · Watcher"],
   );
+  layer.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "Tab", shiftKey: true }));
+  assert.equal(
+    (window.document.activeElement as HTMLElement | null)?.getAttribute("aria-label"),
+    "Actions for Logs",
+  );
+  layer.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "Tab" }));
+  assert.equal(window.document.activeElement === requiredElement(app, ".terminal-picker-close"), true);
 
-  disclosure.click();
-  assert.equal(disclosure.getAttribute("aria-expanded"), "false");
-  assert.equal(body.hidden, true);
+  requiredElement<HTMLButtonElement>(app, ".terminal-picker-close").click();
+  assert.equal(layer.hidden, true);
+  assert.equal(app.querySelectorAll(".terminal-picker-body .terminal-row").length, 0);
+  assert.equal(window.document.activeElement === trigger, true);
+  assert.equal(window.scrollY, 218);
+
   const filter = requiredElement<HTMLInputElement>(app, ".home-filter input");
   filter.value = "Logs";
   filter.dispatchEvent(new window.Event("input", { bubbles: true }));
-  assert.equal(disclosure.getAttribute("aria-expanded"), "true");
-  assert.equal(body.hidden, false);
-  assert.equal(requiredElement(app, ".terminal-section-count").textContent, "2 terminals");
+  assert.equal(app.querySelectorAll(".workspace-terminal-trigger").length, 1);
+  assert.equal(requiredElement(app, ".terminal-count-badge").textContent, "2");
+  requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
+  assert.equal(app.querySelectorAll(".terminal-picker-body .terminal-row").length, 2);
   assert.deepEqual(
-    Array.from(app.querySelectorAll(".terminal-section-summary .workspace-summary-status"), (node) => node.textContent),
+    Array.from(app.querySelectorAll(".terminal-picker-body .tab-heading h3"), (node) => node.textContent),
+    ["Main", "Logs"],
+  );
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".workspace-terminal-trigger .workspace-summary-status"), (node) => node.textContent),
     ["1 working", "1 idle"],
   );
+  requiredElement<HTMLButtonElement>(app, ".terminal-picker-close").click();
   filter.value = "";
   filter.dispatchEvent(new window.Event("input", { bubbles: true }));
-  assert.equal(disclosure.getAttribute("aria-expanded"), "false");
-  assert.equal(body.hidden, true);
+  assert.equal(app.querySelectorAll(".workspace-terminal-trigger").length, 1);
   window.close();
 });
 
@@ -581,18 +612,26 @@ test("Home filters by a tab name only when its heading is displayed", () => {
   const { app } = makeView(window, {}, home);
   const filter = requiredElement<HTMLInputElement>(app, ".home-filter input");
 
-  assert.equal(app.querySelectorAll(".tab-heading").length, 0);
+  requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
+  assert.equal(app.querySelectorAll(".terminal-picker-body .tab-heading").length, 0);
+  assert.equal(app.querySelectorAll(".terminal-picker-body .terminal-row").length, 2);
+  requiredElement<HTMLButtonElement>(app, ".terminal-picker-close").click();
   filter.value = "Hidden tab name";
   filter.dispatchEvent(new window.Event("input", { bubbles: true }));
-  assert.equal(app.querySelectorAll(".terminal-row").length, 0);
+  assert.equal(app.querySelectorAll(".workspace-terminal-trigger").length, 0);
   assert.equal(requiredElement(app, ".home-no-matches strong").textContent, "No matches");
 
   filter.value = "Builder";
   filter.dispatchEvent(new window.Event("input", { bubbles: true }));
-  assert.equal(app.querySelectorAll(".terminal-row").length, 1);
-  assert.equal(requiredElement(app, ".terminal-name").textContent, "Build <script>");
-  assert.equal(requiredElement(app, ".terminal-section-count").textContent, "2 terminals");
-  assert.equal(app.querySelectorAll(".tab-heading").length, 0);
+  assert.equal(app.querySelectorAll(".workspace-terminal-trigger").length, 1);
+  assert.equal(requiredElement(app, ".workspace-terminal-trigger .terminal-name").textContent, "Terminal workspace");
+  assert.equal(requiredElement(app, ".terminal-count-badge").textContent, "2");
+  requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".terminal-picker-body .terminal-name"), (node) => node.textContent),
+    ["Build <script>", "Logs"],
+  );
+  assert.equal(app.querySelectorAll(".terminal-picker-body .tab-heading").length, 0);
   window.close();
 });
 
@@ -613,6 +652,7 @@ test("terminal menu uses exact action order and split opens only the returned te
       return { outcome: "succeeded", terminal: returned };
     },
   }, terminalHome());
+  requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
   const trigger = requiredMatchingElement<HTMLButtonElement>(
     app,
     ".terminal-menu .workspace-menu-trigger",
@@ -650,6 +690,7 @@ test("rename sends the manual pane name exactly and blank remains available to c
       return { outcome: "succeeded" };
     },
   }, terminalHome());
+  requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
   const trigger = requiredMatchingElement<HTMLButtonElement>(
     app,
     ".terminal-menu .workspace-menu-trigger",
@@ -703,6 +744,7 @@ test("close terminal prepares fresh exact facts and names interruption and tab i
       return { outcome: "unknown" };
     },
   }, terminalHome());
+  requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
   const trigger = requiredMatchingElement<HTMLButtonElement>(
     app,
     ".terminal-menu .workspace-menu-trigger",
@@ -731,8 +773,9 @@ test("one-terminal rows keep terminal and workspace actions in one compact menu"
   const home = terminalHome();
   home.workspaces[0].tabs = [home.workspaces[0].tabs[0]];
   const { app } = makeView(window, {}, home);
-  assert.equal(app.querySelectorAll(".terminal-section").length, 0);
+  assert.equal(app.querySelectorAll(".workspace-terminal-trigger").length, 0);
   assert.equal(app.querySelectorAll(".terminal-row").length, 1);
+  assert.equal(requiredElement(app, ".terminal-picker-layer").hidden, true);
   const trigger = requiredElement<HTMLButtonElement>(app, ".terminal-menu .workspace-menu-trigger");
   assert.equal(trigger.getAttribute("aria-label"), "Actions for Terminal workspace");
   trigger.click();
@@ -794,6 +837,14 @@ test("collapsed groups with zero or multiple parent terminals keep their group a
     assert.equal(disclosure.getAttribute("aria-expanded"), "false");
     assert.equal(requiredElement(app, ".workspace-set-body").hidden, true);
     const header = requiredElement(app, ".workspace-set-header");
+    if (terminalCount === 2) {
+      const pickerTrigger = requiredElement<HTMLButtonElement>(header, ".workspace-terminal-trigger");
+      assert.equal(requiredElement(pickerTrigger, ".terminal-count-badge").textContent, "2");
+      pickerTrigger.click();
+      assert.equal(requiredElement(app, ".terminal-picker-title").textContent, "Parent <script>");
+      assert.equal(app.querySelectorAll(".terminal-picker-body .terminal-row").length, 2);
+      requiredElement<HTMLButtonElement>(app, ".terminal-picker-close").click();
+    }
     const trigger = requiredElement<HTMLButtonElement>(header, ".workspace-menu-trigger");
     assert.equal(trigger.getAttribute("aria-label"), "Actions for Parent <script>");
     trigger.click();
@@ -810,5 +861,8 @@ test("Home action controls retain phone-sized touch targets in the Home-owned st
   assert.match(styles, /\.workspace-menu-trigger\s*\{[^}]*width:\s*44px;[^}]*min-width:\s*44px;[^}]*min-height:\s*44px;/s);
   assert.match(styles, /\.home-action-buttons button\s*\{[^}]*min-width:\s*44px;[^}]*min-height:\s*44px;/s);
   assert.match(styles, /\.workspace-set\s*\{[^}]*overflow:\s*visible;/s);
+  assert.match(styles, /\.terminal-picker-close\s*\{[^}]*width:\s*44px;[^}]*min-width:\s*44px;[^}]*min-height:\s*44px;/s);
+  assert.match(styles, /\.terminal-picker-body\s*\{[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/s);
+  assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.terminal-picker-layer\s*\{[^}]*place-items:\s*end center;/);
   assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.home-filter\s*\{[^}]*grid-column:\s*1 \/ -1;/);
 });

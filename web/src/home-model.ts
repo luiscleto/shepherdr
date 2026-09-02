@@ -72,6 +72,7 @@ export interface TerminalEntry {
 
 export interface HomePlace {
   focusPane?: string;
+  focusWorkspace?: string;
   scroll: number;
 }
 

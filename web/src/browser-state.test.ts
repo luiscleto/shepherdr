@@ -198,6 +198,12 @@ function requiredRow(view: HomeView, paneID: string): HTMLElement {
   return row;
 }
 
+function requiredWorkspaceRow(view: HomeView, workspaceID: string): HTMLElement {
+  const row = view.workspaceRow(workspaceID);
+  if (!row) throw new Error(`missing workspace row ${workspaceID}`);
+  return row;
+}
+
 test("Home shows one real initial or unavailable state with the transport-owned badge", () => {
   const window = new Window({ url: "http://localhost/" });
   const { app, view } = makeView(window);
@@ -447,10 +453,23 @@ test("opaque workspace and tab ids cannot collide during reconciliation", () => 
   render(view, state(collidingHome));
 
   assert.equal(app.querySelectorAll("section.workspace").length, 2);
-  assert.equal(app.querySelectorAll(".terminal-row").length, 4);
+  assert.equal(app.querySelectorAll(".workspace-terminal-trigger").length, 2);
+  assert.equal(app.querySelectorAll(".terminal-section, .terminal-section-disclosure").length, 0);
   assert.deepEqual(
     Array.from(app.querySelectorAll(".terminal-name"), (node) => node.textContent),
-    ["First A", "First B", "Second A", "Second B"],
+    ["First workspace", "Second workspace"],
+  );
+  requiredWorkspaceRow(view, "left\u0000middle").click();
+  assert.equal(requiredElement(app, ".terminal-picker-count").textContent, "2 terminals");
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".terminal-picker-body .terminal-name"), (node) => node.textContent),
+    ["First A", "First B"],
+  );
+  requiredElement<HTMLButtonElement>(app, ".terminal-picker-close").click();
+  requiredWorkspaceRow(view, "left").click();
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".terminal-picker-body .terminal-name"), (node) => node.textContent),
+    ["Second A", "Second B"],
   );
   window.close();
 });
@@ -488,8 +507,8 @@ test("worktree sets keep the parent Open separate from the worktree disclosure",
     "Open Builder, workspace Main project <script>, working, workspace totals: 1 working, 1 blocked, 1 idle, 1 done, 1 unknown",
   );
   assert.equal(requiredElement(parentRow, ".status").textContent, "working");
-  assert.equal(app.querySelectorAll(".terminal-row").length, 5);
-  assert.equal(requiredElement(app, ".workspace-expand-action").textContent, "Expand all");
+  assert.equal(app.querySelectorAll(".terminal-row").length, 3);
+  assert.equal(requiredElement(app, ".workspace-expand-action").textContent, "Collapse all");
   assert.equal(app.querySelector("script") === null, true);
 
   parentRow.click();
@@ -517,6 +536,41 @@ test("worktree sets keep the parent Open separate from the worktree disclosure",
   requiredElement(app, ".workspace-expand-action").click();
   assert.equal(disclosure.getAttribute("aria-expanded"), "true");
   assert.equal(requiredElement(app, ".workspace-expand-action").textContent, "Collapse all");
+  window.close();
+});
+
+test("multi-terminal controls work the same in a group heading and nested worktree row", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window);
+  render(view, state(groupedHome()));
+
+  const parent = requiredWorkspaceRow(view, "parent");
+  const nested = requiredWorkspaceRow(view, "quiet-worktree");
+  assert.equal(parent.closest(".workspace-set-header") !== null, true);
+  assert.equal(nested.closest(".workspace-set-contents") !== null, true);
+  assert.equal(requiredElement(parent, ".terminal-count-badge").textContent, "2");
+  assert.equal(requiredElement(nested, ".terminal-count-badge").textContent, "3");
+  assert.equal(app.querySelectorAll(".terminal-section, .terminal-section-disclosure").length, 0);
+
+  parent.click();
+  assert.equal(requiredElement(app, ".terminal-picker-title").textContent, "Main project <script>");
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".terminal-picker-body .terminal-name"), (node) => node.textContent),
+    ["Builder", "Shell & notes"],
+  );
+  requiredElement<HTMLButtonElement>(app, ".terminal-picker-close").click();
+
+  requiredElement<HTMLButtonElement>(app, ".workspace-set-disclosure").click();
+  assert.equal(requiredElement(app, ".workspace-set-body").hidden, true);
+  assert.equal(parent.closest("[hidden]"), null);
+  parent.click();
+  assert.equal(requiredElement(app, ".terminal-picker-count").textContent, "2 terminals");
+  requiredElement<HTMLButtonElement>(app, ".terminal-picker-close").click();
+
+  requiredElement<HTMLButtonElement>(app, ".workspace-expand-action").click();
+  nested.click();
+  assert.equal(requiredElement(app, ".terminal-picker-title").textContent, "Quiet branch");
+  assert.equal(app.querySelectorAll(".terminal-picker-body .terminal-row").length, 3);
   window.close();
 });
 
@@ -555,9 +609,36 @@ test("Home filters visible names locally without changing group expansion or glo
 
   filter.value = "";
   filter.dispatchEvent(new window.Event("input", { bubbles: true }));
-  assert.equal(app.querySelectorAll(".terminal-row").length, 6);
+  assert.equal(app.querySelectorAll(".terminal-row").length, 3);
   assert.equal(requiredElement(app, ".workspace-set-disclosure").getAttribute("aria-expanded"), "true");
   assert.equal(expandAction.hidden, false);
+  window.close();
+});
+
+test("Blocked keeps a matching multi-terminal workspace row and its complete picker", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window);
+  const home = groupedHome();
+  home.blocked_count = 2;
+  home.working_count = 0;
+  home.workspaces[0].agent_counts = { blocked: 1 };
+  home.workspaces[0].tabs[0].terminals[0].agent!.status = "blocked";
+
+  render(view, state(home), { mode: "blocked" });
+
+  assert.equal(app.querySelectorAll(".workspace-set-disclosure, .workspace-expand-action").length, 0);
+  assert.equal(app.querySelectorAll(".terminal-row").length, 2);
+  const parent = requiredWorkspaceRow(view, "parent");
+  assert.equal(requiredElement(parent, ".terminal-count-badge").textContent, "2");
+  assert.deepEqual(
+    Array.from(parent.querySelectorAll(".workspace-summary-status"), (node) => node.textContent),
+    ["1 blocked"],
+  );
+  parent.click();
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".terminal-picker-body .terminal-name"), (node) => node.textContent),
+    ["Builder", "Shell & notes"],
+  );
   window.close();
 });
 
@@ -567,8 +648,8 @@ test("Blocked returns manually or automatically to the saved all-Home place", ()
   const current = state(groupedHome());
   render(view, current);
   const blockedRow = requiredRow(view, "blocked-pane");
-  const ordinaryRow = requiredRow(view, "ordinary-pane");
-  ordinaryRow.focus();
+  const parentRow = requiredWorkspaceRow(view, "parent");
+  parentRow.focus();
   window.scrollTo(0, 333);
   requiredElement(app, ".workspace-set-disclosure").click();
 
@@ -579,18 +660,17 @@ test("Blocked returns manually or automatically to the saved all-Home place", ()
   assert.equal(app.querySelectorAll(".workspace-set-disclosure").length, 0);
   assert.equal(app.querySelectorAll(".workspace-expand-action").length, 0);
   assert.equal(app.querySelectorAll(".terminal-row").length, 1);
-  assert.equal(app.querySelectorAll("section.workspace > .workspace-title").length, 1);
-  assert.equal(requiredElement(app, "section.workspace > .workspace-title").textContent, "Review branch");
+  assert.equal(requiredElement(app, ".terminal-name").textContent, "Review branch");
   assert.equal(view.row("blocked-pane") === blockedRow, true);
   assert.equal(window.document.activeElement === blockedRow, true);
   assert.equal(requiredElement(app, ".attention-bar button:not([hidden])").textContent, "Show all terminals");
 
   render(view, current, {
     mode: "all",
-    restore: { focusPane: "ordinary-pane", scroll: 333 },
+    restore: { focusWorkspace: "parent", scroll: 333 },
   });
-  assert.equal(view.row("ordinary-pane") === ordinaryRow, true);
-  assert.equal(window.document.activeElement === ordinaryRow, true);
+  assert.equal(view.workspaceRow("parent") === parentRow, true);
+  assert.equal(window.document.activeElement === parentRow, true);
   assert.equal(window.scrollY, 333);
   assert.equal(requiredElement(app, ".workspace-set-disclosure").getAttribute("aria-expanded"), "false");
 
@@ -600,13 +680,13 @@ test("Blocked returns manually or automatically to the saved all-Home place", ()
   withoutBlocked.home.workspaces[0].agent_counts = { done: 1, idle: 1, unknown: 1, working: 1 };
   delete withoutBlocked.home.workspaces[0].worktrees?.[0].tabs[0].terminals[0].agent;
   const automaticPlace = automaticAllTerminalsPlace("blocked", withoutBlocked.home.blocked_count, {
-    focusPane: "ordinary-pane",
+    focusWorkspace: "parent",
     scroll: 333,
   });
   render(view, withoutBlocked, { mode: automaticPlace ? "all" : "blocked", restore: automaticPlace });
-  assert.equal(automaticPlace?.focusPane, "ordinary-pane");
+  assert.equal(automaticPlace?.focusWorkspace, "parent");
   assert.equal(automaticPlace?.scroll, 333);
-  assert.equal(window.document.activeElement === ordinaryRow, true);
+  assert.equal(window.document.activeElement === parentRow, true);
   assert.equal(window.scrollY, 333);
   assert.equal(requiredElement(app, ".workspace-set-disclosure").getAttribute("aria-expanded"), "false");
   window.close();

@@ -40,6 +40,7 @@ type HomeMode = "all" | "blocked";
 interface HomeViewActions {
   isHomeActive: () => boolean;
   onFocusPane: (paneID: string) => void;
+  onFocusWorkspace?: (workspaceID: string) => void;
   onOpen: (entry: TerminalEntry) => void;
   onOpenCreated: (target: TerminalActionTarget) => void;
   onNotifications?: () => void;
@@ -56,19 +57,28 @@ export interface HomeViewRender {
   mode: HomeMode;
   reachability: HomeReachability;
   signInOff?: boolean;
-  restore?: { anchorTop?: number; focusPane?: string; pane?: string; scroll: number };
+  restore?: {
+    anchorTop?: number;
+    focusPane?: string;
+    focusWorkspace?: string;
+    pane?: string;
+    scroll: number;
+    workspace?: string;
+  };
   state: HomeState;
 }
 
 interface WorkspaceNodes {
-  body: HTMLElement;
-  count: HTMLElement;
-  disclosure: HTMLButtonElement;
   heading: HTMLHeadingElement;
-  headingBlock: HTMLElement;
-  header: HTMLElement;
-  marker: HTMLElement;
   section: HTMLElement;
+}
+
+interface WorkspacePickerRowNodes {
+  badge: HTMLElement;
+  chevron: HTMLElement;
+  main: HTMLElement;
+  name: HTMLElement;
+  row: HTMLElement;
   summary: HTMLElement;
   summaryStatuses: Map<keyof AgentCounts, HTMLElement>;
 }
@@ -88,7 +98,6 @@ interface WorkspaceSetNodes {
   header: HTMLElement;
   heading: HTMLElement;
   marker: HTMLElement;
-  parent: HTMLElement;
   section: HTMLElement;
   summary: HTMLElement;
   summaryStatuses: Map<keyof AgentCounts, HTMLElement>;
@@ -114,6 +123,16 @@ interface RowNodes {
 }
 
 type UsedTabs = Map<string, Set<string>>;
+
+interface TerminalPickerNodes {
+  body: HTMLElement;
+  close: HTMLButtonElement;
+  count: HTMLElement;
+  header: HTMLElement;
+  layer: HTMLElement;
+  panel: HTMLElement;
+  title: HTMLHeadingElement;
+}
 
 interface ConnectionCopy {
   heading: string;
@@ -171,7 +190,6 @@ export class HomeView {
   readonly #empty: HTMLElement;
   readonly #expandAction: HTMLButtonElement;
   readonly #expandedSets = new Map<string, boolean>();
-  readonly #expandedWorkspaces = new Map<string, boolean>();
   readonly #filterLabel: HTMLLabelElement;
   readonly #filterInput: HTMLInputElement;
   readonly #header: HTMLElement;
@@ -183,12 +201,14 @@ export class HomeView {
   readonly #loadingHeading: HTMLElement;
   readonly #newSpaceAction: HTMLButtonElement;
   readonly #noMatches: HTMLElement;
+  readonly #picker: TerminalPickerNodes;
   readonly #actionLayer: HTMLElement;
   readonly #actionPanel: HTMLElement;
   readonly #rows = new Map<string, RowNodes>();
   readonly #items = new Map<string, HTMLLIElement>();
   readonly #tabs = new Map<string, Map<string, TabNodes>>();
   readonly #workspaces = new Map<string, WorkspaceNodes>();
+  readonly #workspacePickerRows = new Map<string, WorkspacePickerRowNodes>();
   readonly #workspaceSets = new Map<string, WorkspaceSetNodes>();
   readonly #workspaceMenus = new Map<string, WorkspaceMenuNodes>();
   readonly #terminalMenus = new Map<string, WorkspaceMenuNodes>();
@@ -199,6 +219,9 @@ export class HomeView {
   #filterValue = "";
   #lastRender: HomeViewRender | undefined;
   #openMenuKey: string | undefined;
+  #pickerReturnFocus: HTMLElement | undefined;
+  #pickerScroll = 0;
+  #pickerWorkspaceID: string | undefined;
   #returnFocus: HTMLElement | undefined;
   #workspaceHeadingSequence = 0;
   #workspaceSetSequence = 0;
@@ -252,13 +275,10 @@ export class HomeView {
     this.#expandAction = this.#button("", () => {
       const home = this.#lastRender?.state.home ?? { blocked_count: 0, working_count: 0, workspaces: [] };
       const sets = workspaceSets(home);
-      const sections = allWorkspaces(home).filter((workspace) => terminalCount(workspace) > 1);
-      const expand = sets.some((workspace) => !this.#expandedSets.get(workspace.id)) ||
-        sections.some((workspace) => !this.#expandedWorkspaces.get(workspace.id));
+      const expand = sets.some((workspace) => !this.#expandedSets.get(workspace.id));
       for (const workspace of sets) {
         this.#expandedSets.set(workspace.id, expand);
       }
-      for (const workspace of sections) this.#expandedWorkspaces.set(workspace.id, expand);
       if (this.#lastRender) this.render(this.#lastRender);
     });
     this.#expandAction.className = "workspace-expand-action";
@@ -286,6 +306,40 @@ export class HomeView {
       element(this.#document, "strong", undefined, "No matches"),
       element(this.#document, "p", undefined, "Try another filter."),
     );
+
+    const pickerLayer = element(this.#document, "div", "terminal-picker-layer");
+    pickerLayer.hidden = true;
+    const pickerPanel = element(this.#document, "section", "terminal-picker-panel");
+    pickerPanel.setAttribute("role", "dialog");
+    pickerPanel.setAttribute("aria-modal", "true");
+    pickerPanel.tabIndex = -1;
+    const pickerHeader = element(this.#document, "header", "terminal-picker-header");
+    const pickerHeading = element(this.#document, "div", "terminal-picker-heading");
+    const pickerTitle = element(this.#document, "h2", "terminal-picker-title");
+    pickerTitle.id = "terminal-picker-title";
+    const pickerCount = element(this.#document, "p", "terminal-picker-count");
+    pickerHeading.append(pickerTitle, pickerCount);
+    const pickerClose = this.#button("×", () => this.#closeTerminalPicker());
+    pickerClose.className = "terminal-picker-close";
+    pickerClose.setAttribute("aria-label", "Close terminal picker");
+    pickerHeader.append(pickerHeading, pickerClose);
+    const pickerBody = element(this.#document, "div", "terminal-picker-body");
+    pickerPanel.setAttribute("aria-labelledby", pickerTitle.id);
+    pickerPanel.append(pickerHeader, pickerBody);
+    pickerLayer.append(pickerPanel);
+    pickerLayer.addEventListener("click", (event) => {
+      if (event.target === pickerLayer) this.#closeTerminalPicker();
+    });
+    pickerLayer.addEventListener("keydown", (event) => this.#handlePickerKey(event));
+    this.#picker = {
+      body: pickerBody,
+      close: pickerClose,
+      count: pickerCount,
+      header: pickerHeader,
+      layer: pickerLayer,
+      panel: pickerPanel,
+      title: pickerTitle,
+    };
 
     this.#actionLayer = element(this.#document, "div", "home-action-layer");
     this.#actionLayer.hidden = true;
@@ -341,7 +395,7 @@ export class HomeView {
 
       if (model.mode === "blocked") {
         for (const workspace of allWorkspaceValues) {
-          const section = this.#renderWorkspace(workspace, true, model.actionsAvailable, false, usedTabs, false, true);
+          const section = this.#renderWorkspace(workspace, true, model.actionsAvailable, false);
           if (section) desired.push(section);
         }
       } else {
@@ -352,23 +406,15 @@ export class HomeView {
             this.#expandedSets.set(workspace.id, (counts.working ?? 0) > 0 || (counts.blocked ?? 0) > 0);
           }
         }
-        const expandableWorkspaces = allWorkspaces(model.state.home).filter((workspace) => terminalCount(workspace) > 1);
-        for (const workspace of expandableWorkspaces) {
-          if (!this.#expandedWorkspaces.has(workspace.id)) {
-            const counts = workspace.agent_counts ?? {};
-            this.#expandedWorkspaces.set(workspace.id, (counts.working ?? 0) > 0 || (counts.blocked ?? 0) > 0);
-          }
-        }
-        setHidden(this.#expandAction, filterActive || (sets.length === 0 && expandableWorkspaces.length === 0));
+        setHidden(this.#expandAction, filterActive || sets.length === 0);
         reconcileChildren(this.#homeTools, [
           this.#filterLabel,
           this.#expandAction,
           ...(managementAvailable ? [this.#newSpaceAction] : []),
         ]);
         desired.push(this.#homeTools);
-        if ((sets.length > 0 || expandableWorkspaces.length > 0) && !filterActive) {
-          const expand = sets.some((workspace) => !this.#expandedSets.get(workspace.id)) ||
-            expandableWorkspaces.some((workspace) => !this.#expandedWorkspaces.get(workspace.id));
+        if (sets.length > 0 && !filterActive) {
+          const expand = sets.some((workspace) => !this.#expandedSets.get(workspace.id));
           setText(this.#expandAction, expand ? "Expand all" : "Collapse all");
         }
         if (filterActive && allWorkspaceValues.length === 0) desired.push(this.#noMatches);
@@ -379,7 +425,6 @@ export class HomeView {
               workspace,
               model.actionsAvailable,
               managementAvailable,
-              usedTabs,
               filterActive,
             ));
             continue;
@@ -389,9 +434,6 @@ export class HomeView {
             false,
             model.actionsAvailable,
             managementAvailable,
-            usedTabs,
-            false,
-            filterActive,
           );
           if (section) desired.push(section);
         }
@@ -406,7 +448,9 @@ export class HomeView {
       desired.push(this.#attention);
     }
 
-    desired.push(this.#actionLayer);
+    this.#updateTerminalPicker(model.actionsAvailable, managementAvailable, usedTabs);
+    if (this.#pickerWorkspaceID) usedWorkspaces.add(this.#pickerWorkspaceID);
+    desired.push(this.#picker.layer, this.#actionLayer);
 
     reconcileChildren(this.#app, desired);
     this.#prune(usedWorkspaces, usedTabs, usedSets, completePaneIDs);
@@ -415,14 +459,23 @@ export class HomeView {
     if (model.restore?.anchorTop !== undefined && model.restore.pane) {
       const row = this.#rows.get(model.restore.pane)?.row;
       if (row) view?.scrollTo(0, (view?.scrollY ?? oldScroll) + row.getBoundingClientRect().top - model.restore.anchorTop);
+    } else if (model.restore?.anchorTop !== undefined && model.restore.workspace) {
+      const row = this.#workspacePickerRows.get(model.restore.workspace)?.row;
+      if (row) view?.scrollTo(0, (view?.scrollY ?? oldScroll) + row.getBoundingClientRect().top - model.restore.anchorTop);
     }
     if (model.restore?.focusPane) {
       this.#rows.get(model.restore.focusPane)?.row.focus({ preventScroll: true });
+    } else if (model.restore?.focusWorkspace) {
+      this.#workspacePickerRows.get(model.restore.focusWorkspace)?.row.focus({ preventScroll: true });
     }
   }
 
   row(paneID: string): HTMLElement | undefined {
     return this.#rows.get(paneID)?.row;
+  }
+
+  workspaceRow(workspaceID: string): HTMLElement | undefined {
+    return this.#workspacePickerRows.get(workspaceID)?.row;
   }
 
   #button(text: string, action: () => void): HTMLButtonElement {
@@ -458,10 +511,9 @@ export class HomeView {
     blockedOnly: boolean,
     actionsAvailable: boolean,
     managementAvailable: boolean,
-    usedTabs: UsedTabs,
     hideTitle = false,
-    forceExpanded = false,
     includeWorkspaceActions = true,
+    summaryCounts?: AgentCounts,
   ): HTMLElement | undefined {
     const tabs = visibleTabs(workspace, blockedOnly);
     if (blockedOnly && tabs.length === 0) return undefined;
@@ -472,11 +524,9 @@ export class HomeView {
       tabs,
       actionsAvailable,
       managementAvailable,
-      usedTabs,
       hideTitle,
-      blockedOnly,
-      forceExpanded,
       includeWorkspaceActions,
+      summaryCounts,
     );
     return nodes.section;
   }
@@ -485,7 +535,6 @@ export class HomeView {
     workspace: Workspace,
     actionsAvailable: boolean,
     managementAvailable: boolean,
-    usedTabs: UsedTabs,
     forceExpanded = false,
   ): HTMLElement {
     const nodes = this.#workspaceSet(workspace);
@@ -504,10 +553,9 @@ export class HomeView {
           false,
           actionsAvailable,
           managementAvailable,
-          usedTabs,
-          parentTerminalCount === 1,
-          forceExpanded,
-          parentTerminalCount === 1,
+          true,
+          true,
+          parentTerminalCount > 1 ? workspace.group_agent_counts : undefined,
         )
       : undefined;
     if (parentTerminalCount === 1 && parent) {
@@ -523,14 +571,15 @@ export class HomeView {
         setAttribute(parentRow, "aria-label", `${rowLabel}, workspace totals: ${summaryLabel}`);
       }
       reconcileChildren(nodes.header, [nodes.disclosure, parent]);
-      reconcileChildren(nodes.parent, []);
+    } else if (parentTerminalCount > 1 && parent) {
+      nodes.summary.remove();
+      reconcileChildren(nodes.header, [nodes.disclosure, parent]);
     } else {
       if (nodes.summary.parentElement !== nodes.heading) nodes.heading.append(nodes.summary);
       reconcileChildren(nodes.header, [
         nodes.disclosure,
         this.#workspaceActionRow(workspace, nodes.heading, managementAvailable),
       ]);
-      reconcileChildren(nodes.parent, parent ? [parent] : []);
     }
     const contents: Node[] = [];
     for (const worktree of workspace.worktrees ?? []) {
@@ -539,9 +588,6 @@ export class HomeView {
         false,
         actionsAvailable,
         managementAvailable,
-        usedTabs,
-        false,
-        forceExpanded,
       );
       if (section) contents.push(section);
     }
@@ -555,7 +601,6 @@ export class HomeView {
     const section = element(this.#document, "section", "workspace-set");
     const header = element(this.#document, "div", "workspace-set-header");
     const body = element(this.#document, "div", "workspace-set-body");
-    const parent = element(this.#document, "div", "workspace-set-parent");
     const disclosure = this.#button("", () => {
       this.#expandedSets.set(workspace.id, !this.#expandedSets.get(workspace.id));
       if (this.#lastRender) this.render(this.#lastRender);
@@ -571,11 +616,11 @@ export class HomeView {
     const contents = element(this.#document, "div", "workspace-set-contents");
     body.id = `workspace-set-contents-${++this.#workspaceSetSequence}`;
     disclosure.setAttribute("aria-controls", body.id);
-    body.append(parent, contents);
+    body.append(contents);
     header.append(disclosure, heading);
     section.append(header, body);
     const summaryStatuses = new Map<keyof AgentCounts, HTMLElement>();
-    const nodes = { body, contents, disclosure, header, heading, marker, parent, section, summary, summaryStatuses, title };
+    const nodes = { body, contents, disclosure, header, heading, marker, section, summary, summaryStatuses, title };
     this.#workspaceSets.set(workspace.id, nodes);
     return nodes;
   }
@@ -619,41 +664,12 @@ export class HomeView {
     const existing = this.#workspaces.get(workspace.id);
     if (existing) return existing;
     const section = element(this.#document, "section", "workspace");
-    const header = element(this.#document, "div", "terminal-section-header");
-    const disclosure = this.#button("", () => {
-      this.#expandedWorkspaces.set(workspace.id, !this.#expandedWorkspaces.get(workspace.id));
-      if (this.#lastRender) this.render(this.#lastRender);
-    });
-    disclosure.className = "terminal-section-disclosure";
-    const marker = element(this.#document, "span", "terminal-section-marker");
-    marker.setAttribute("aria-hidden", "true");
-    disclosure.append(marker);
-    const headingBlock = element(this.#document, "div", "terminal-section-heading");
     const heading = element(this.#document, "h2");
-    const summary = element(this.#document, "span", "workspace-set-summary terminal-section-summary");
-    const count = element(this.#document, "span", "terminal-section-count");
-    summary.append(count);
-    headingBlock.append(heading, summary);
-    const body = element(this.#document, "div", "terminal-section-body");
     const headingID = `workspace-heading-${++this.#workspaceHeadingSequence}`;
     heading.id = headingID;
     section.setAttribute("aria-labelledby", headingID);
-    body.id = `${headingID}-terminals`;
-    disclosure.setAttribute("aria-controls", body.id);
-    header.append(disclosure, headingBlock);
-    section.append(header, body);
-    const nodes = {
-      body,
-      count,
-      disclosure,
-      heading,
-      headingBlock,
-      header,
-      marker,
-      section,
-      summary,
-      summaryStatuses: new Map<keyof AgentCounts, HTMLElement>(),
-    };
+    section.append(heading);
+    const nodes = { heading, section };
     this.#workspaces.set(workspace.id, nodes);
     return nodes;
   }
@@ -664,14 +680,14 @@ export class HomeView {
     tabs: ReturnType<typeof visibleTabs>,
     actionsAvailable: boolean,
     managementAvailable: boolean,
-    usedTabs: UsedTabs,
     hideTitle: boolean,
-    blockedOnly: boolean,
-    forceExpanded: boolean,
     includeWorkspaceActions: boolean,
+    summaryCounts?: AgentCounts,
   ): void {
     const workspaceManagementAvailable = managementAvailable && includeWorkspaceActions;
-    if (tabs.length === 0) {
+    const fullWorkspace = this.#workspaceValues.get(workspace.id) ?? workspace;
+    const fullTerminalCount = terminalCount(fullWorkspace);
+    if (fullTerminalCount === 0) {
       setClass(
         nodes.section,
         workspaceManagementAvailable && workspace.actions.length > 0 ? "workspace workspace-heading-menu" : "workspace",
@@ -690,14 +706,10 @@ export class HomeView {
     }
 
     setClass(nodes.section, "workspace");
-
-    const fullWorkspace = this.#workspaceValues.get(workspace.id) ?? workspace;
-    const fullTerminalCount = terminalCount(fullWorkspace);
-    const flattened = !blockedOnly && fullTerminalCount === 1;
-    const tabsShown = showTabHeadings(fullWorkspace);
-    if (flattened) {
-      const terminal = tabs[0].terminals[0];
-      const entry = { workspace, tab: tabs[0].tab, terminal };
+    if (fullTerminalCount === 1) {
+      const singleGroup = tabs[0] ?? visibleTabs(fullWorkspace, false)[0];
+      const terminal = singleGroup.terminals[0];
+      const entry = { workspace: fullWorkspace, tab: singleGroup.tab, terminal };
       setClass(nodes.heading, "visually-hidden");
       setText(nodes.heading, terminal.title);
       reconcileChildren(nodes.section, [
@@ -712,38 +724,126 @@ export class HomeView {
       return;
     }
 
-    const expandable = fullTerminalCount > 1;
-    if (expandable) {
-      const counts = fullWorkspace.agent_counts ?? {};
-      if (!this.#expandedWorkspaces.has(workspace.id)) {
-        this.#expandedWorkspaces.set(workspace.id, (counts.working ?? 0) > 0 || (counts.blocked ?? 0) > 0);
+    setClass(nodes.section, "workspace workspace-multiple-terminals");
+    setClass(nodes.heading, "visually-hidden");
+    setText(nodes.heading, workspace.label);
+    const pickerRow = this.#workspacePickerRow(
+      fullWorkspace,
+      actionsAvailable,
+      summaryCounts ?? fullWorkspace.agent_counts ?? {},
+    );
+    reconcileChildren(nodes.section, [
+      nodes.heading,
+      this.#workspaceActionRow(workspace, pickerRow, workspaceManagementAvailable),
+    ]);
+  }
+
+  #workspacePickerRow(
+    workspace: Workspace,
+    actionsAvailable: boolean,
+    counts: AgentCounts,
+  ): HTMLElement {
+    let nodes = this.#workspacePickerRows.get(workspace.id);
+    const rowIsAction = nodes?.row.localName === "button";
+    if (!nodes || rowIsAction !== actionsAvailable) {
+      let row: HTMLElement;
+      if (actionsAvailable) {
+        const button = element(this.#document, "button");
+        button.type = "button";
+        button.addEventListener("click", () => this.#openTerminalPicker(workspace.id, button));
+        button.addEventListener("focus", () => this.#actions.onFocusWorkspace?.(workspace.id));
+        row = button;
+      } else {
+        row = element(this.#document, "div");
       }
-      const expanded = forceExpanded || blockedOnly || (this.#expandedWorkspaces.get(workspace.id) ?? false);
-      setClass(nodes.section, "workspace terminal-section");
-      setClass(nodes.heading, hideTitle ? "visually-hidden" : "workspace-title");
-      setText(nodes.heading, workspace.label);
-      setText(nodes.count, `${fullTerminalCount} terminals`);
-      this.#updateSummary(nodes.summary, nodes.summaryStatuses, counts, nodes.count);
-      setText(nodes.marker, expanded ? "⌄" : "›");
-      setAttribute(nodes.disclosure, "aria-expanded", String(expanded));
-      setAttribute(nodes.disclosure, "aria-label", `${expanded ? "Collapse" : "Expand"} ${workspace.label} terminals`);
-      setHidden(nodes.body, !expanded);
-      reconcileChildren(nodes.header, [
-        nodes.disclosure,
-        this.#workspaceActionRow(workspace, nodes.headingBlock, workspaceManagementAvailable),
-      ]);
-    } else {
-      setClass(nodes.heading, hideTitle ? "visually-hidden" : "workspace-title");
-      setText(nodes.heading, workspace.label);
-      setHidden(nodes.body, false);
+      const main = element(this.#document, "span", "terminal-main");
+      const name = element(this.#document, "span", "terminal-name");
+      const summary = element(this.#document, "span", "workspace-set-summary workspace-picker-summary");
+      main.append(name, summary);
+      const control = element(this.#document, "span", "terminal-picker-control");
+      const badge = element(this.#document, "span", "terminal-count-badge");
+      badge.setAttribute("aria-hidden", "true");
+      const chevron = element(this.#document, "span", "terminal-chevron");
+      chevron.setAttribute("aria-hidden", "true");
+      control.append(badge, chevron);
+      row.append(main, control);
+      row.dataset.workspaceKey = workspace.id;
+      nodes = {
+        badge,
+        chevron,
+        main,
+        name,
+        row,
+        summary,
+        summaryStatuses: new Map<keyof AgentCounts, HTMLElement>(),
+      };
+      this.#workspacePickerRows.set(workspace.id, nodes);
     }
+
+    const count = terminalCount(workspace);
+    setClass(nodes.row, actionsAvailable
+      ? "terminal-row workspace-terminal-trigger"
+      : "terminal-row workspace-terminal-trigger terminal-row-stale");
+    if (actionsAvailable) {
+      const totals = this.#groupSummaryLabel(counts);
+      setAttribute(
+        nodes.row,
+        "aria-label",
+        `Choose a terminal in ${workspace.label}, ${count} terminals${totals ? `, ${totals}` : ""}`,
+      );
+    }
+    setText(nodes.name, workspace.label);
+    setText(nodes.badge, String(count));
+    this.#updateSummary(nodes.summary, nodes.summaryStatuses, counts);
+    return nodes.row;
+  }
+
+  #openTerminalPicker(workspaceID: string, returnFocus: HTMLElement): void {
+    const workspace = this.#workspaceValues.get(workspaceID);
+    if (!workspace || terminalCount(workspace) <= 1 || !this.#lastRender) return;
+    this.#closeMenu();
+    this.#pickerWorkspaceID = workspaceID;
+    this.#pickerReturnFocus = returnFocus;
+    this.#pickerScroll = this.#document.defaultView?.scrollY ?? 0;
+    this.#picker.body.scrollTop = 0;
+    const usedTabs: UsedTabs = new Map();
+    this.#updateTerminalPicker(
+      this.#lastRender.actionsAvailable,
+      this.#lastRender.actionsAvailable && !this.#actionRunning,
+      usedTabs,
+    );
+    this.#picker.close.focus({ preventScroll: true });
+  }
+
+  #updateTerminalPicker(
+    actionsAvailable: boolean,
+    managementAvailable: boolean,
+    usedTabs: UsedTabs,
+  ): void {
+    if (!this.#pickerWorkspaceID) {
+      setHidden(this.#picker.layer, true);
+      return;
+    }
+    const workspace = this.#workspaceValues.get(this.#pickerWorkspaceID);
+    if (!workspace || terminalCount(workspace) <= 1) {
+      this.#pickerWorkspaceID = undefined;
+      this.#pickerReturnFocus = undefined;
+      reconcileChildren(this.#picker.body, []);
+      setHidden(this.#picker.layer, true);
+      return;
+    }
+
+    setText(this.#picker.title, workspace.label);
+    setText(this.#picker.count, `${terminalCount(workspace)} terminals`);
+    const tabs = visibleTabs(workspace, false);
+    const tabsShown = showTabHeadings(workspace);
     const children: Node[] = [];
+    let workspaceTabs = usedTabs.get(workspace.id);
+    if (!workspaceTabs) {
+      workspaceTabs = new Set();
+      usedTabs.set(workspace.id, workspaceTabs);
+    }
     for (const group of tabs) {
-      let workspaceTabs = usedTabs.get(workspace.id);
-      if (!workspaceTabs) {
-        workspaceTabs = new Set();
-        usedTabs.set(workspace.id, workspaceTabs);
-      }
       workspaceTabs.add(group.tab.id);
       const tab = this.#tab(workspace.id, group.tab.id);
       this.#updateTab(
@@ -757,12 +857,42 @@ export class HomeView {
       );
       children.push(tab.group);
     }
-    reconcileChildren(nodes.body, children);
-    if (expandable) {
-      reconcileChildren(nodes.section, [nodes.header, nodes.body]);
-    } else {
-      reconcileChildren(nodes.section, [nodes.heading, nodes.body]);
+    reconcileChildren(this.#picker.body, children);
+    setHidden(this.#picker.layer, false);
+  }
+
+  #closeTerminalPicker(): void {
+    if (!this.#pickerWorkspaceID || this.#actionRunning) return;
+    this.#closeMenu();
+    this.#pickerWorkspaceID = undefined;
+    setHidden(this.#picker.layer, true);
+    reconcileChildren(this.#picker.body, []);
+    this.#document.defaultView?.scrollTo(0, this.#pickerScroll);
+    const target = this.#pickerReturnFocus?.isConnected ? this.#pickerReturnFocus : this.#filterInput;
+    this.#pickerReturnFocus = undefined;
+    target.focus({ preventScroll: true });
+  }
+
+  #handlePickerKey(event: KeyboardEvent): void {
+    if (event.defaultPrevented || this.#actionLayer.hidden === false) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      this.#closeTerminalPicker();
+      return;
     }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(this.#picker.panel.querySelectorAll<HTMLElement>("button"))
+      .filter((node) => !node.hasAttribute("disabled") && node.closest("[hidden]") === null);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const current = focusable.indexOf(this.#document.activeElement as HTMLElement);
+    const next = event.shiftKey
+      ? (current <= 0 ? focusable.length - 1 : current - 1)
+      : (current < 0 || current === focusable.length - 1 ? 0 : current + 1);
+    event.preventDefault();
+    focusable[next].focus({ preventScroll: true });
   }
 
   #tab(workspaceID: string, tabID: string): TabNodes {
@@ -1628,6 +1758,7 @@ export class HomeView {
     for (const key of this.#workspaces.keys()) {
       if (!usedWorkspaces.has(key)) {
         this.#workspaces.delete(key);
+        this.#workspacePickerRows.delete(key);
         this.#workspaceMenus.delete(key);
         if (this.#openMenuKey === `workspace:${key}`) this.#openMenuKey = undefined;
       }

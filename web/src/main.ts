@@ -16,6 +16,7 @@ import {
   allTerminals,
   automaticAllTerminalsPlace,
   findTerminal,
+  terminalCount,
   type HomePlace,
   type HomeState,
   type TerminalEntry,
@@ -66,11 +67,14 @@ let lastValidHomeFrameAt = performance.now();
 let selectedTerminal: TerminalEntry | undefined;
 let homeScroll = 0;
 let homeFocusPane: string | undefined;
+let homeFocusWorkspace: string | undefined;
 let homeAnchorTop: number | undefined;
 let homeHadListFocus = false;
 let lastFocusedHomePane: string | undefined;
+let lastFocusedHomeWorkspace: string | undefined;
 let allTerminalsScroll = 0;
 let allTerminalsFocusPane: string | undefined;
+let allTerminalsFocusWorkspace: string | undefined;
 let homeMode: "all" | "blocked" = "all";
 let restoreHomePlace = false;
 let publishedStateSignature = "";
@@ -99,6 +103,11 @@ const homeView = new HomeView(app, {
   isHomeActive: homeInterfaceActive,
   onFocusPane: (paneID) => {
     lastFocusedHomePane = paneID;
+    lastFocusedHomeWorkspace = undefined;
+  },
+  onFocusWorkspace: (workspaceID) => {
+    lastFocusedHomePane = undefined;
+    lastFocusedHomeWorkspace = workspaceID;
   },
   onOpen: openTerminal,
   onOpenCreated: openCreatedTerminal,
@@ -294,6 +303,7 @@ function renderHome(): void {
   terminalPage = undefined;
   const automaticPlace = automaticAllTerminalsPlace(homeMode, state.home.blocked_count, {
     focusPane: allTerminalsFocusPane,
+    focusWorkspace: allTerminalsFocusWorkspace,
     scroll: allTerminalsScroll,
   });
   if (automaticPlace) restoreAllTerminalsPlace(automaticPlace);
@@ -307,13 +317,16 @@ function renderHome(): void {
       ? {
           anchorTop: homeAnchorTop,
           focusPane: homeHadListFocus ? homeFocusPane : undefined,
+          focusWorkspace: homeHadListFocus ? homeFocusWorkspace : undefined,
           pane: homeFocusPane,
           scroll: homeScroll,
+          workspace: homeFocusWorkspace,
         }
       : undefined,
     state,
   });
   homeFocusPane = undefined;
+  homeFocusWorkspace = undefined;
   homeAnchorTop = undefined;
   homeHadListFocus = false;
   restoreHomePlace = false;
@@ -419,19 +432,33 @@ function currentFocusedPane(): string | undefined {
   return document.activeElement instanceof HTMLElement ? document.activeElement.dataset.paneId : undefined;
 }
 
+function currentFocusedWorkspace(): string | undefined {
+  return document.activeElement instanceof HTMLElement ? document.activeElement.dataset.workspaceKey : undefined;
+}
+
 function showBlockedTerminals(): void {
   allTerminalsScroll = window.scrollY;
   allTerminalsFocusPane = currentFocusedPane() ?? lastFocusedHomePane;
+  allTerminalsFocusWorkspace = currentFocusedWorkspace() ?? lastFocusedHomeWorkspace;
   const firstBlocked = allTerminals(state.home).find(({ terminal }) => terminal.agent?.status === "blocked");
   homeMode = "blocked";
   homeScroll = 0;
-  homeFocusPane = firstBlocked?.terminal.pane_id;
+  homeFocusPane = firstBlocked && terminalCount(firstBlocked.workspace) === 1
+    ? firstBlocked.terminal.pane_id
+    : undefined;
+  homeFocusWorkspace = firstBlocked && terminalCount(firstBlocked.workspace) > 1
+    ? firstBlocked.workspace.id
+    : undefined;
   restoreHomePlace = true;
   renderHome();
 }
 
 function showAllTerminals(): void {
-  restoreAllTerminalsPlace({ focusPane: allTerminalsFocusPane, scroll: allTerminalsScroll });
+  restoreAllTerminalsPlace({
+    focusPane: allTerminalsFocusPane,
+    focusWorkspace: allTerminalsFocusWorkspace,
+    scroll: allTerminalsScroll,
+  });
   renderHome();
 }
 
@@ -439,6 +466,7 @@ function restoreAllTerminalsPlace(place: HomePlace): void {
   homeMode = "all";
   homeScroll = place.scroll;
   homeFocusPane = place.focusPane;
+  homeFocusWorkspace = place.focusWorkspace;
   restoreHomePlace = true;
 }
 
@@ -446,6 +474,7 @@ function openTerminal(entry: TerminalEntry): void {
   if (!liveActionsAvailable()) return;
   homeScroll = window.scrollY;
   homeFocusPane = entry.terminal.pane_id;
+  homeFocusWorkspace = undefined;
   homeAnchorTop = homeView.row(entry.terminal.pane_id)?.getBoundingClientRect().top;
   homeHadListFocus = currentFocusedPane() === entry.terminal.pane_id;
   selectedTerminal = entry;
@@ -455,6 +484,7 @@ function openTerminal(entry: TerminalEntry): void {
 function openCreatedTerminal(target: TerminalActionTarget): void {
   homeScroll = window.scrollY;
   homeFocusPane = target.pane_id;
+  homeFocusWorkspace = undefined;
   homeAnchorTop = homeView.row(target.pane_id)?.getBoundingClientRect().top;
   homeHadListFocus = false;
   selectedTerminal = undefined;
