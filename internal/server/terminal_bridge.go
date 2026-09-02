@@ -431,7 +431,7 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 	validator := terminalFrameValidator{}
 	heartbeat := time.NewTicker(terminalBridgeHeartbeat)
 	defer heartbeat.Stop()
-	bridge.logger.Info("terminal stream started", "pane", settings.pane, "terminal", target, "mode", settings.mode, "cols", settings.cols, "rows", settings.rows)
+	bridge.logger.Debug("terminal stream started", "pane", settings.pane, "terminal", target, "mode", settings.mode, "cols", settings.cols, "rows", settings.rows)
 	for {
 		select {
 		case event := <-session.events:
