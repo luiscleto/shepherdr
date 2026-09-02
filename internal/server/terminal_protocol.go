@@ -158,11 +158,15 @@ func validatedTerminalCommand(message []byte) (terminalBrowserCommand, error) {
 	var envelope struct {
 		Bytes     *string  `json:"bytes"`
 		Chunks    []string `json:"chunks"`
+		Column    *int     `json:"column"`
 		Cols      int      `json:"cols"`
 		Direction string   `json:"direction"`
 		Lines     int      `json:"lines"`
+		Modifiers *int     `json:"modifiers"`
 		RequestID uint64   `json:"request_id"`
+		Row       *int     `json:"row"`
 		Rows      int      `json:"rows"`
+		Source    *string  `json:"source"`
 		Text      *string  `json:"text"`
 		Type      string   `json:"type"`
 	}
@@ -174,7 +178,8 @@ func validatedTerminalCommand(message []byte) (terminalBrowserCommand, error) {
 	if err := requireJSONEnd(decoder); err != nil {
 		return terminalBrowserCommand{}, errors.New("invalid JSON")
 	}
-	inputFieldsOnly := envelope.Cols == 0 && envelope.Rows == 0 && envelope.Direction == "" && envelope.Lines == 0
+	inputFieldsOnly := envelope.Cols == 0 && envelope.Rows == 0 && envelope.Direction == "" && envelope.Lines == 0 &&
+		envelope.Column == nil && envelope.Modifiers == nil && envelope.Row == nil && envelope.Source == nil
 	switch envelope.Type {
 	case "terminal.input":
 		if !inputFieldsOnly || envelope.RequestID < 1 || envelope.RequestID > 1<<53-1 || len(envelope.Chunks) > 0 || (envelope.Text == nil) == (envelope.Bytes == nil) {
@@ -207,18 +212,25 @@ func validatedTerminalCommand(message []byte) (terminalBrowserCommand, error) {
 		return terminalBrowserCommand{childCommands: commands, requestID: envelope.RequestID}, nil
 	case "terminal.resize":
 		if envelope.RequestID != 0 || envelope.Text != nil || envelope.Bytes != nil || len(envelope.Chunks) > 0 || envelope.Direction != "" || envelope.Lines != 0 ||
+			envelope.Column != nil || envelope.Modifiers != nil || envelope.Row != nil || envelope.Source != nil ||
 			envelope.Cols < 2 || envelope.Cols > 1000 || envelope.Rows < 1 || envelope.Rows > 1000 {
 			return terminalBrowserCommand{}, errors.New("resize fields are invalid")
 		}
 		return terminalBrowserCommand{childCommands: []any{map[string]any{"type": envelope.Type, "cols": envelope.Cols, "rows": envelope.Rows}}}, nil
 	case "terminal.scroll":
 		if envelope.RequestID != 0 || envelope.Text != nil || envelope.Bytes != nil || len(envelope.Chunks) > 0 || envelope.Cols != 0 || envelope.Rows != 0 ||
-			(envelope.Direction != "up" && envelope.Direction != "down") || envelope.Lines < 1 || envelope.Lines > 1000 {
+			(envelope.Direction != "up" && envelope.Direction != "down") || envelope.Lines < 1 || envelope.Lines > 1000 ||
+			envelope.Source == nil || *envelope.Source != "wheel" || envelope.Column == nil || *envelope.Column < 0 || *envelope.Column >= 1000 ||
+			envelope.Row == nil || *envelope.Row < 0 || *envelope.Row >= 1000 || envelope.Modifiers == nil || *envelope.Modifiers < 0 || *envelope.Modifiers > 13 {
 			return terminalBrowserCommand{}, errors.New("scroll fields are invalid")
 		}
-		return terminalBrowserCommand{childCommands: []any{map[string]any{"type": envelope.Type, "direction": envelope.Direction, "lines": envelope.Lines, "source": "page_key"}}}, nil
+		return terminalBrowserCommand{childCommands: []any{map[string]any{
+			"type": envelope.Type, "direction": envelope.Direction, "lines": envelope.Lines, "source": *envelope.Source,
+			"column": *envelope.Column, "row": *envelope.Row, "modifiers": *envelope.Modifiers,
+		}}}, nil
 	case "terminal.release":
-		if envelope.RequestID != 0 || envelope.Text != nil || envelope.Bytes != nil || len(envelope.Chunks) > 0 || envelope.Cols != 0 || envelope.Rows != 0 || envelope.Direction != "" || envelope.Lines != 0 {
+		if envelope.RequestID != 0 || envelope.Text != nil || envelope.Bytes != nil || len(envelope.Chunks) > 0 || envelope.Cols != 0 || envelope.Rows != 0 || envelope.Direction != "" || envelope.Lines != 0 ||
+			envelope.Column != nil || envelope.Modifiers != nil || envelope.Row != nil || envelope.Source != nil {
 			return terminalBrowserCommand{}, errors.New("release fields are invalid")
 		}
 		return terminalBrowserCommand{childCommands: []any{map[string]string{"type": envelope.Type}}, release: true}, nil

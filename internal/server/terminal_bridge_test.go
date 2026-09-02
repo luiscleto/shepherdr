@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -311,6 +312,27 @@ func TestTerminalInputBatchPreservesAcknowledgementIDAndRejectsExtraFields(t *te
 	}
 	if _, err := validatedTerminalCommand([]byte(`{"type":"terminal.release","text":"surprise"}`)); err == nil {
 		t.Fatal("release with hostile extra field was accepted")
+	}
+}
+
+func TestTerminalWheelScrollPreservesExistingHerdrHistoryCommand(t *testing.T) {
+	command, err := validatedTerminalCommand([]byte(`{"type":"terminal.scroll","source":"wheel","direction":"up","lines":3,"column":17,"row":8,"modifiers":5}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, ok := command.childCommands[0].(map[string]any)
+	if !ok {
+		t.Fatalf("scroll command = %#v", command.childCommands)
+	}
+	want := map[string]any{
+		"type": "terminal.scroll", "source": "wheel", "direction": "up", "lines": 3,
+		"column": 17, "row": 8, "modifiers": 5,
+	}
+	if !reflect.DeepEqual(child, want) {
+		t.Fatalf("scroll command = %#v, want %#v", child, want)
+	}
+	if _, err := validatedTerminalCommand([]byte(`{"type":"terminal.scroll","source":"page_key","direction":"up","lines":3,"column":17,"row":8,"modifiers":0}`)); err == nil {
+		t.Fatal("non-wheel desktop scroll was accepted")
 	}
 }
 
