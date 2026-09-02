@@ -917,6 +917,30 @@ h3 {
   background: var(--paper-raised);
 }
 
+.terminal-action-sheet-layer {
+  z-index: 45;
+}
+
+.terminal-action-sheet-body {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.25rem max(0.75rem, env(safe-area-inset-right)) max(0.75rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
+  -webkit-overflow-scrolling: touch;
+}
+
+.terminal-action-sheet-body .workspace-menu-popover {
+  position: static;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .home-action-layer {
   position: fixed;
   z-index: 50;
@@ -1629,10 +1653,6 @@ button.terminal-row:hover {
     padding-left: max(0.75rem, env(safe-area-inset-left));
   }
 
-  .terminal-picker-body .terminal-menu .workspace-menu-popover {
-    top: auto;
-    bottom: calc(100% - 0.3rem);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

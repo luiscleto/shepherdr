@@ -602,6 +602,62 @@ test("multi-terminal Home keeps one row and opens the complete terminal picker",
   window.close();
 });
 
+test("phone picker terminal actions use a contained sheet and preserve picker place", () => {
+  const window = new Window({ url: "http://localhost/", innerWidth: 360, innerHeight: 740 });
+  Object.defineProperty(window, "matchMedia", { value: () => ({ matches: true }) });
+  const { app } = makeView(window, {}, terminalHome());
+  requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
+  const pickerBody = requiredElement(app, ".terminal-picker-body");
+  pickerBody.scrollTop = 73;
+  const trigger = requiredMatchingElement<HTMLButtonElement>(
+    app,
+    ".terminal-menu .workspace-menu-trigger",
+    (button) => button.getAttribute("aria-label") === "Actions for Logs",
+  );
+
+  trigger.click();
+  const layer = requiredElement(app, ".terminal-action-sheet-layer");
+  assert.equal(layer.hidden, false);
+  assert.equal(requiredElement(app, ".terminal-action-sheet-panel").getAttribute("role"), "dialog");
+  assert.equal(requiredElement(app, ".terminal-action-sheet-title").textContent, "Actions for Logs");
+  assert.equal(trigger.getAttribute("aria-haspopup"), "dialog");
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".terminal-action-sheet-body [role='menuitem']"), (node) => node.textContent),
+    ["New terminal", "Rename terminal", "Close terminal"],
+  );
+  assert.equal(requiredElement(app, ".terminal-picker-layer").hidden, false);
+  assert.equal(pickerBody.scrollTop, 73);
+  assert.equal((window.document.activeElement as HTMLElement | null)?.getAttribute("aria-label"), "Close terminal actions");
+  layer.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "Tab", shiftKey: true }));
+  assert.equal(window.document.activeElement?.textContent, "Close terminal");
+  layer.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "Tab" }));
+  assert.equal((window.document.activeElement as HTMLElement | null)?.getAttribute("aria-label"), "Close terminal actions");
+
+  requiredElement<HTMLButtonElement>(app, ".terminal-action-sheet-close").click();
+  assert.equal(layer.hidden, true);
+  assert.equal((window.document.activeElement as HTMLElement | null)?.getAttribute("aria-label"), "Actions for Logs");
+  assert.equal(pickerBody.scrollTop, 73);
+
+  trigger.click();
+  layer.click();
+  assert.equal(layer.hidden, true);
+  trigger.click();
+  layer.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
+  assert.equal(layer.hidden, true);
+  assert.equal(requiredElement(app, ".terminal-picker-layer").hidden, false);
+  assert.equal(pickerBody.scrollTop, 73);
+  trigger.click();
+  requiredMatchingElement<HTMLButtonElement>(
+    app,
+    ".terminal-action-sheet-body [role='menuitem']",
+    (button) => button.textContent === "Rename terminal",
+  ).click();
+  assert.equal(layer.hidden, true);
+  assert.equal(requiredElement(app, ".home-action-title").textContent, "Rename Logs");
+  assert.equal(pickerBody.scrollTop, 73);
+  window.close();
+});
+
 test("Home filters by a tab name only when its heading is displayed", () => {
   const window = new Window({ url: "http://localhost/" });
   const home = terminalHome();
@@ -659,6 +715,8 @@ test("terminal menu uses exact action order and split opens only the returned te
     (button) => button.getAttribute("aria-label") === "Actions for Build <script>",
   );
   trigger.click();
+  assert.equal(trigger.getAttribute("aria-haspopup"), "menu");
+  assert.equal(requiredElement(app, ".terminal-action-sheet-layer").hidden, true);
   const items = Array.from(trigger.parentElement!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
   assert.deepEqual(items.map((item) => item.textContent), ["New terminal", "Rename terminal", "Close terminal"]);
   items[0].click();
@@ -941,6 +999,5 @@ test("Home action controls retain phone-sized touch targets in the Home-owned st
   assert.match(styles, /\.terminal-picker-body\s*\{[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/s);
   assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.terminal-picker-layer\s*\{[^}]*place-items:\s*end center;/);
   assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.terminal-picker-header\s*\{[^}]*safe-area-inset-right[^}]*safe-area-inset-left/);
-  assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.terminal-picker-body \.terminal-menu \.workspace-menu-popover\s*\{[^}]*top:\s*auto;[^}]*bottom:\s*calc\(100% - 0\.3rem\);/);
   assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.home-filter\s*\{[^}]*grid-column:\s*1 \/ -1;/);
 });

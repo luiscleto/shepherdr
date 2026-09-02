@@ -124,10 +124,20 @@ interface RowNodes {
 
 type UsedTabs = Map<string, Set<string>>;
 
+const PHONE_PICKER_MEDIA = "(max-width: 520px), (max-height: 520px) and (pointer: coarse)";
+
 interface TerminalPickerNodes {
   body: HTMLElement;
   close: HTMLButtonElement;
   count: HTMLElement;
+  layer: HTMLElement;
+  panel: HTMLElement;
+  title: HTMLHeadingElement;
+}
+
+interface TerminalActionSheetNodes {
+  body: HTMLElement;
+  close: HTMLButtonElement;
   layer: HTMLElement;
   panel: HTMLElement;
   title: HTMLHeadingElement;
@@ -207,6 +217,7 @@ export class HomeView {
   readonly #newSpaceAction: HTMLButtonElement;
   readonly #noMatches: HTMLElement;
   readonly #picker: TerminalPickerNodes;
+  readonly #terminalActionSheet: TerminalActionSheetNodes;
   readonly #actionLayer: HTMLElement;
   readonly #actionPanel: HTMLElement;
   readonly #rows = new Map<string, RowNodes>();
@@ -228,6 +239,8 @@ export class HomeView {
   #pickerScroll = 0;
   #pickerWorkspaceID: string | undefined;
   #returnFocus: HTMLElement | undefined;
+  #terminalActionSheetKey: string | undefined;
+  #terminalActionSheetPickerScroll = 0;
   #workspaceHeadingSequence = 0;
   #workspaceSetSequence = 0;
 
@@ -345,6 +358,53 @@ export class HomeView {
       title: pickerTitle,
     };
 
+    const terminalActionSheetLayer = element(
+      this.#document,
+      "div",
+      "terminal-picker-layer terminal-action-sheet-layer",
+    );
+    terminalActionSheetLayer.hidden = true;
+    const terminalActionSheetPanel = element(
+      this.#document,
+      "section",
+      "terminal-picker-panel terminal-action-sheet-panel",
+    );
+    terminalActionSheetPanel.setAttribute("role", "dialog");
+    terminalActionSheetPanel.setAttribute("aria-modal", "true");
+    terminalActionSheetPanel.tabIndex = -1;
+    const terminalActionSheetHeader = element(
+      this.#document,
+      "header",
+      "terminal-picker-header terminal-action-sheet-header",
+    );
+    const terminalActionSheetHeading = element(this.#document, "div", "terminal-picker-heading");
+    const terminalActionSheetTitle = element(
+      this.#document,
+      "h2",
+      "terminal-picker-title terminal-action-sheet-title",
+    );
+    terminalActionSheetTitle.id = "terminal-action-sheet-title";
+    terminalActionSheetHeading.append(terminalActionSheetTitle);
+    const terminalActionSheetClose = this.#button("×", () => this.#closeMenu(true));
+    terminalActionSheetClose.className = "terminal-picker-close terminal-action-sheet-close";
+    terminalActionSheetClose.setAttribute("aria-label", "Close terminal actions");
+    terminalActionSheetHeader.append(terminalActionSheetHeading, terminalActionSheetClose);
+    const terminalActionSheetBody = element(this.#document, "div", "terminal-action-sheet-body");
+    terminalActionSheetPanel.setAttribute("aria-labelledby", terminalActionSheetTitle.id);
+    terminalActionSheetPanel.append(terminalActionSheetHeader, terminalActionSheetBody);
+    terminalActionSheetLayer.append(terminalActionSheetPanel);
+    terminalActionSheetLayer.addEventListener("click", (event) => {
+      if (event.target === terminalActionSheetLayer) this.#closeMenu(true);
+    });
+    terminalActionSheetLayer.addEventListener("keydown", (event) => this.#handleTerminalActionSheetKey(event));
+    this.#terminalActionSheet = {
+      body: terminalActionSheetBody,
+      close: terminalActionSheetClose,
+      layer: terminalActionSheetLayer,
+      panel: terminalActionSheetPanel,
+      title: terminalActionSheetTitle,
+    };
+
     this.#actionLayer = element(this.#document, "div", "home-action-layer");
     this.#actionLayer.hidden = true;
     this.#actionPanel = element(this.#document, "section", "home-action-panel");
@@ -355,7 +415,8 @@ export class HomeView {
     this.#actionLayer.addEventListener("keydown", (event) => this.#handleDialogKey(event));
     this.#document.addEventListener("click", (event) => {
       const target = event.target;
-      if (target instanceof this.#document.defaultView!.Element && !target.closest(".workspace-menu")) this.#closeMenu();
+      if (target instanceof this.#document.defaultView!.Element &&
+        !target.closest(".workspace-menu, .terminal-action-sheet-panel")) this.#closeMenu();
     });
   }
 
@@ -453,8 +514,9 @@ export class HomeView {
     }
 
     const automaticallyClosedPicker = this.#updateTerminalPicker(model.actionsAvailable, managementAvailable, usedTabs);
+    this.#updateTerminalActionSheet(managementAvailable, completePaneIDs);
     if (this.#pickerWorkspaceID) usedWorkspaces.add(this.#pickerWorkspaceID);
-    desired.push(this.#picker.layer, this.#actionLayer);
+    desired.push(this.#picker.layer, this.#terminalActionSheet.layer, this.#actionLayer);
 
     reconcileChildren(this.#app, desired);
     this.#prune(usedWorkspaces, usedTabs, usedSets, completePaneIDs);
@@ -1060,6 +1122,11 @@ export class HomeView {
 
   #updateTerminalMenu(nodes: WorkspaceMenuNodes, entry: TerminalEntry, includeWorkspace: boolean): void {
     setAttribute(nodes.trigger, "aria-label", `Actions for ${includeWorkspace ? entry.workspace.label : entry.terminal.title}`);
+    setAttribute(
+      nodes.trigger,
+      "aria-haspopup",
+      this.#usesTerminalActionSheet(`terminal:${entry.terminal.pane_id}`) ? "dialog" : "menu",
+    );
     const items: Node[] = [];
     const terminalOrder: TerminalAction[] = ["split_terminal", "rename_terminal", "close_terminal"];
     const terminalLabels: Record<TerminalAction, string> = {
@@ -1102,9 +1169,16 @@ export class HomeView {
     const open = this.#openMenuKey === `terminal:${entry.terminal.pane_id}`;
     setHidden(nodes.menu, !open);
     setAttribute(nodes.trigger, "aria-expanded", String(open));
+    if (this.#terminalActionSheetKey === `terminal:${entry.terminal.pane_id}`) {
+      setText(this.#terminalActionSheet.title, `Actions for ${entry.terminal.title}`);
+    }
   }
 
   #toggleMenu(key: string): void {
+    if (this.#usesTerminalActionSheet(key)) {
+      this.#openTerminalActionSheet(key);
+      return;
+    }
     this.#openMenuKey = this.#openMenuKey === key ? undefined : key;
     if (this.#lastRender) this.render(this.#lastRender);
     if (this.#openMenuKey === key) {
@@ -1118,11 +1192,85 @@ export class HomeView {
     if (!key) return;
     this.#openMenuKey = undefined;
     const nodes = this.#menuForKey(key);
+    const actionSheetOpen = this.#terminalActionSheetKey === key;
+    if (actionSheetOpen) {
+      this.#terminalActionSheetKey = undefined;
+      this.#terminalActionSheet.layer.hidden = true;
+      this.#picker.body.scrollTop = this.#terminalActionSheetPickerScroll;
+      if (nodes) nodes.menuRoot.append(nodes.menu);
+      reconcileChildren(this.#terminalActionSheet.body, []);
+    }
     if (nodes) {
       nodes.menu.hidden = true;
       setAttribute(nodes.trigger, "aria-expanded", "false");
-      if (returnFocus) nodes.trigger.focus({ preventScroll: true });
+      if (returnFocus) {
+        const target = nodes.trigger.isConnected
+          ? nodes.trigger
+          : (!this.#picker.layer.hidden ? this.#picker.close : this.#backgroundFocusTarget());
+        target?.focus({ preventScroll: true });
+      }
     }
+  }
+
+  #usesTerminalActionSheet(key: string): boolean {
+    return key.startsWith("terminal:") &&
+      this.#pickerWorkspaceID !== undefined &&
+      (this.#document.defaultView?.matchMedia(PHONE_PICKER_MEDIA).matches ?? false);
+  }
+
+  #openTerminalActionSheet(key: string): void {
+    const nodes = this.#menuForKey(key);
+    const paneID = key.slice("terminal:".length);
+    const entry = this.#entries.get(paneID);
+    if (!nodes || !entry) return;
+    this.#closeMenu();
+    this.#openMenuKey = key;
+    this.#terminalActionSheetKey = key;
+    this.#terminalActionSheetPickerScroll = this.#picker.body.scrollTop;
+    if (this.#lastRender) this.render(this.#lastRender);
+    reconcileChildren(this.#terminalActionSheet.body, [nodes.menu]);
+    setText(this.#terminalActionSheet.title, `Actions for ${entry.terminal.title}`);
+    setHidden(nodes.menu, false);
+    setHidden(this.#terminalActionSheet.layer, false);
+    this.#terminalActionSheet.close.focus({ preventScroll: true });
+  }
+
+  #updateTerminalActionSheet(managementAvailable: boolean, paneIDs: Set<string>): void {
+    const key = this.#terminalActionSheetKey;
+    if (!key) return;
+    const paneID = key.slice("terminal:".length);
+    const entry = this.#entries.get(paneID);
+    if (!this.#pickerWorkspaceID ||
+      !managementAvailable ||
+      !paneIDs.has(paneID) ||
+      !entry ||
+      entry.terminal.actions.length === 0) {
+      this.#closeMenu(true);
+      return;
+    }
+    setText(this.#terminalActionSheet.title, `Actions for ${entry.terminal.title}`);
+  }
+
+  #handleTerminalActionSheetKey(event: KeyboardEvent): void {
+    if (event.defaultPrevented) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      this.#closeMenu(true);
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(this.#terminalActionSheet.panel.querySelectorAll<HTMLElement>("button"))
+      .filter((node) => !node.hasAttribute("disabled") && node.closest("[hidden]") === null);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const current = focusable.indexOf(this.#document.activeElement as HTMLElement);
+    const next = event.shiftKey
+      ? (current <= 0 ? focusable.length - 1 : current - 1)
+      : (current < 0 || current === focusable.length - 1 ? 0 : current + 1);
+    event.preventDefault();
+    focusable[next].focus({ preventScroll: true });
   }
 
   #menuForKey(key: string): WorkspaceMenuNodes | undefined {
