@@ -27,7 +27,7 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.commit_sha }}
 
-      - name: Require the approved v0.2.0 tag and master commit
+      - name: Require the approved v0.2.1 tag and master commit
         env:
           EXPECTED_SHA: ${{ inputs.commit_sha }}
           RELEASE_TAG: ${{ inputs.tag }}
@@ -38,8 +38,8 @@ jobs:
             echo "commit_sha must be a full lowercase commit SHA" >&2
             exit 1
           fi
-          if [[ "$RELEASE_TAG" != "v0.2.0" ]]; then
-            echo "this workflow prepares only v0.2.0" >&2
+          if [[ "$RELEASE_TAG" != "v0.2.1" ]]; then
+            echo "this workflow prepares only v0.2.1" >&2
             exit 1
           fi
           if ! git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
@@ -67,28 +67,28 @@ jobs:
             runner_os: Linux
             runner_arch: X64
             herdr_asset: herdr-linux-x86_64
-            herdr_sha256: 976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4
+            herdr_sha256: 4fa1a01158dd8043da92d31b270780b0dcc10603038d9b61cac4d81ab63fb71f
           - goos: linux
             goarch: arm64
             runner: ubuntu-24.04-arm
             runner_os: Linux
             runner_arch: ARM64
             herdr_asset: herdr-linux-aarch64
-            herdr_sha256: f55610658e1c2e0d2aaef730b4b2ab885f7f8ba00285ab372bfb14f2e3d5b40d
+            herdr_sha256: 9c8db20fb7e7427b138d5367113f1621ffd319f2f65d6f009e2594029115f0d2
           - goos: darwin
             goarch: amd64
             runner: macos-15-intel
             runner_os: macOS
             runner_arch: X64
             herdr_asset: herdr-macos-x86_64
-            herdr_sha256: ab50262c8190cd7aa9056d249d255c08c328c3e8716de9cfa29db4f131b8e2c1
+            herdr_sha256: d0c920b2a126a74809fa1491411c9a097a44786cac9c2ca51b818a995581cf16
           - goos: darwin
             goarch: arm64
             runner: macos-15
             runner_os: macOS
             runner_arch: ARM64
             herdr_asset: herdr-macos-aarch64
-            herdr_sha256: a5d4f4d504d8b309c91f811050559300faba31258425f53c50852fc96f6ae574
+            herdr_sha256: 32b53df09872628059c789a69f02a6b8e29e14ddf26711421f3463f70c1aef17
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     env:
@@ -148,12 +148,12 @@ jobs:
           set -euo pipefail
           go test ./...
 
-          archive_base="shepherdr_0.2.0_${TARGET_GOOS}_${TARGET_GOARCH}"
+          archive_base="shepherdr_0.2.1_${TARGET_GOOS}_${TARGET_GOARCH}"
           candidate_dir="$RUNNER_TEMP/candidate"
           package_dir="$candidate_dir/$archive_base"
           mkdir -p "$package_dir"
           go build -trimpath -ldflags "-s -w -X main.releaseVersion=$RELEASE_TAG" -o "$package_dir/shepherdr" .
-          test "$("$package_dir/shepherdr" --version)" = "shepherdr v0.2.0"
+          test "$("$package_dir/shepherdr" --version)" = "shepherdr v0.2.1"
 
           go version -m "$package_dir/shepherdr" > "$candidate_dir/build-metadata.txt"
           grep -F "github.com/luiscleto/shepherdr" "$candidate_dir/build-metadata.txt"
@@ -180,9 +180,9 @@ jobs:
           test -f "$extract_root/$archive_base/README.md"
           test -f "$extract_root/$archive_base/CHANGELOG.md"
           test -f "$extract_root/$archive_base/LICENSE"
-          test "$("$extract_root/$archive_base/shepherdr" --version)" = "shepherdr v0.2.0"
+          test "$("$extract_root/$archive_base/shepherdr" --version)" = "shepherdr v0.2.1"
 
-      - name: Exercise the native packaged binary with Herdr 0.8.2
+      - name: Exercise the native packaged binary with Herdr 0.9.0
         env:
           GH_TOKEN: ${{ github.token }}
           HERDR_ASSET: ${{ matrix.herdr_asset }}
@@ -192,18 +192,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive_base="shepherdr_0.2.0_${TARGET_GOOS}_${TARGET_GOARCH}"
+          archive_base="shepherdr_0.2.1_${TARGET_GOOS}_${TARGET_GOARCH}"
           packaged_binary="$RUNNER_TEMP/candidate/extracted/$archive_base/shepherdr"
           smoke_root="$RUNNER_TEMP/native-smoke"
           tools_dir="$smoke_root/tools"
           mkdir -p "$tools_dir"
 
-          gh release download v0.8.2 --repo herdrdev/herdr --pattern "$HERDR_ASSET" --dir "$tools_dir"
+          gh release download v0.9.0 --repo herdrdev/herdr --pattern "$HERDR_ASSET" --dir "$tools_dir"
           downloaded_herdr="$tools_dir/$HERDR_ASSET"
           printf '%s  %s\n' "$HERDR_SHA256" "$downloaded_herdr" | shasum -a 256 -c -
           install -m 0755 "$downloaded_herdr" "$tools_dir/herdr"
           herdr_binary="$tools_dir/herdr"
-          test "$("$herdr_binary" --version)" = "herdr 0.8.2"
+          test "$("$herdr_binary" --version)" = "herdr 0.9.0"
           test "$(PATH="$tools_dir:$PATH" command -v herdr)" = "$herdr_binary"
 
           herdr_pid=
@@ -307,7 +307,7 @@ jobs:
           test "$(ps -o uid= -p "$herdr_pid" | tr -d ' ')" = "$(id -u)"
           HERDR_CONFIG_PATH="$smoke_root/herdr/config.toml" HERDR_SOCKET_PATH="$smoke_root/herdr/herdr.sock" "$herdr_binary" status server --json >"$smoke_root/herdr-status.json"
           grep -F '"running":true' "$smoke_root/herdr-status.json"
-          grep -F '"version":"0.8.2"' "$smoke_root/herdr-status.json"
+          grep -F '"version":"0.9.0"' "$smoke_root/herdr-status.json"
 
           mkdir -p "$smoke_root/sign-in-off/config" "$smoke_root/sign-in-off/uploads"
           XDG_CONFIG_HOME="$smoke_root/sign-in-off/config" PATH="$tools_dir:$PATH" "$packaged_binary" -no-sign-in -listen 127.0.0.1:18787 -herdr-socket "$smoke_root/herdr/herdr.sock" -upload-parent "$smoke_root/sign-in-off/uploads" >"$smoke_root/sign-in-off.log" 2>&1 &
@@ -359,8 +359,8 @@ jobs:
           name: candidate-${{ matrix.goos }}-${{ matrix.goarch }}
           if-no-files-found: error
           path: |
-            ${{ runner.temp }}/candidate/shepherdr_0.2.0_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
-            ${{ runner.temp }}/candidate/shepherdr_0.2.0_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz.sha256
+            ${{ runner.temp }}/candidate/shepherdr_0.2.1_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+            ${{ runner.temp }}/candidate/shepherdr_0.2.1_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz.sha256
 
   draft:
     name: Update draft release
@@ -395,40 +395,25 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p downloaded release-assets
-          checksum_file="release-assets/shepherdr_0.2.0_checksums.txt"
+          checksum_file="release-assets/shepherdr_0.2.1_checksums.txt"
           : > "$checksum_file"
-          included=
-          omitted=
           for target in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
-            archive="shepherdr_0.2.0_$target.tar.gz"
+            archive="shepherdr_0.2.1_$target.tar.gz"
             candidate_checksum="$archive.sha256"
             if [[ -f "downloaded/$archive" && -f "downloaded/$candidate_checksum" ]]; then
               (cd downloaded && shasum -a 256 -c "$candidate_checksum")
               cp "downloaded/$archive" release-assets/
               cat "downloaded/$candidate_checksum" >> "$checksum_file"
-              included="$included\n- $target"
-            else
-              omitted="$omitted\n- $target"
             fi
           done
           LC_ALL=C sort -k2 "$checksum_file" -o "$checksum_file"
 
           awk '
-            /^## \[0\.2\.0\]/ { release = 1; next }
+            /^## \[0\.2\.1\]/ { release = 1; next }
             /^## \[/ && release { exit }
             /^\[Unreleased\]:/ && release { exit }
             release { print }
           ' CHANGELOG.md > release-body.md
-          {
-            printf '\n### Native candidate validation\n'
-            printf '\nIncluded after native build and gate:%b\n' "$included"
-            if [[ -n "$omitted" ]]; then
-              printf '\nOmitted because its native runner did not produce a fully gated archive:%b\n' "$omitted"
-            else
-              printf '\nOmitted: none\n'
-            fi
-            printf '\nThe macOS archives are unsigned and not notarized. This release remains a draft until the required human checks are complete.\n'
-          } >> release-body.md
 
           {
             echo "### Native candidate results"
@@ -436,7 +421,7 @@ jobs:
             echo "| Target | Result |"
             echo "| --- | --- |"
             for target in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
-              archive="release-assets/shepherdr_0.2.0_$target.tar.gz"
+              archive="release-assets/shepherdr_0.2.1_$target.tar.gz"
               if [[ -f "$archive" ]]; then
                 echo "| $target | included |"
               else
@@ -499,7 +484,7 @@ jobs:
               exit 1
             fi
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
-              -f name="Shepherdr v0.2.0" \
+              -f name="Shepherdr v0.2.1" \
               -F draft=true \
               -F prerelease=false \
               -F body=@release-body.md >/dev/null
@@ -507,7 +492,7 @@ jobs:
             release_id=$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
               -f tag_name="$RELEASE_TAG" \
               -f target_commitish="${{ inputs.commit_sha }}" \
-              -f name="Shepherdr v0.2.0" \
+              -f name="Shepherdr v0.2.1" \
               -F draft=true \
               -F prerelease=false \
               -F body=@release-body.md \
@@ -519,11 +504,11 @@ jobs:
           fi
 
           for name in \
-            shepherdr_0.2.0_linux_amd64.tar.gz \
-            shepherdr_0.2.0_linux_arm64.tar.gz \
-            shepherdr_0.2.0_darwin_amd64.tar.gz \
-            shepherdr_0.2.0_darwin_arm64.tar.gz \
-            shepherdr_0.2.0_checksums.txt; do
+            shepherdr_0.2.1_linux_amd64.tar.gz \
+            shepherdr_0.2.1_linux_arm64.tar.gz \
+            shepherdr_0.2.1_darwin_amd64.tar.gz \
+            shepherdr_0.2.1_darwin_arm64.tar.gz \
+            shepherdr_0.2.1_checksums.txt; do
             if gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --jq '.[].name' | grep -Fxq "$name"; then
               gh release delete-asset "$RELEASE_TAG" "$name" --yes
             fi
