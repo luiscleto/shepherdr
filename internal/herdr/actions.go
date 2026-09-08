@@ -263,10 +263,11 @@ func (c *Client) CreateWorktree(ctx context.Context, source CreateWorktreeSource
 	}, expectMutationResult("worktree_created", "workspace", "tab", "root_pane", "worktree"))
 }
 
-func (c *Client) CloseWorkspace(ctx context.Context, workspaceID string) error {
+func (c *Client) CloseWorkspace(ctx context.Context, workspaceID string, closeGroup bool) error {
 	return c.mutate(ctx, "workspace-close", "workspace.close", struct {
 		WorkspaceID string `json:"workspace_id"`
-	}{WorkspaceID: workspaceID}, expectMutationResult("ok"))
+		CloseGroup  bool   `json:"close_group,omitempty"`
+	}{WorkspaceID: workspaceID, CloseGroup: closeGroup}, expectMutationResult("ok"))
 }
 
 func (c *Client) RemoveWorktree(ctx context.Context, workspaceID string) error {

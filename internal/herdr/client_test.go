@@ -146,14 +146,20 @@ func TestHerdrCompatibilityPolicy(t *testing.T) {
 		wantWarning bool
 	}{
 		{name: "minimum supported release", version: "0.8.0", protocol: 19},
+		{name: "maximum supported release", version: "0.9.0", protocol: 22},
+		{name: "maximum build metadata", version: "0.9.0+build.1", protocol: 22},
+		{name: "maximum with old protocol", version: "0.9.0", protocol: 20, wantReason: CompatibilityInterfaceMismatch},
+		{name: "maximum with unknown protocol", version: "0.9.0", protocol: 23, wantReason: CompatibilityInterfaceMismatch},
+		{name: "older release with new protocol", version: "0.8.2", protocol: 22, wantReason: CompatibilityInterfaceMismatch},
+		{name: "unverified middle release with new protocol", version: "0.8.1", protocol: 22, wantReason: CompatibilityInterfaceMismatch},
 		{name: "middle release on earlier confirmed interface", version: "0.8.1", protocol: 19},
 		{name: "middle release on later confirmed interface", version: "0.8.1", protocol: 20},
-		{name: "maximum supported release", version: "0.8.2", protocol: 20},
+		{name: "previous supported release", version: "0.8.2", protocol: 20},
 		{name: "build metadata preserves supported precedence", version: "0.8.2+build.1", protocol: 20},
 		{name: "below minimum", version: "0.7.9", protocol: 19, wantReason: CompatibilityVersionTooOld},
 		{name: "minimum prerelease is below minimum", version: "0.8.0-rc.1", protocol: 19, wantReason: CompatibilityVersionTooOld},
-		{name: "above maximum", version: "0.8.3", protocol: 21, wantWarning: true},
-		{name: "newer prerelease", version: "0.8.3-rc.1", protocol: 21, wantWarning: true},
+		{name: "above maximum", version: "0.9.1", protocol: 21, wantWarning: true},
+		{name: "newer prerelease", version: "0.9.1-rc.1", protocol: 21, wantWarning: true},
 		{name: "unverified prerelease within stable range", version: "0.8.2-rc.1", protocol: 20, wantWarning: true},
 		{name: "malformed version is unknown", version: "not-semver", protocol: 1, wantWarning: true},
 		{name: "minimum release with inconsistent interface", version: "0.8.0", protocol: 20, wantReason: CompatibilityInterfaceMismatch},
@@ -173,7 +179,7 @@ func TestHerdrCompatibilityPolicy(t *testing.T) {
 				if compatibility.Reason != test.wantReason {
 					t.Fatalf("compatibility reason = %q, want %q", compatibility.Reason, test.wantReason)
 				}
-				if !strings.Contains(err.Error(), "Herdr 0.8.0 through 0.8.2") || strings.Contains(strings.ToLower(err.Error()), "protocol") {
+				if !strings.Contains(err.Error(), "Herdr 0.8.0 through 0.9.0") || strings.Contains(strings.ToLower(err.Error()), "protocol") {
 					t.Fatalf("compatibility error = %q", err)
 				}
 				if warning != "" {
@@ -185,7 +191,7 @@ func TestHerdrCompatibilityPolicy(t *testing.T) {
 				}
 			}
 			if test.wantWarning {
-				if !strings.Contains(warning, "0.8.0 through 0.8.2") || !strings.Contains(warning, "continuing best-effort") || strings.Contains(strings.ToLower(warning), "protocol") {
+				if !strings.Contains(warning, "0.8.0 through 0.9.0") || !strings.Contains(warning, "continuing best-effort") || strings.Contains(strings.ToLower(warning), "protocol") {
 					t.Fatalf("compatibility warning = %q", warning)
 				}
 			} else if warning != "" {
@@ -200,6 +206,10 @@ func TestTerminalManagementIsPublishedOnlyForConfirmedStableReleases(t *testing.
 		"0.8.0":         true,
 		"0.8.0+build.1": true,
 		"0.8.2":         true,
+		"0.9.0":         true,
+		"0.9.0+build.1": true,
+		"0.9.0-rc.1":    false,
+		"0.9.1":         false,
 		"0.8.2+build.1": true,
 		"0.8.1":         false,
 		"0.8.0-rc.1":    false,

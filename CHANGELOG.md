@@ -4,6 +4,14 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Compatibility
+
+- Extend the supported Herdr range to 0.8.0 through 0.9.0, including 0.9.0 protocol 22 and terminal management. Real 0.9.0 workflow validation is pending; use matching Herdr CLI and server versions.
+
+### Fixed
+
+- Send explicit group-close intent to Herdr after confirmation and a fresh impact check, from both Home and the final-terminal close path. Ordinary workspace closes do not authorize group closure.
+
 ## [0.2.0] - 2026-09-02
 
 ### Added

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"reflect"
 	"testing"
@@ -144,7 +145,10 @@ func TestClosingFinalTerminalUsesExistingWorkspaceCloseScope(t *testing.T) {
 	var closedWorkspace string
 	client := &fakeTerminalActionClient{fakeWorkspaceActionClient: &fakeWorkspaceActionClient{
 		snapshot: func(context.Context) (herdr.Snapshot, error) { return current, nil },
-		closeWorkspace: func(_ context.Context, workspaceID string) error {
+		closeWorkspace: func(_ context.Context, workspaceID string, closeGroup bool) error {
+			if closeGroup {
+				t.Fatal("ordinary final close authorized group close")
+			}
 			closedWorkspace = workspaceID
 			current.Workspaces, current.Tabs, current.Panes = nil, nil, nil
 			current.FocusedWorkspaceID, current.FocusedTabID, current.FocusedPaneID = "", "", ""
@@ -261,5 +265,78 @@ func TestTerminalCloseFactsRoundTripUsesPrimitiveExactValues(t *testing.T) {
 	decoded, ok := decodeTerminalCloseFacts(raw)
 	if !ok || !reflect.DeepEqual(decoded, facts) {
 		t.Fatalf("round trip decoded=%+v ok=%t want=%+v", decoded, ok, facts)
+	}
+}
+
+// Both entry points must recheck the confirmed scope before forwarding group intent.
+func TestCloseIntentAcrossHomeAndFinalTerminal(t *testing.T) {
+	for _, terminal := range []bool{false, true} {
+		for _, group := range []bool{false, true} {
+			t.Run(fmt.Sprintf("terminal=%t/group=%t", terminal, group), func(t *testing.T) {
+				base := terminalActionSnapshot()
+				base.Version, base.Protocol = "0.9.0", 22
+				base.Tabs, base.Panes = base.Tabs[:1], base.Panes[:1]
+				if group {
+					base.Workspaces[0].Worktree = &herdr.WorktreeInfo{Valid: true, RepoKey: "repo", CheckoutPath: "/repo"}
+					base.Workspaces = append(base.Workspaces, herdr.WorkspaceInfo{WorkspaceID: "child", Label: "Child", Worktree: &herdr.WorktreeInfo{Valid: true, RepoKey: "repo", CheckoutPath: "/repo/child", IsLinkedWorktree: true}})
+				}
+				current := base
+				calls := 0
+				client := &fakeTerminalActionClient{fakeWorkspaceActionClient: &fakeWorkspaceActionClient{
+					snapshot: func(context.Context) (herdr.Snapshot, error) { return current, nil },
+					closeWorkspace: func(_ context.Context, id string, closeGroup bool) error {
+						calls++
+						if id != "workspace" || closeGroup != group {
+							t.Fatalf("close target=%q group=%t", id, closeGroup)
+						}
+						current.Workspaces, current.Tabs, current.Panes = nil, nil, nil
+						current.FocusedWorkspaceID, current.FocusedTabID, current.FocusedPaneID = "", "", ""
+						return nil
+					},
+				}, close: func(context.Context, string) error { t.Fatal("unexpected pane.close"); return nil }}
+				handler := actionHandler(client, &countingHomeRefresher{})
+				path, action := "/api/workspace-actions", "close_workspace"
+				if group {
+					action = "close_group"
+				}
+				if terminal {
+					path, action = "/api/terminal-actions", "close_terminal"
+				}
+				body := map[string]any{"action": action, "workspace_id": "workspace"}
+				if terminal {
+					body["tab_id"], body["pane_id"], body["terminal_id"] = "tab-one", "pane-one", "terminal-one"
+				}
+				raw, _ := json.Marshal(body)
+				prepare := performActionRequest(t, handler, path+"/prepare", string(raw))
+				assertOutcome(t, prepare, http.StatusOK, "prepared", "")
+				var prepared struct {
+					Expected json.RawMessage `json:"expected"`
+				}
+				if err := json.Unmarshal(prepare.Body.Bytes(), &prepared); err != nil {
+					t.Fatal(err)
+				}
+				body = map[string]any{"action": action, "expected": prepared.Expected}
+				if !terminal {
+					body["workspace_id"] = "workspace"
+				}
+				raw, _ = json.Marshal(body)
+				// A changed group member or ordinary workspace label invalidates confirmation.
+				current.Workspaces = append([]herdr.WorkspaceInfo(nil), base.Workspaces...)
+				if group {
+					current.Workspaces = append(current.Workspaces, herdr.WorkspaceInfo{WorkspaceID: "new-child", Worktree: &herdr.WorktreeInfo{Valid: true, RepoKey: "repo", CheckoutPath: "/repo/new", IsLinkedWorktree: true}})
+				} else {
+					current.Workspaces[0].Label = "Changed"
+				}
+				assertOutcome(t, performActionRequest(t, handler, path, string(raw)), http.StatusConflict, "refused", "stale")
+				if calls != 0 {
+					t.Fatalf("stale close made %d calls", calls)
+				}
+				current = base
+				assertOutcome(t, performActionRequest(t, handler, path, string(raw)), http.StatusOK, "succeeded", "")
+				if calls != 1 {
+					t.Fatalf("confirmed close made %d calls", calls)
+				}
+			})
+		}
 	}
 }

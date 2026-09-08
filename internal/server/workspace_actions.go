@@ -23,7 +23,7 @@ type workspaceActionClient interface {
 	Snapshot(context.Context) (herdr.Snapshot, error)
 	CreateWorkspace(context.Context, string, *string) error
 	CreateWorktree(context.Context, herdr.CreateWorktreeSource, *string) error
-	CloseWorkspace(context.Context, string) error
+	CloseWorkspace(context.Context, string, bool) error
 	RemoveWorktree(context.Context, string) error
 }
 
@@ -243,7 +243,9 @@ func (c *workspaceActionCoordinator) runDestructive(writer http.ResponseWriter, 
 
 	switch action {
 	case herdr.WorkspaceActionCloseWorkspace, herdr.WorkspaceActionCloseGroup:
-		err = withCommitAuthority(request, func() error { return c.client.CloseWorkspace(context.Background(), workspaceID) })
+		err = withCommitAuthority(request, func() error {
+			return c.client.CloseWorkspace(context.Background(), workspaceID, action == herdr.WorkspaceActionCloseGroup)
+		})
 	case herdr.WorkspaceActionDeleteCheckout:
 		err = withCommitAuthority(request, func() error { return c.client.RemoveWorktree(context.Background(), workspaceID) })
 	}

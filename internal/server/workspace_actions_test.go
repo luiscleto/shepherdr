@@ -27,7 +27,10 @@ func TestDestructiveActionsUseFreshExactFactsAndOpaqueTarget(t *testing.T) {
 			defer mu.Unlock()
 			return current, nil
 		},
-		closeWorkspace: func(_ context.Context, workspaceID string) error {
+		closeWorkspace: func(_ context.Context, workspaceID string, closeGroup bool) error {
+			if !closeGroup {
+				t.Fatal("confirmed group close lost group intent")
+			}
 			closed = workspaceID
 			return nil
 		},
@@ -394,7 +397,7 @@ func TestInvalidNonNullWorktreeProvenanceCannotReachClose(t *testing.T) {
 	var closeCalls atomic.Int32
 	client := &fakeWorkspaceActionClient{
 		snapshot: func(context.Context) (herdr.Snapshot, error) { return snapshot, nil },
-		closeWorkspace: func(context.Context, string) error {
+		closeWorkspace: func(context.Context, string, bool) error {
 			closeCalls.Add(1)
 			return nil
 		},
@@ -423,7 +426,7 @@ type fakeWorkspaceActionClient struct {
 	snapshot        func(context.Context) (herdr.Snapshot, error)
 	createWorkspace func(context.Context, string, *string) error
 	createWorktree  func(context.Context, herdr.CreateWorktreeSource, *string) error
-	closeWorkspace  func(context.Context, string) error
+	closeWorkspace  func(context.Context, string, bool) error
 	removeWorktree  func(context.Context, string) error
 }
 
@@ -448,11 +451,11 @@ func (c *fakeWorkspaceActionClient) CreateWorktree(ctx context.Context, source h
 	return c.createWorktree(ctx, source, branch)
 }
 
-func (c *fakeWorkspaceActionClient) CloseWorkspace(ctx context.Context, workspaceID string) error {
+func (c *fakeWorkspaceActionClient) CloseWorkspace(ctx context.Context, workspaceID string, closeGroup bool) error {
 	if c.closeWorkspace == nil {
 		return nil
 	}
-	return c.closeWorkspace(ctx, workspaceID)
+	return c.closeWorkspace(ctx, workspaceID, closeGroup)
 }
 
 func (c *fakeWorkspaceActionClient) RemoveWorktree(ctx context.Context, workspaceID string) error {

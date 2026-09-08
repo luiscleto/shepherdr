@@ -256,7 +256,7 @@ func (c *workspaceActionCoordinator) runCloseTerminal(writer http.ResponseWriter
 
 	err = withCommitAuthority(request, func() error {
 		if current.WorkspaceExpected != nil {
-			return c.client.CloseWorkspace(context.Background(), current.Target.WorkspaceID)
+			return c.client.CloseWorkspace(context.Background(), current.Target.WorkspaceID, current.WorkspaceAction == herdr.WorkspaceActionCloseGroup)
 		}
 		return client.CloseTerminal(context.Background(), current.Target.PaneID)
 	})

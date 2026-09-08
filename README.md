@@ -15,7 +15,9 @@ https://github.com/user-attachments/assets/233f6030-c8c4-4ae8-827d-02913e2c4982
 
 ## Install
 
-Needs [Herdr](https://github.com/herdrdev/herdr) 0.8.0–0.8.2 running locally, `herdr` on `PATH`, and the same OS account as Herdr.
+Needs [Herdr](https://github.com/herdrdev/herdr) 0.8.0–0.9.0 running locally, `herdr` on `PATH`, and the same OS account as Herdr.
+
+Use matching Herdr CLI and server versions for terminal reads and control. Herdr 0.9.0 compatibility is based on source checks and automated tests; real workflow validation is pending.
 
 Download the archive for this machine from the [latest release](https://github.com/luiscleto/shepherdr/releases/latest), plus `shepherdr_0.2.0_checksums.txt`.
 

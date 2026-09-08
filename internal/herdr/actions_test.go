@@ -178,6 +178,7 @@ func TestClientSendsExactConfirmedWorkspaceMutations(t *testing.T) {
 		{"worktree.create", map[string]any{"workspace_id": "opaque-parent", "branch": "feature/exact", "focus": false}, map[string]any{"type": "worktree_created", "workspace": map[string]any{}, "tab": map[string]any{}, "root_pane": map[string]any{}, "worktree": map[string]any{}}},
 		{"worktree.create", map[string]any{"cwd": "/ordinary/current", "focus": false}, map[string]any{"type": "worktree_created", "workspace": map[string]any{}, "tab": map[string]any{}, "root_pane": map[string]any{}, "worktree": map[string]any{}}},
 		{"workspace.close", map[string]any{"workspace_id": "opaque-child"}, map[string]any{"type": "ok"}},
+		{"workspace.close", map[string]any{"workspace_id": "opaque-parent", "close_group": true}, map[string]any{"type": "ok"}},
 		{"worktree.remove", map[string]any{"workspace_id": "opaque-child", "force": false}, map[string]any{"type": "worktree_removed", "workspace_id": "opaque-child", "path": "/work/child", "forced": false}},
 		{"pane.split", map[string]any{"target_pane_id": "opaque-pane", "direction": "right", "cwd": "/work/current", "focus": false}, map[string]any{
 			"type": "pane_info", "pane": map[string]any{"workspace_id": "opaque-workspace", "tab_id": "opaque-tab", "pane_id": "created-pane", "terminal_id": "created-terminal", "cwd": "/work/current"},
@@ -230,7 +231,8 @@ func TestClientSendsExactConfirmedWorkspaceMutations(t *testing.T) {
 		func() error {
 			return client.CreateWorktree(context.Background(), CreateWorktreeSource{CWD: "/ordinary/current"}, nil)
 		},
-		func() error { return client.CloseWorkspace(context.Background(), "opaque-child") },
+		func() error { return client.CloseWorkspace(context.Background(), "opaque-child", false) },
+		func() error { return client.CloseWorkspace(context.Background(), "opaque-parent", true) },
 		func() error { return client.RemoveWorktree(context.Background(), "opaque-child") },
 		func() error {
 			pane, splitErr := client.SplitTerminal(context.Background(), "opaque-pane", "/work/current", SplitRight)
