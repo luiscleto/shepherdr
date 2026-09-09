@@ -3,10 +3,49 @@ package main
 import (
 	"bytes"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"testing"
 )
+
+func TestDefaultHerdrSocket(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	// Ambient Herdr targeting must not select another session for Shepherdr.
+	t.Setenv("HERDR_SOCKET_PATH", filepath.Join(home, "other.sock"))
+	t.Setenv("HERDR_SESSION", "other")
+	for _, test := range []struct {
+		name string
+		xdg  string
+		want string
+	}{
+		{name: "unset XDG", want: filepath.Join(home, ".config", "herdr", "herdr.sock")},
+		{name: "empty XDG", want: filepath.Join(home, ".config", "herdr", "herdr.sock")},
+		{name: "custom XDG", xdg: filepath.Join(home, "custom config"), want: filepath.Join(home, "custom config", "herdr", "herdr.sock")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("XDG_CONFIG_HOME", test.xdg)
+			if test.name == "unset XDG" {
+				if err := os.Unsetenv("XDG_CONFIG_HOME"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// No socket or configuration directory exists: resolution must not
+			// require a running Herdr or create application storage.
+			got, err := defaultHerdrSocket()
+			if err != nil || got != test.want {
+				t.Fatalf("defaultHerdrSocket() = %q, %v; want %q, nil", got, err, test.want)
+			}
+		})
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("socket resolution changed home directory: %v, %v", entries, err)
+	}
+}
 
 func TestParseLogLevel(t *testing.T) {
 	for _, test := range []struct {

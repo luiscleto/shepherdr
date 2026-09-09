@@ -318,9 +318,15 @@ func flagWasSet(name string) bool {
 }
 
 func defaultHerdrSocket() (string, error) {
-	configurationDirectory, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("find user configuration directory: %w", err)
+	// Herdr releases use XDG or ~/.config on both Linux and macOS, not
+	// macOS Application Support (src/config/io.rs in Herdr 0.8.0–0.9.0).
+	configurationDirectory := os.Getenv("XDG_CONFIG_HOME")
+	if configurationDirectory == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("find user home directory for Herdr socket: %w", err)
+		}
+		configurationDirectory = filepath.Join(home, ".config")
 	}
 	return filepath.Join(configurationDirectory, "herdr", "herdr.sock"), nil
 }

@@ -4,6 +4,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+- Use Herdr's default socket path on macOS instead of Application Support.
+
 ## [0.2.1] - 2026-09-08
 
 ### Compatibility

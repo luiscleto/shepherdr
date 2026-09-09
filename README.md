@@ -162,7 +162,7 @@ Files stay with the workspace across agent changes and restarts. After the works
 | --- | --- | --- |
 | `-listen` | `127.0.0.1:8787` | Loopback only. Match this port with `tailscale serve --bg`. |
 | `-session-lifetime` | `30d` | `1d`–`365d`, or `none`. Saved. Using Shepherdr does not extend it. |
-| `-herdr-socket` | `~/.config/herdr/herdr.sock` | Absolute path, only if Herdr is not using the default. |
+| `-herdr-socket` | `~/.config/herdr/herdr.sock` | Uses `$XDG_CONFIG_HOME/herdr/herdr.sock` when nonempty, including on macOS. Pass an absolute path to override. |
 | `-log-level` | `info` | Runtime logging: `debug`, `info`, `warn`, or `error`. |
 | `-upload-parent` | system temp | Staging directory for selected files. |
 | `-upload-limit` | `50MiB` | Per send. Bytes, `KiB`/`MiB`/`GiB`, or `none`. |
