@@ -19,20 +19,20 @@ Needs [Herdr](https://github.com/herdrdev/herdr) 0.8.0–0.9.0 running locally, 
 
 Use matching Herdr CLI and server versions for terminal reads and control.
 
-Download the archive for this machine from the [latest release](https://github.com/luiscleto/shepherdr/releases/latest), plus `shepherdr_0.2.1_checksums.txt`.
+Download the archive for this machine from the [latest release](https://github.com/luiscleto/shepherdr/releases/latest), plus `shepherdr_0.2.2_checksums.txt`.
 
 | System | Archive |
 | --- | --- |
-| Linux x86-64 | `shepherdr_0.2.1_linux_amd64.tar.gz` |
-| Linux ARM64 | `shepherdr_0.2.1_linux_arm64.tar.gz` |
-| macOS Intel | `shepherdr_0.2.1_darwin_amd64.tar.gz` |
-| macOS Apple silicon | `shepherdr_0.2.1_darwin_arm64.tar.gz` |
+| Linux x86-64 | `shepherdr_0.2.2_linux_amd64.tar.gz` |
+| Linux ARM64 | `shepherdr_0.2.2_linux_arm64.tar.gz` |
+| macOS Intel | `shepherdr_0.2.2_darwin_amd64.tar.gz` |
+| macOS Apple silicon | `shepherdr_0.2.2_darwin_arm64.tar.gz` |
 
 macOS builds are unsigned. Expect a system warning on first run.
 
 ```sh
-archive=shepherdr_0.2.1_linux_amd64.tar.gz
-grep "  ${archive}$" shepherdr_0.2.1_checksums.txt | sha256sum -c -
+archive=shepherdr_0.2.2_linux_amd64.tar.gz
+grep "  ${archive}$" shepherdr_0.2.2_checksums.txt | sha256sum -c -
 tar -xzf "$archive"
 mkdir -p "$HOME/.local/bin"
 install -m 0755 "${archive%.tar.gz}/shepherdr" "$HOME/.local/bin/shepherdr"
@@ -45,7 +45,7 @@ On macOS, use `shasum -a 256 -c -` instead of `sha256sum -c -`. Put the binary o
 
 ```sh
 go install github.com/luiscleto/shepherdr@latest
-# or pin: go install github.com/luiscleto/shepherdr@v0.2.1
+# or pin: go install github.com/luiscleto/shepherdr@v0.2.2
 ```
 
 **From source** — Go 1.27+, Node.js 20+, npm:
