@@ -40,22 +40,24 @@ type TerminalBridge struct {
 	targets    TerminalStateSource
 	upgrader   websocket.Upgrader
 
-	closeOnce sync.Once
-	children  map[*exec.Cmd]struct{}
-	mutex     sync.Mutex
-	wait      sync.WaitGroup
+	closeOnce   sync.Once
+	children    map[*exec.Cmd]struct{}
+	controllers map[string]*terminalLiveController
+	mutex       sync.Mutex
+	wait        sync.WaitGroup
 }
 
 func NewTerminalBridge(binary, socketPath string, logger *slog.Logger, targets TerminalStateSource) *TerminalBridge {
 	ctx, cancel := context.WithCancel(context.Background())
 	bridge := &TerminalBridge{
-		binary:     binary,
-		context:    ctx,
-		cancel:     cancel,
-		children:   make(map[*exec.Cmd]struct{}),
-		logger:     logger,
-		socketPath: socketPath,
-		targets:    targets,
+		binary:      binary,
+		context:     ctx,
+		cancel:      cancel,
+		children:    make(map[*exec.Cmd]struct{}),
+		controllers: make(map[string]*terminalLiveController),
+		logger:      logger,
+		socketPath:  socketPath,
+		targets:     targets,
 		upgrader: websocket.Upgrader{
 			HandshakeTimeout: 5 * time.Second,
 		},
@@ -259,15 +261,17 @@ type terminalStreamEvent struct {
 }
 
 type terminalChildSession struct {
-	bridge   *TerminalBridge
-	cancel   context.CancelFunc
-	command  *exec.Cmd
-	done     chan struct{}
-	events   chan terminalStreamEvent
-	exited   chan struct{}
-	settings terminalBridgeSettings
-	stdin    io.WriteCloser
-	stderr   *boundedLog
+	writeMutex sync.Mutex
+	controlled bool
+	bridge     *TerminalBridge
+	cancel     context.CancelFunc
+	command    *exec.Cmd
+	done       chan struct{}
+	events     chan terminalStreamEvent
+	exited     chan struct{}
+	settings   terminalBridgeSettings
+	stdin      io.WriteCloser
+	stderr     *boundedLog
 }
 
 func (bridge *TerminalBridge) startTerminalSession(
@@ -341,10 +345,13 @@ func (session *terminalChildSession) scan(stdout io.Reader) {
 
 func (session *terminalChildSession) close(release bool) {
 	defer session.cancel()
+	session.writeMutex.Lock()
+	session.controlled = false
 	if release {
 		_ = json.NewEncoder(session.stdin).Encode(map[string]string{"type": "terminal.release"})
 	}
 	_ = session.stdin.Close()
+	session.writeMutex.Unlock()
 	close(session.done)
 	select {
 	case <-session.exited:
@@ -407,6 +414,15 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 		return
 	}
 	defer session.close(settings.mode != "observe")
+	liveContext, endLiveRequest := context.WithCancel(request.Context())
+	request = request.WithContext(liveContext)
+	var controller *terminalLiveController
+	defer func() {
+		if controller != nil {
+			bridge.unregisterController(controller)
+		}
+	}()
+	defer endLiveRequest()
 
 	clientMessages := make(chan []byte, 16)
 	clientClosed := make(chan struct{})
@@ -429,6 +445,48 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 	}()
 
 	validator := terminalFrameValidator{}
+	acquired := false
+	type inputResult struct {
+		command terminalBrowserCommand
+		outcome terminalBatchOutcome
+		err     error
+	}
+	inputResults := make(chan inputResult, 1)
+	inputDone := make(chan struct{})
+	defer close(inputDone)
+	// Keep the frame/heartbeat loop free while a complete batch holds stdin.
+	go func() {
+		for {
+			select {
+			case message := <-clientMessages:
+				command, err := validatedTerminalCommand(message)
+				outcome := terminalBatchNotSent
+				if err == nil && settings.mode != "observe" {
+					session.writeMutex.Lock()
+					if session.controlled {
+						if stdin, ok := session.stdin.(*os.File); ok {
+							_ = stdin.SetWriteDeadline(time.Now().Add(terminalBridgeShutdownWait))
+						}
+						outcome, err = forwardTerminalBatch(request, lease, session.stdin, command.childCommands, nil)
+					}
+					if command.release {
+						session.controlled = false
+					}
+					session.writeMutex.Unlock()
+				}
+				select {
+				case inputResults <- inputResult{command, outcome, err}:
+				case <-inputDone:
+					return
+				}
+				if command.release || outcome != terminalBatchForwarded {
+					return
+				}
+			case <-inputDone:
+				return
+			}
+		}
+	}()
 	heartbeat := time.NewTicker(terminalBridgeHeartbeat)
 	defer heartbeat.Stop()
 	bridge.logger.Debug("terminal stream started", "pane", settings.pane, "terminal", target, "mode", settings.mode, "cols", settings.cols, "rows", settings.rows)
@@ -450,6 +508,23 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 					_ = writeTerminalStatus(connection, closedReason)
 					return
 				}
+				if !acquired && settings.mode != "observe" {
+					acquired = true
+					session.writeMutex.Lock()
+					session.controlled = true
+					session.writeMutex.Unlock()
+				}
+				if controller == nil && lease != nil && settings.mode != "observe" {
+					controller, err = bridge.registerController(request, session, lease)
+					if err != nil {
+						return
+					}
+					if err := withCommitAuthority(request, func() error {
+						return writeJSON(connection, map[string]string{"type": "terminal.controller", "handle": controller.handle})
+					}); err != nil {
+						return
+					}
+				}
 				if err := withCommitAuthority(request, func() error {
 					_ = connection.SetWriteDeadline(time.Now().Add(10 * time.Second))
 					return connection.WriteMessage(websocket.TextMessage, event.line)
@@ -467,7 +542,7 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 				_ = withCommitAuthority(request, func() error { return writeTerminalStatus(connection, detail) })
 			}
 			return
-		case message := <-clientMessages:
+		case result := <-inputResults:
 			if settings.mode == "observe" {
 				_ = writeTerminalStatus(connection, "An observing terminal cannot send input")
 				continue
@@ -476,16 +551,12 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 				_ = writeTerminalStatus(connection, "This terminal was replaced")
 				return
 			}
-			browserCommand, err := validatedTerminalCommand(message)
-			if err != nil {
-				_ = writeTerminalStatus(connection, "Rejected browser command: "+err.Error())
-				continue
-			}
+			browserCommand := result.command
 			if !requestAuthorityValid(request) {
 				_ = writeTerminalStatus(connection, "Sign in again")
 				return
 			}
-			outcome, err := forwardTerminalBatch(request, lease, session.stdin, browserCommand.childCommands, nil)
+			outcome, err := result.outcome, result.err
 			if outcome != terminalBatchForwarded {
 				if requestAuthorityValid(request) {
 					message := "Herdr input stream closed"

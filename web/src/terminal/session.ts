@@ -26,7 +26,12 @@ interface TerminalHeartbeat {
   type: "terminal.heartbeat";
 }
 
-type TerminalServerMessage = TerminalFrame | TerminalStatus | TerminalInputForwarded | TerminalHeartbeat;
+interface TerminalController {
+  type: "terminal.controller";
+  handle: string;
+}
+
+type TerminalServerMessage = TerminalFrame | TerminalStatus | TerminalInputForwarded | TerminalHeartbeat | TerminalController;
 
 export interface TerminalSessionEvents {
   onFrame(frame: TerminalFrame, bytes: Uint8Array): void;
@@ -97,6 +102,8 @@ export class TerminalFrameSequence {
 function parseNonFrameMessage(value: unknown): TerminalServerMessage {
   if (!value || typeof value !== "object") throw new Error("terminal message is not an object");
   const message = value as Record<string, unknown>;
+  if (message.type === "terminal.controller" && exactKeys(message, ["type", "handle"]) &&
+    typeof message.handle === "string" && /^[a-f0-9]{64}$/.test(message.handle)) return message as unknown as TerminalController;
   if (message.type === "terminal.heartbeat" && exactKeys(message, ["type"])) {
     return message as unknown as TerminalHeartbeat;
   }
@@ -110,6 +117,7 @@ function parseNonFrameMessage(value: unknown): TerminalServerMessage {
 }
 
 export class TerminalSession implements TerminalSessionLike {
+  #controllerHandle: string | undefined;
   #endpoint: string;
   #events: TerminalSessionEvents;
   #lastSize: string | undefined;
@@ -165,6 +173,8 @@ export class TerminalSession implements TerminalSessionLike {
         } else if (message.type === "terminal.input-forwarded") {
           this.#events.onLog("input.forwarded", { requestID: message.request_id });
           this.#events.onInputForwarded?.(message.request_id);
+        } else if (message.type === "terminal.controller" && this.#mode !== "observe") {
+          this.#controllerHandle = message.handle;
         }
       } catch (error) {
         this.#events.onLog("session.invalid-message", String(error));
@@ -174,6 +184,7 @@ export class TerminalSession implements TerminalSessionLike {
     socket.addEventListener("close", (event) => {
       if (this.#socket !== socket) return;
       this.#socket = undefined;
+      this.#controllerHandle = undefined;
       this.#clearLiveness();
       this.#events.onLog("session.close", { code: event.code, reason: event.reason });
       this.#events.onStatus("Disconnected");
@@ -195,6 +206,7 @@ export class TerminalSession implements TerminalSessionLike {
   }
 
   resize(dimensions: TerminalDimensions): void {
+    if (!boundedDimension(dimensions.cols, 2) || !boundedDimension(dimensions.rows, 1)) return;
     const size = `${dimensions.cols}x${dimensions.rows}`;
     if (size === this.#lastSize) return;
     this.#lastSize = size;
@@ -208,17 +220,22 @@ export class TerminalSession implements TerminalSessionLike {
     return this.#send({ type: "terminal.scroll", source: "wheel", ...scroll });
   }
 
-  disconnect(): void {
+  disconnect(): Promise<void> {
+    this.#controllerHandle = undefined;
     const socket = this.#socket;
     this.#socket = undefined;
     this.#clearLiveness();
-    if (!socket) return;
+    if (!socket || socket.readyState === WebSocket.CLOSED) return Promise.resolve();
+    const closed = new Promise<void>((resolve) => socket.addEventListener("close", () => resolve(), { once: true }));
     if (this.#mode !== "observe" && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: "terminal.release" }));
     }
     socket.close(1000, "Client disconnect");
     this.#events.onStatus("Disconnected");
+    return closed;
   }
+
+  controllerHandle(): string | undefined { return this.#controllerHandle; }
 
   #sendInput(type: "terminal.input" | "terminal.input-batch", fields: Record<string, unknown>): number | undefined {
     if (this.#mode === "observe") {

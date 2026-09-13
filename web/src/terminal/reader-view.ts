@@ -13,9 +13,10 @@ interface ReaderEvents {
   onLog(event: string, detail?: unknown): void;
   onNewOutput?(available: boolean): void;
   onPendingFilesEmpty?(): void;
-  onResize?(dimensions: TerminalDimensions): void;
   onStatus(message: string): void;
   onSubmit(text: string, files: readonly File[]): boolean;
+  onInsertFiles?(): boolean;
+  onLayout?(): void;
 }
 
 interface ReaderOptions {
@@ -26,14 +27,6 @@ interface ReaderOptions {
 const historyPageLines = 500;
 const maximumHistoryLines = 20_000;
 const liveRefreshDelayMilliseconds = 150;
-const cellProbeCharacters = 100;
-
-export function readerViewportColumns(contentWidth: number, cellWidth: number): number | undefined {
-  if (!Number.isFinite(contentWidth) || !Number.isFinite(cellWidth) || contentWidth <= 0 || cellWidth <= 0) return undefined;
-  const columns = Math.floor(contentWidth / cellWidth);
-  if (columns < 2) return undefined;
-  return Math.min(columns, 1_000);
-}
 
 export function readerAtLatest(scrollHeight: number, scrollTop: number, clientHeight: number): boolean {
   return scrollHeight - scrollTop - clientHeight < 32;
@@ -54,13 +47,17 @@ export function readerMessageAction(run: () => void): HTMLButtonElement {
 }
 
 export class ReaderView {
+  #visible = true;
+  #insertOnly = false;
+  #composerWasHidden = true;
+  #savedSelection: Range | undefined;
+  #selectionAtHide: { anchor: Node | null; focus: Node | null; start: number; end: number } | undefined;
   #addFiles: HTMLButtonElement;
   #abort: AbortController | undefined;
   #closeComposer: HTMLButtonElement | undefined;
   #collapsibleComposer: boolean;
   #composer: HTMLDivElement;
   #dimensions: TerminalDimensions = { cols: 80, rows: 24 };
-  #cellProbe: HTMLSpanElement;
   #events: ReaderEvents;
   #fileChoice: HTMLButtonElement;
   #fileInput: HTMLInputElement;
@@ -80,7 +77,6 @@ export class ReaderView {
   #generation: number | undefined;
   #loading = false;
   #newOutput = false;
-  #observedRows: number | undefined;
   #output: HTMLDivElement;
   #pane = "";
   #pendingFiles: Array<{ file: File; preview?: string }> = [];
@@ -89,7 +85,6 @@ export class ReaderView {
   #submissionActive = false;
   #refreshTimer: number | undefined;
   #refreshQueued: { force: boolean; preserveTop: boolean } | undefined;
-  #resizeObserver: ResizeObserver | undefined;
   #send: HTMLButtonElement;
   #sendAvailable = false;
   #sendFeedback: HTMLDivElement;
@@ -104,7 +99,6 @@ export class ReaderView {
   #terminalID: string | undefined;
   #allHistoryLoaded = false;
   #selectionChange: () => void;
-  #viewportColumns: number | undefined;
 
   constructor(host: HTMLElement, events: ReaderEvents, options: ReaderOptions) {
     this.#host = host;
@@ -120,20 +114,9 @@ export class ReaderView {
     this.#output = document.createElement("div");
     this.#output.className = "reader-output";
     this.#output.setAttribute("aria-label", "Terminal output");
-    this.#cellProbe = document.createElement("span");
-    this.#cellProbe.textContent = "0".repeat(cellProbeCharacters);
-    this.#cellProbe.setAttribute("aria-hidden", "true");
-    Object.assign(this.#cellProbe.style, {
-      left: "-10000px",
-      pointerEvents: "none",
-      position: "fixed",
-      top: "0",
-      visibility: "hidden",
-      whiteSpace: "pre",
-    });
     this.#scroll = document.createElement("div");
     this.#scroll.className = "reader-scroll";
-    this.#scroll.append(this.#topSentinel, this.#output, this.#cellProbe);
+    this.#scroll.append(this.#topSentinel, this.#output);
     this.#scroll.addEventListener("scroll", () => {
       if (this.#newOutput && this.#atLatest() && !this.#hasSelection()) {
         this.#setNewOutput(false);
@@ -223,7 +206,7 @@ export class ReaderView {
     host.replaceChildren(this.#scroll, this.#composer, this.#sendFeedback);
 
     this.#intersectionObserver = new IntersectionObserver((entries) => {
-      if (!entries.some((entry) => entry.isIntersecting) || !this.#pane || !this.#lastANSI || this.#allHistoryLoaded || this.#hasSelection()) return;
+      if (!this.#visible || !entries.some((entry) => entry.isIntersecting) || !this.#pane || !this.#lastANSI || this.#allHistoryLoaded || this.#hasSelection()) return;
       if (this.#historyLines >= maximumHistoryLines) {
         this.#allHistoryLoaded = true;
         return;
@@ -232,12 +215,14 @@ export class ReaderView {
       void this.refresh(true, true);
     }, { root: this.#scroll, rootMargin: "160px 0px 0px" });
     this.#intersectionObserver.observe(this.#topSentinel);
-    const ResizeObserverConstructor = host.ownerDocument.defaultView?.ResizeObserver;
-    if (ResizeObserverConstructor) {
-      this.#resizeObserver = new ResizeObserverConstructor(() => this.#syncViewportColumns());
-      this.#resizeObserver.observe(this.#output);
-    }
     this.#selectionChange = () => {
+      if (!this.#visible) {
+        const selection = window.getSelection();
+        const previous = this.#selectionAtHide;
+        if (previous && (!selection || selection.anchorNode !== previous.anchor || selection.focusNode !== previous.focus ||
+          selection.anchorOffset !== previous.start || selection.focusOffset !== previous.end)) this.#savedSelection = undefined;
+        return;
+      }
       if (this.#hasSelection()) return;
       if (this.#historyRefreshPending) {
         this.#historyRefreshPending = false;
@@ -278,6 +263,10 @@ export class ReaderView {
     this.#bindFileInput(this.#fileInput);
     this.#input.addEventListener("input", () => this.#syncSubmit());
     this.#send.addEventListener("click", () => {
+      if (this.#insertOnly) {
+        if (this.#canSubmit()) this.#events.onInsertFiles?.();
+        return;
+      }
       if (!this.#canSubmit() || !this.#events.onSubmit(this.#input.value, this.pendingFiles())) return;
       this.#events.onLog("reader.input", { characters: this.#input.value.length });
     });
@@ -285,17 +274,6 @@ export class ReaderView {
   }
 
   dimensions(): TerminalDimensions {
-    return this.#dimensions;
-  }
-
-  viewportDimensions(): TerminalDimensions | undefined {
-    if (this.#viewportColumns === undefined) return undefined;
-    return this.#dimensions;
-  }
-
-  observerRows(rows: number): TerminalDimensions {
-    this.#observedRows = rows;
-    this.#dimensions = { ...this.#dimensions, rows };
     return this.#dimensions;
   }
 
@@ -310,7 +288,6 @@ export class ReaderView {
     this.#historyRefreshPending = false;
     this.#lastANSI = "";
     this.#generation = undefined;
-    this.#observedRows = undefined;
     this.#setNewOutput(false);
     this.#allHistoryLoaded = false;
     await this.refresh(true, false);
@@ -318,6 +295,7 @@ export class ReaderView {
   }
 
   refreshSoon(): void {
+    if (!this.#visible) { this.#setNewOutput(true); return; }
     if (this.#refreshTimer !== undefined || !this.#pane) return;
     if (pauseReaderLiveRefresh(this.#atLatest(), this.#hasSelection())) {
       this.#setNewOutput(true);
@@ -330,6 +308,7 @@ export class ReaderView {
   }
 
   async refresh(force: boolean, preserveTop: boolean): Promise<void> {
+    if (!this.#visible) { this.#setNewOutput(true); return; }
     if (!this.#pane) return;
     if (this.#hasSelection()) {
       if (preserveTop) this.#historyRefreshPending = true;
@@ -351,9 +330,9 @@ export class ReaderView {
       const response = await fetch(`${this.#readEndpoint}?${query}`, { cache: "no-store", signal: abort.signal });
       if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
       const snapshot = await response.json() as ReaderSnapshot;
+      if (!this.#visible) { this.#setNewOutput(true); return; }
       if (this.#abort !== abort || this.#pane !== pane || !this.#validSnapshot(snapshot)) throw new Error("invalid terminal history response");
-      this.#dimensions = { cols: snapshot.cols, rows: this.#observedRows ?? snapshot.rows };
-      this.#syncViewportColumns();
+      this.#dimensions = { cols: snapshot.cols, rows: snapshot.rows };
       if (preserveTop && snapshot.ansi === this.#lastANSI) {
         this.#allHistoryLoaded = true;
         this.#events.onStatus("All retained output is loaded");
@@ -422,21 +401,85 @@ export class ReaderView {
     if (!this.#collapsibleComposer || !this.#sendAvailable) return;
     this.#composer.hidden = false;
     this.#input.focus();
+    this.#events.onLayout?.();
   }
 
   hideComposer(): void {
     if (!this.#collapsibleComposer || this.#submissionActive) return;
+    if (this.#insertOnly) {
+      this.#insertOnly = false;
+      this.#input.hidden = false;
+      this.#composer.hidden = this.#composerWasHidden;
+      this.#syncPresentation();
+      this.#syncSubmit();
+      this.#events.onLayout?.();
+      return;
+    }
     const active = this.#host.ownerDocument.activeElement as HTMLElement | null;
     this.#closeFileMenu(false);
     if (active && this.#composer.contains(active)) active.blur();
     this.#composer.hidden = true;
     this.#input.blur();
     if (!this.#sendAvailable) this.#input.disabled = true;
+    this.#events.onLayout?.();
+  }
+
+  setPresentation(visible: boolean): void {
+    if (visible === this.#visible || this.#submissionActive) return;
+    if (!visible) {
+      const selection = window.getSelection();
+      this.#savedSelection = this.#hasSelection() && selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : undefined;
+      this.pauseLiveRefresh();
+    }
+    if (this.#insertOnly) this.hideComposer();
+    this.#visible = visible;
+    this.#syncPresentation();
+    if (!visible) {
+      const selection = window.getSelection();
+      this.#selectionAtHide = selection ? { anchor: selection.anchorNode, focus: selection.focusNode, start: selection.anchorOffset, end: selection.focusOffset } : undefined;
+    }
+    if (visible) {
+      const selection = window.getSelection();
+      if (this.#savedSelection && selection?.isCollapsed) {
+        selection.removeAllRanges();
+        selection.addRange(this.#savedSelection);
+      }
+      this.#savedSelection = undefined;
+      this.#selectionAtHide = undefined;
+      if (this.#newOutput) this.refreshSoon();
+    }
+  }
+
+  showFileInsertion(): void {
+    if (this.#visible || !this.#fileSelectionAvailable || this.#submissionActive) return;
+    this.#composerWasHidden = this.#composer.hidden;
+    this.#insertOnly = true;
+    this.#input.hidden = true;
+    this.#composer.hidden = false;
+    this.#syncPresentation();
+    this.#syncSubmit();
+    this.#openFileMenu();
+    this.#events.onLayout?.();
+  }
+
+  contentHeight(): number { return this.#scroll.getBoundingClientRect().height; }
+
+  #syncPresentation(): void {
+    this.#scroll.style.visibility = this.#visible ? "visible" : "hidden";
+    this.#scroll.style.pointerEvents = this.#visible ? "" : "none";
+    this.#scroll.setAttribute("aria-hidden", String(!this.#visible));
+    const showComposer = this.#visible || this.#insertOnly;
+    this.#composer.style.visibility = showComposer ? "visible" : "hidden";
+    this.#composer.inert = !showComposer;
+    this.#host.style.pointerEvents = this.#visible ? "" : "none";
+    this.#composer.style.pointerEvents = showComposer ? "auto" : "none";
+    this.#sendFeedback.style.pointerEvents = "auto";
   }
 
   inputSending(chunks: number): void {
+    if (!this.#visible) return;
     this.#sendFeedback.hidden = false;
-    this.#sendFeedbackMessage.textContent = chunks === 1 ? "Sending queued input…" : `Sending ${chunks} queued inputs…`;
+    this.#sendFeedbackMessage.textContent = chunks === 1 ? "Sending input…" : `Sending ${chunks} inputs…`;
     this.#retrySend.hidden = true;
     this.#takeoverSend.hidden = true;
   }
@@ -470,6 +513,7 @@ export class ReaderView {
 
   inputOccupied(message: string, takeover: () => void): void {
     this.#submissionFinished();
+    this.#takeoverSend.textContent = this.#insertOnly ? "Take over and insert files" : "Take over and send";
     this.#showRecovery(message, undefined, takeover);
   }
 
@@ -530,12 +574,10 @@ export class ReaderView {
     this.#pane = "";
     this.#terminalID = undefined;
     this.#generation = undefined;
-    this.#observedRows = undefined;
     this.#historyRefreshPending = false;
     this.#refreshQueued = undefined;
     this.#abort?.abort();
     this.#intersectionObserver.disconnect();
-    this.#resizeObserver?.disconnect();
     document.removeEventListener("selectionchange", this.#selectionChange);
     if (this.#refreshTimer !== undefined) window.clearTimeout(this.#refreshTimer);
     this.#clearPendingFiles();
@@ -672,6 +714,7 @@ export class ReaderView {
   }
 
   #canSubmit(): boolean {
+    if (this.#insertOnly) return !this.#submissionActive && !this.#filesPreparing && this.#sendAvailable && this.#fileSelectionAvailable && this.#pendingFiles.length > 0;
     return !this.#submissionActive && !this.#filesPreparing && this.#sendAvailable && (this.#input.value.length > 0 || this.#pendingFiles.length > 0) &&
       (this.#pendingFiles.length === 0 || this.#fileSelectionAvailable);
   }
@@ -685,7 +728,7 @@ export class ReaderView {
 
   #syncSubmit(): void {
     this.#send.disabled = !this.#canSubmit();
-    const label = this.#pendingFiles.length === 0 ? "Send text" : this.#input.value.length === 0 ? "Send files" : "Send text and files";
+    const label = this.#insertOnly ? "Insert files" : this.#pendingFiles.length === 0 ? "Send text" : this.#input.value.length === 0 ? "Send files" : "Send text and files";
     setControlLabel(this.#send, label);
   }
 
@@ -702,23 +745,6 @@ export class ReaderView {
     if (this.#newOutput === available) return;
     this.#newOutput = available;
     this.#events.onNewOutput?.(available);
-  }
-
-  #syncViewportColumns(): void {
-    const view = this.#host.ownerDocument.defaultView;
-    if (!view) return;
-    const style = view.getComputedStyle(this.#output);
-    this.#cellProbe.style.font = style.font;
-    this.#cellProbe.style.letterSpacing = style.letterSpacing;
-    const padding = Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
-    const contentWidth = this.#output.clientWidth - (Number.isFinite(padding) ? padding : 0);
-    const cellWidth = this.#cellProbe.getBoundingClientRect().width / cellProbeCharacters;
-    const columns = readerViewportColumns(contentWidth, cellWidth);
-    if (columns === undefined) return;
-    const previous = this.#viewportColumns;
-    this.#viewportColumns = columns;
-    this.#dimensions = { ...this.#dimensions, cols: columns };
-    if (columns !== previous) this.#events.onResize?.(this.#dimensions);
   }
 
   #showRecovery(

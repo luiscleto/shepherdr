@@ -1,12 +1,102 @@
 package server
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 )
+
+// A handle names one live stream only. It carries no access authority.
+type terminalLiveController struct {
+	handle  string
+	request *http.Request
+	session *terminalChildSession
+	lease   *terminalTargetLease
+	active  bool // guarded by session.writeMutex
+}
+
+func (bridge *TerminalBridge) registerController(request *http.Request, session *terminalChildSession, lease *terminalTargetLease) (*terminalLiveController, error) {
+	var opaque [32]byte
+	if _, err := rand.Read(opaque[:]); err != nil {
+		return nil, err
+	}
+	controller := &terminalLiveController{handle: hex.EncodeToString(opaque[:]), request: request, session: session, lease: lease, active: true}
+	bridge.mutex.Lock()
+	bridge.controllers[controller.handle] = controller
+	bridge.mutex.Unlock()
+	return controller, nil
+}
+
+func (bridge *TerminalBridge) unregisterController(controller *terminalLiveController) {
+	bridge.mutex.Lock()
+	delete(bridge.controllers, controller.handle)
+	bridge.mutex.Unlock()
+	controller.session.writeMutex.Lock()
+	controller.active = false
+	controller.session.writeMutex.Unlock()
+}
+
+func (bridge *TerminalBridge) sendControllerBatch(request *http.Request, handle, pane, terminal string, validate func() error, chunks []string) (terminalBatchOutcome, error) {
+	bridge.mutex.Lock()
+	controller := bridge.controllers[handle]
+	bridge.mutex.Unlock()
+	if controller == nil || controller.lease.target.pane != pane || controller.lease.target.terminal != terminal {
+		return terminalBatchNotSent, errors.New("controlling connection is unavailable")
+	}
+	identity, protected := sessionFromRequest(request)
+	owner, ownerProtected := sessionFromRequest(controller.request)
+	if protected != ownerProtected || protected && identity != owner {
+		return terminalBatchNotSent, errors.New("controlling connection belongs to another sign-in")
+	}
+	commands, err := terminalInputCommands(chunks)
+	if err != nil {
+		return terminalBatchNotSent, err
+	}
+	controller.session.writeMutex.Lock()
+	defer controller.session.writeMutex.Unlock()
+	if !controller.active || !controller.session.controlled || controller.request.Context().Err() != nil {
+		return terminalBatchNotSent, errors.New("controlling connection ended")
+	}
+	select {
+	case <-controller.session.exited:
+		return terminalBatchNotSent, errors.New("controlling child ended")
+	default:
+	}
+	if stdin, ok := controller.session.stdin.(*os.File); ok {
+		_ = stdin.SetWriteDeadline(time.Now().Add(terminalBridgeShutdownWait))
+	}
+	// The same identity is checked by forwardTerminalBatch's authority guard.
+	// Do not nest another authority lock for the stream request.
+	return forwardTerminalBatch(request, controller.lease, controller, commands, func() error {
+		if controller.request.Context().Err() != nil {
+			return errors.New("controlling connection ended")
+		}
+		return validate()
+	})
+}
+
+// Called only while this controller's stdin lock is held, inside the upload's
+// authority guard. The stream lifetime must still hold for every chunk.
+func (controller *terminalLiveController) Write(data []byte) (int, error) {
+	if !controller.active || !controller.session.controlled {
+		return 0, errors.New("control ended")
+	}
+	if err := controller.request.Context().Err(); err != nil {
+		return 0, err
+	}
+	select {
+	case <-controller.session.exited:
+		return 0, errors.New("controlling child ended")
+	default:
+	}
+	return controller.session.stdin.Write(data)
+}
 
 type terminalBatchOutcome uint8
 

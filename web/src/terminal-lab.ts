@@ -47,6 +47,10 @@ let reader: ReaderView | undefined;
 let readerInput: ReaderInputQueue | undefined;
 let readerObserverReady = false;
 let session: TerminalSession | undefined;
+let connectedMode: SessionMode = "observe";
+let connectedPane = "";
+let readerOccupied = false;
+let settleConnection: ((acquired: boolean) => void) | undefined;
 
 for (const option of rendererOptions) {
   const node = document.createElement("option");
@@ -105,6 +109,7 @@ function createAdapter(kind: RendererKind): TerminalAdapter {
 }
 
 async function activateRenderer(kind: RendererKind): Promise<void> {
+  settleConnection?.(false);
   session?.disconnect();
   session = undefined;
   readerInput?.clearTarget();
@@ -133,14 +138,21 @@ async function activateRenderer(kind: RendererKind): Promise<void> {
       onForwarded: () => reader?.inputForwarded(false),
       onState: syncReaderActions,
       onUncertain: (message) => reader?.inputUncertain(message, () => readerInput?.dismissUncertain()),
-    }, { endpoint: "/api/terminal-lab" });
+    }, {
+      session: () => readerObserverReady && connectedMode !== "observe" ? session : undefined,
+      occupied: () => readerOccupied,
+      acquire: async () => {
+        modeSelect.value = "takeover";
+        return connect(true);
+      },
+    });
     reader = new ReaderView(surface, {
       onLog: log,
       onStatus: setStatus,
       onSubmit: (text) => readerInput?.enqueueBatch(terminalSubmission(text)) ?? false,
     }, { endpoint: "/api/terminal-lab/read" });
     syncReaderActions();
-    modeField.hidden = true;
+    modeField.hidden = false;
     sessionStorage.setItem("terminal-lab.renderer.v2", kind);
     const url = new URL(location.href);
     url.searchParams.set("renderer", kind);
@@ -190,33 +202,42 @@ async function activateRenderer(kind: RendererKind): Promise<void> {
   }
 }
 
-async function connect(): Promise<void> {
-  if (!adapter && !reader) return;
+async function connect(preserveInput = false): Promise<boolean> {
+  if (!adapter && !reader) return false;
   const pane = targetSelect.value;
   if (!pane) {
     setStatus("Choose a terminal");
-    return;
+    return false;
   }
-  session?.disconnect();
-  readerInput?.clearTarget();
+  if (preserveInput && pane !== connectedPane) return false;
+  settleConnection?.(false);
+  await session?.disconnect();
+  if (!preserveInput) readerInput?.clearTarget();
   readerObserverReady = false;
   syncReaderActions();
   frameCount = 0;
   remoteSizeNode.textContent = "Remote —";
-  const mode: SessionMode = reader ? "observe" : modeSelect.value as SessionMode;
+  const mode: SessionMode = modeSelect.value as SessionMode;
+  connectedMode = mode;
+  connectedPane = pane;
+  readerOccupied = false;
   if (!reader) sessionStorage.setItem("terminal-lab.mode", mode);
   sessionStorage.setItem("terminal-lab.pane", pane);
   let dimensions = adapter?.dimensions() ?? reader?.dimensions() ?? { cols: 80, rows: 24 };
   if (reader) {
     connectButton.disabled = true;
     setStatus("Loading output");
-    dimensions = await reader.open(pane);
-    readerInput?.setTarget(pane, dimensions);
+    if (!preserveInput) dimensions = await reader.open(pane);
     localSizeNode.textContent = `PTY ${dimensions.cols}×${dimensions.rows} · Reader reflows locally`;
     connectButton.disabled = false;
   }
+  const ready = new Promise<boolean>((resolve) => { settleConnection = resolve; });
+  let lastStatus = "";
   session = new TerminalSession(mode, {
+    onInputForwarded: (requestID) => { if (session) readerInput?.forwarded(session, requestID); },
     onFrame(frame, bytes) {
+      settleConnection?.(mode !== "observe");
+      settleConnection = undefined;
       if (reader && !readerObserverReady) {
         readerObserverReady = true;
         syncReaderActions();
@@ -239,14 +260,19 @@ async function connect(): Promise<void> {
     onLog: (event, detail) => {
       log(event, detail);
       if (event === "session.close" && reader) {
+        readerOccupied = lastStatus.includes("already has an attached client");
+        settleConnection?.(false);
+        settleConnection = undefined;
+        if (session) readerInput?.disconnected(session);
         readerObserverReady = false;
         syncReaderActions();
       }
     },
-    onStatus: setStatus,
+    onStatus: (message) => { lastStatus = message; setStatus(message); },
   }, { endpoint: "/api/terminal-lab" });
   session.connect(pane, dimensions);
   if (mode !== "observe") adapter?.focus();
+  return ready;
 }
 
 function targetsFromHome(message: unknown): LabTarget[] {
@@ -344,6 +370,7 @@ function instrumentInput(): void {
 rendererSelect.addEventListener("change", () => void activateRenderer(rendererSelect.value as RendererKind));
 connectButton.addEventListener("click", () => void connect());
 disconnectButton.addEventListener("click", () => {
+  settleConnection?.(false);
   session?.disconnect();
   session = undefined;
   readerInput?.clearTarget();

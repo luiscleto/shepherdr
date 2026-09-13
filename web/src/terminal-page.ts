@@ -3,12 +3,11 @@ import { settingsAction } from "./settings-action";
 import type { TerminalDimensions } from "./terminal/adapter";
 import { terminalReaderForDevice } from "./terminal/device";
 import { sendTerminalFiles, uploadStateAfterLastFileRemoved } from "./terminal/file-uploads";
-import { nextTerminalOwnership, terminalOwnershipAction, type TerminalOwnership } from "./terminal/ownership";
+import { terminalOwnershipAction, type TerminalOwnership } from "./terminal/ownership";
 import { readerActionAvailability, type ReaderInputState } from "./terminal/reader-availability";
 import { ReaderInputQueue } from "./terminal/reader-input";
-import { ReaderTerminalSizer } from "./terminal/reader-sizer";
 import { ReaderView, readerMessageAction } from "./terminal/reader-view";
-import { TerminalSession } from "./terminal/session";
+import { TerminalSession, type SessionMode } from "./terminal/session";
 import { XTermAdapter } from "./terminal/xterm-adapter";
 
 export interface TerminalPageTarget {
@@ -24,13 +23,7 @@ interface TerminalPageOptions {
   onNotifications?(): void;
 }
 
-const reconnectDelayMilliseconds = 1_000;
-
-function element<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  className?: string,
-  text?: string,
-): HTMLElementTagNameMap[K] {
+function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
@@ -47,34 +40,47 @@ function action(text: string, run: () => void, className?: string): HTMLButtonEl
 export class TerminalPage {
   readonly paneID: string;
   readonly terminalID: string;
-
   #agentStatus: string | undefined;
-  #commandButtons: HTMLButtonElement[] = [];
-  #connectionStatus = "Connecting";
-  #controlAction: HTMLButtonElement;
-  #controller: TerminalSession | undefined;
-  #desktopAutoAcquire = true;
-  #destroyed = false;
-  #hasObserved = false;
+  #workspaceID: string;
   #host: HTMLElement;
-  #newOutput = false;
-  #observer: TerminalSession | undefined;
-  #observerReady = false;
-  #observerRetry: number | undefined;
-  #ownership: TerminalOwnership = "waiting";
+  #surface: HTMLDivElement;
+  #title: HTMLHeadingElement;
+  #status: HTMLSpanElement;
+  #controlAction: HTMLButtonElement;
+  #toggle: HTMLButtonElement | undefined;
+  #message: HTMLButtonElement | undefined;
+  #shortcuts: HTMLButtonElement[] = [];
+  #mobile: boolean;
+  #readerVisible: boolean;
   #reader: ReaderView | undefined;
   #readerInput: ReaderInputQueue | undefined;
-  #readerMode: boolean;
-  #readerSizer: ReaderTerminalSizer | undefined;
   #readerTextQueued = false;
+  #xterm = new XTermAdapter();
+  #terminalMount: HTMLDivElement;
+  #layoutObserver: ResizeObserver | undefined;
+  #session: TerminalSession | undefined;
+  #typedRequests = new Set<number>();
+  #typingTimer: number | undefined;
+  #ownership: TerminalOwnership = "waiting";
+  #desiredControl = true;
+  #ready = false;
+  #destroyed = false;
+  #generation = 0;
+  #retry: number | undefined;
+  #lastDimensions: TerminalDimensions | undefined;
+  #hasConnected = false;
+  #newOutput = false;
   #uploadAbort: AbortController | undefined;
   #uploadAttempt = 0;
   #uploadState: ReaderInputState = "ready";
-  #status: HTMLSpanElement;
-  #surface: HTMLDivElement;
-  #title: HTMLHeadingElement;
-  #xterm: XTermAdapter | undefined;
-  #workspaceID: string;
+  #uploadIntent: "insert" | "submit" = "submit";
+  #viewportChanged = (): void => {
+    if (this.#mobile && window.visualViewport) {
+      this.#host.style.height = `${window.visualViewport.height}px`;
+      this.#host.style.top = `${window.visualViewport.offsetTop}px`;
+    }
+    this.#layout();
+  };
 
   constructor(host: HTMLElement, target: TerminalPageTarget, options: TerminalPageOptions) {
     this.#host = host;
@@ -82,416 +88,369 @@ export class TerminalPage {
     this.paneID = target.paneID;
     this.terminalID = target.terminalID;
     this.#workspaceID = target.workspaceID;
-    this.#readerMode = terminalReaderForDevice();
-
+    this.#mobile = terminalReaderForDevice();
+    this.#readerVisible = this.#mobile;
     const header = element("header", "terminal-header");
-    const home = action("Home", options.onHome, "terminal-home");
     const title = element("div", "terminal-title");
     this.#title = element("h1", undefined, target.title);
     this.#status = element("span", "terminal-connection");
-    this.#renderStatus();
     title.append(this.#title, this.#status);
-    this.#controlAction = element("button", "terminal-control-action", "Control");
-    this.#controlAction.type = "button";
+    this.#controlAction = action("Control", () => this.#ownershipAction(), "terminal-control-action");
     this.#controlAction.hidden = true;
-    const notifications = settingsAction(document, () => options.onNotifications?.(), "terminal-notifications");
-    header.append(home, title, notifications, this.#controlAction);
-
+    const settings = settingsAction(document, () => options.onNotifications?.(), "terminal-notifications");
+    header.append(action("Home", options.onHome, "terminal-home"), title);
+    if (this.#mobile) {
+      this.#toggle = action("Full terminal", () => this.#switchView(), "terminal-view-toggle");
+      header.append(this.#toggle);
+    }
+    header.append(settings);
+    if (!this.#mobile) header.append(this.#controlAction);
     this.#surface = element("div", "terminal-production-surface");
     this.#surface.setAttribute("aria-label", target.title);
-    host.className = `terminal-screen ${this.#readerMode ? "terminal-reader-page" : "terminal-desktop-page"}`;
+    this.#terminalMount = element("div", "terminal-full-mount");
+    this.#surface.append(this.#terminalMount);
+    host.className = `terminal-screen ${this.#mobile ? "terminal-reader-page terminal-shared-page" : "terminal-desktop-page"}`;
     host.replaceChildren(header, this.#surface);
-
-    if (this.#readerMode) void this.#startReader();
-    else void this.#startDesktop();
+    if (this.#mobile) this.#mountReader();
+    this.#render();
+    void this.#mountTerminal();
   }
 
   updateTarget(title: string, agentStatus?: string): void {
     this.#title.textContent = title;
     this.#surface.setAttribute("aria-label", title);
     this.#agentStatus = agentStatus;
-    this.#syncReaderActions();
-    this.#renderStatus();
+    this.#render();
   }
 
   destroy(): void {
     this.#destroyed = true;
-    if (this.#observerRetry !== undefined) window.clearTimeout(this.#observerRetry);
-    this.#observerRetry = undefined;
-    const observer = this.#observer;
-    this.#observer = undefined;
-    observer?.disconnect();
-    const controller = this.#controller;
-    this.#controller = undefined;
-    controller?.disconnect();
+    this.#generation++;
+    if (this.#retry !== undefined) window.clearTimeout(this.#retry);
+    this.#retry = undefined;
+    void this.#session?.disconnect();
+    this.#session = undefined;
     this.#readerInput?.clearTarget();
-    this.#readerInput = undefined;
-    this.#readerSizer?.destroy();
-    this.#readerSizer = undefined;
+    if (this.#typingTimer !== undefined) window.clearTimeout(this.#typingTimer);
+    this.#typedRequests.clear();
     this.#uploadAttempt++;
     this.#uploadAbort?.abort();
-    this.#uploadAbort = undefined;
+    this.#layoutObserver?.disconnect();
+    window.visualViewport?.removeEventListener("resize", this.#viewportChanged);
+    window.visualViewport?.removeEventListener("scroll", this.#viewportChanged);
     this.#reader?.destroy();
-    this.#reader = undefined;
-    this.#xterm?.destroy();
-    this.#xterm = undefined;
+    this.#xterm.destroy();
     this.#host.replaceChildren();
+    this.#host.style.height = "";
+    this.#host.style.top = "";
   }
 
-  async #startReader(): Promise<void> {
-    const reader = new ReaderView(this.#surface, {
+  #mountReader(): void {
+    const mount = element("div", "terminal-reader-mount");
+    this.#surface.append(mount);
+    const reader = new ReaderView(mount, {
       onLog: () => undefined,
-      onNewOutput: (available) => {
-        this.#newOutput = available;
-        this.#renderStatus();
-      },
+      onStatus: () => undefined,
+      onNewOutput: (available) => { this.#newOutput = available; this.#render(); },
       onPendingFilesEmpty: () => {
-        const nextState = uploadStateAfterLastFileRemoved(this.#uploadState);
-        if (nextState === this.#uploadState) return;
-        this.#uploadState = nextState;
-        this.#reader?.clearInputRecovery();
-        this.#syncReaderResizeAvailability();
-        this.#syncReaderActions();
-        this.#renderReaderStatus();
+        this.#uploadState = uploadStateAfterLastFileRemoved(this.#uploadState);
+        reader.clearInputRecovery();
+        this.#render();
       },
-      onResize: (dimensions) => {
-        this.#readerInput?.resize(dimensions);
-        this.#readerSizer?.viewportChanged(dimensions);
-      },
-      onStatus: (message) => this.#setStatus(message),
+      onLayout: () => this.#layout(),
+      onInsertFiles: () => { void this.#sendFiles("insert", false); return true; },
       onSubmit: (text, files) => {
-        if (files.length > 0) {
-          void this.#sendFiles(false);
-          return true;
-        }
-        const queued = this.#readerInput?.enqueueBatch(terminalSubmission(text)) ?? false;
-        if (queued) this.#readerTextQueued = true;
-        return queued;
+        if (files.length) { void this.#sendFiles("submit", false); return true; }
+        this.#readerTextQueued = true;
+        const accepted = this.#readerInput?.enqueueBatch(terminalSubmission(text)) ?? false;
+        if (!accepted) this.#readerTextQueued = false;
+        return accepted;
       },
     }, { collapsibleComposer: true, endpoint: "/api/terminal/read" });
     this.#reader = reader;
     const input = new ReaderInputQueue({
-      onFailed: (message) => reader.inputFailed(message, () => input.retry(false)),
+      onFailed: (message) => reader.inputFailed(message, () => { void input.retry(false); }),
       onForwarded: () => {
         reader.inputForwarded(this.#readerTextQueued);
+        if (this.#readerTextQueued) reader.hideComposer();
         this.#readerTextQueued = false;
-        reader.hideComposer();
+        this.#render();
       },
       onLog: () => undefined,
       onOccupied: (message) => reader.inputOccupied(message, () => {
-        if (window.confirm("Take control? The current controller will lose input.")) input.retry(true);
+        if (window.confirm("Take control? The current controller will lose input.")) void input.retry(true);
       }),
       onSending: (count) => reader.inputSending(count),
-      onState: () => {
-        this.#syncReaderResizeAvailability();
-        this.#syncReaderActions();
-        this.#renderReaderStatus();
-      },
+      onState: () => this.#render(),
       onUncertain: (message) => {
         this.#readerTextQueued = false;
         reader.inputUncertain(message, () => input.dismissUncertain());
       },
-    }, { endpoint: "/api/terminal" });
+    }, {
+      session: () => this.#ownership === "controlling" ? this.#session : undefined,
+      occupied: () => this.#ownership === "occupied",
+      acquire: (takeover) => this.#acquire(takeover),
+    });
     this.#readerInput = input;
-    const sizer = new ReaderTerminalSizer(this.paneID, this.terminalID, {
-      onActive: () => this.#syncReaderActions(),
-      onSettled: () => reader.refreshSoon(),
-    }, { endpoint: "/api/terminal" });
-    this.#readerSizer = sizer;
-    const dimensions = await reader.open(this.paneID, this.terminalID);
-    if (this.#destroyed) return;
-    input.setTarget(this.paneID, dimensions, this.terminalID);
-    const viewport = reader.viewportDimensions();
-    if (viewport) sizer.viewportChanged(viewport);
-    const controls = this.#readerControls(reader, input);
-    this.#host.append(controls);
-    this.#syncReaderActions();
-    this.#connectObserver(dimensions);
-  }
-
-  #readerControls(reader: ReaderView, input: ReaderInputQueue): HTMLElement {
     const controls = element("nav", "terminal-command-bar");
     controls.setAttribute("aria-label", "Terminal commands");
-    this.#commandButtons.push(readerMessageAction(() => reader.showComposer()));
+    this.#message = readerMessageAction(() => {
+      if (this.#readerVisible) reader.showComposer();
+      else reader.showFileInsertion();
+    });
+    controls.append(this.#message, this.#controlAction);
     const keys: Array<[string, string, string]> = [
-      ["escape", "Esc", "Escape"],
-      ["enter", "Enter", "Enter"],
-      ["left", "←", "Left arrow"],
-      ["up", "↑", "Up arrow"],
-      ["down", "↓", "Down arrow"],
-      ["right", "→", "Right arrow"],
-      ["ctrl-c", "Ctrl C", "Control C"],
-      ["ctrl-d", "Ctrl D", "Control D"],
-      ["ctrl-z", "Ctrl Z", "Control Z"],
-      ["tab", "Tab", "Tab"],
-      ["backspace", "⌫", "Backspace"],
+      ["escape", "Esc", "Escape"], ["enter", "Enter", "Enter"],
+      ["left", "←", "Left arrow"], ["up", "↑", "Up arrow"], ["down", "↓", "Down arrow"], ["right", "→", "Right arrow"],
+      ["ctrl-c", "Ctrl C", "Control C"], ["ctrl-d", "Ctrl D", "Control D"], ["ctrl-z", "Ctrl Z", "Control Z"],
+      ["tab", "Tab", "Tab"], ["backspace", "⌫", "Backspace"],
     ];
-    for (const [key, label, accessibleName] of keys) {
+    for (const [key, label, name] of keys) {
       const button = action(label, () => input.enqueue(terminalKeySequences[key]));
-      button.setAttribute("aria-label", accessibleName);
-      this.#commandButtons.push(button);
+      button.setAttribute("aria-label", name);
+      this.#shortcuts.push(button);
+      controls.append(button);
     }
-    controls.append(...this.#commandButtons);
-    return controls;
+    this.#host.append(controls);
+    void reader.open(this.paneID, this.terminalID);
   }
 
-  #syncReaderActions(): void {
-    if (!this.#readerMode) return;
-    const state = this.#uploadState !== "ready" ? this.#uploadState : this.#readerInput?.state() ?? "ready";
-    const fileRecovery = this.#uploadState !== "ready" && this.#uploadState !== "uncertain";
-    const availability = readerActionAvailability(this.#observerReady && !this.#readerSizer?.active(), state);
-    if (fileRecovery && this.#agentStatus === undefined) availability.recover = false;
-    this.#reader?.setActionAvailability(availability);
-    this.#reader?.setFileSelectionAvailable(this.#observerReady && !this.#readerSizer?.active() && this.#agentStatus !== undefined && state === "ready");
-    for (const button of this.#commandButtons) button.disabled = !availability.send;
+  async #mountTerminal(): Promise<void> {
+    await this.#xterm.mount(this.#terminalMount, {
+      onData: (data) => {
+        if (!this.#canType()) return;
+        const requestID = this.#session?.input(data);
+        if (this.#mobile && requestID !== undefined) {
+          this.#typedRequests.add(requestID);
+          if (this.#typingTimer === undefined) this.#typingTimer = window.setTimeout(() => this.#unconfirmedTyping(), 2_500);
+          this.#render();
+        }
+      },
+      onResize: (dimensions) => {
+        this.#lastDimensions = dimensions;
+        if (this.#ownership === "controlling") this.#session?.resize(dimensions);
+        if (!this.#hasConnected && this.#ready) void this.#connect("control");
+      },
+      onScroll: (scroll) => this.#canType() && this.#session?.scroll(scroll) === true,
+    });
+    if (this.#destroyed) { this.#xterm.destroy(); return; }
+    this.#ready = true;
+    if (this.#mobile) {
+      this.#layoutObserver = new ResizeObserver(() => this.#layout());
+      this.#layoutObserver.observe(this.#surface);
+      const scroll = this.#surface.querySelector(".reader-scroll");
+      if (scroll) this.#layoutObserver.observe(scroll);
+      window.visualViewport?.addEventListener("resize", this.#viewportChanged);
+      window.visualViewport?.addEventListener("scroll", this.#viewportChanged);
+    }
+    this.#viewportChanged();
+    this.#present();
+    if (this.#lastDimensions && !this.#hasConnected) void this.#connect("control");
   }
 
-  #renderReaderStatus(): void {
-    if (!this.#observerReady) {
-      this.#setStatus(this.#hasObserved ? "Reconnecting" : "Connecting");
+  #layout(): void {
+    if (!this.#ready || this.#destroyed) return;
+    const height = this.#reader?.contentHeight();
+    if (height !== undefined && Number.isFinite(height) && height > 0) this.#terminalMount.style.height = `${height}px`;
+    this.#xterm.fit();
+  }
+
+  #switchView(): void {
+    if (this.#uploadState === "requesting") return;
+    this.#readerVisible = !this.#readerVisible;
+    this.#reader?.setPresentation(this.#readerVisible);
+    this.#present();
+    this.#render();
+  }
+
+  #present(): void {
+    this.#terminalMount.style.visibility = this.#readerVisible ? "hidden" : "visible";
+    this.#terminalMount.inert = this.#readerVisible;
+    this.#terminalMount.style.pointerEvents = this.#readerVisible ? "none" : "auto";
+    if (this.#toggle) this.#toggle.textContent = this.#readerVisible ? "Full terminal" : "Reader";
+    if (this.#message) {
+      this.#message.textContent = this.#readerVisible ? "Message" : "📎";
+      this.#message.setAttribute("aria-label", this.#readerVisible ? "Message" : "Attach files");
+    }
+    this.#xterm.setInputEnabled(this.#canType());
+  }
+
+  #canType(): boolean {
+    return !this.#readerVisible && this.#ownership === "controlling" && this.#uploadState !== "requesting" &&
+      (!this.#mobile || this.#readerInput?.state() === "ready");
+  }
+
+  async #connect(mode: SessionMode): Promise<boolean> {
+    if (this.#destroyed || !this.#lastDimensions) return false;
+    const generation = ++this.#generation;
+    this.#hasConnected = true;
+    if (this.#retry !== undefined) window.clearTimeout(this.#retry);
+    this.#retry = undefined;
+    const previous = this.#session;
+    this.#session = undefined;
+    if (previous) this.#readerInput?.disconnected(previous);
+    this.#unconfirmedTyping();
+    this.#ownership = mode === "observe" ? (this.#ownership === "occupied" ? "occupied" : "waiting") : "requesting";
+    this.#render();
+    await previous?.disconnect();
+    if (this.#destroyed || generation !== this.#generation) return false;
+    return new Promise<boolean>((resolve) => {
+      let received = false;
+      let lastStatus = "";
+      const session = new TerminalSession(mode, {
+        onFrame: (frame, bytes) => {
+          if (this.#session !== session) return;
+          this.#xterm.receiveDimensions({ cols: frame.width, rows: frame.height }, mode !== "observe");
+          if (frame.full) this.#xterm.replace(bytes);
+          else this.#xterm.write(bytes);
+          this.#reader?.refreshSoon();
+          if (received) return;
+          received = true;
+          if (mode !== "observe") this.#ownership = "controlling";
+          else if (this.#ownership !== "occupied") this.#ownership = "observing";
+          this.#render();
+          if (!this.#mobile && mode !== "observe") this.#xterm.focus();
+          resolve(mode !== "observe");
+        },
+        onInputForwarded: (requestID) => {
+          this.#typedRequests.delete(requestID);
+          if (this.#typedRequests.size === 0 && this.#typingTimer !== undefined) {
+            window.clearTimeout(this.#typingTimer);
+            this.#typingTimer = undefined;
+          }
+          this.#readerInput?.forwarded(session, requestID);
+          this.#render();
+        },
+        onStatus: (message) => { lastStatus = message; },
+        onLog: (event) => {
+          if (event !== "session.close" || this.#session !== session) return;
+          this.#session = undefined;
+          this.#readerInput?.disconnected(session);
+          this.#unconfirmedTyping();
+          this.#reader?.pauseLiveRefresh();
+          const occupied = lastStatus.includes("already has an attached client") || lastStatus.includes("taken over");
+          if (occupied) {
+            this.#desiredControl = false;
+            this.#ownership = "occupied";
+            void this.#connect("observe");
+          } else {
+            this.#ownership = "waiting";
+            this.#scheduleReconnect();
+          }
+          this.#render();
+          resolve(false);
+        },
+      }, { endpoint: "/api/terminal", terminalID: this.terminalID });
+      this.#session = session;
+      session.connect(this.paneID, this.#lastDimensions!);
+    });
+  }
+
+  #scheduleReconnect(): void {
+    if (this.#destroyed || this.#retry !== undefined) return;
+    this.#retry = window.setTimeout(() => {
+      this.#retry = undefined;
+      this.#reader?.connectionReset();
+      void this.#connect(this.#desiredControl ? "control" : "observe");
+    }, 1_000);
+  }
+
+  #unconfirmedTyping(): void {
+    if (this.#typingTimer !== undefined) window.clearTimeout(this.#typingTimer);
+    this.#typingTimer = undefined;
+    if (this.#typedRequests.size === 0) return;
+    this.#typedRequests.clear();
+    this.#readerInput?.inputUnconfirmed();
+  }
+
+  #acquire(takeover: boolean): Promise<boolean> {
+    this.#desiredControl = true;
+    return this.#connect(takeover ? "takeover" : "control");
+  }
+
+  #ownershipAction(): void {
+    if (this.#uploadState === "requesting") return;
+    if (this.#ownership === "controlling") {
+      this.#desiredControl = false;
+      void this.#connect("observe");
+    } else if (this.#ownership === "occupied") {
+      if (window.confirm("Take control? The current controller will lose input.")) void this.#acquire(true);
+    } else if (this.#ownership === "observing") void this.#acquire(false);
+  }
+
+  async #sendFiles(intent: "insert" | "submit", takeover: boolean): Promise<void> {
+    const reader = this.#reader;
+    if (!reader || !reader.hasPendingFiles() || this.#agentStatus === undefined ||
+      this.#typedRequests.size > 0 || !["ready", "occupied", "failed"].includes(this.#uploadState)) return;
+    this.#uploadIntent = intent;
+    if (takeover && !await this.#acquire(true)) return;
+    const controller = this.#ownership === "controlling" ? this.#session?.controllerHandle() : undefined;
+    if (!controller) {
+      if (this.#ownership === "occupied") {
+        this.#uploadState = "occupied";
+        reader.inputOccupied("Someone else is controlling this terminal, so the files were not sent.", () => {
+          if (window.confirm("Take control? The current controller will lose input.")) void this.#sendFiles(this.#uploadIntent, true);
+        });
+        this.#render();
+      }
       return;
     }
-    const inputState = this.#uploadState !== "ready" ? this.#uploadState : this.#readerInput?.state() ?? "ready";
-    const status = ({
-      failed: "Could not send · observing",
-      forwarding: "Forwarding input",
-      occupied: "Controlled elsewhere · observing",
-      ready: "Observing",
-      requesting: "Requesting control",
-      uncertain: "Delivery uncertain · observing",
-    } satisfies Record<ReaderInputState, string>)[inputState];
-    this.#setStatus(this.#uploadState === "requesting" ? "Sending files" : status);
-  }
-
-  async #sendFiles(takeover: boolean): Promise<void> {
-    const reader = this.#reader;
-    if (!reader || this.#uploadState !== "ready" && this.#uploadState !== "failed" && this.#uploadState !== "occupied" ||
-      !this.#observerReady || this.#agentStatus === undefined || !reader.hasPendingFiles()) return;
     this.#uploadState = "requesting";
-    this.#syncReaderResizeAvailability();
-    this.#readerSizer?.request();
     const attempt = ++this.#uploadAttempt;
     const abort = new AbortController();
-    this.#uploadAbort?.abort();
     this.#uploadAbort = abort;
     reader.filesSending();
-    this.#syncReaderActions();
-    this.#renderReaderStatus();
+    this.#render();
     try {
       const outcome = await sendTerminalFiles({
-        paneID: this.paneID,
-        terminalID: this.terminalID,
-        workspaceID: this.#workspaceID,
-      }, reader.draftText(), reader.pendingFiles(), takeover, abort.signal);
+        paneID: this.paneID, terminalID: this.terminalID, workspaceID: this.#workspaceID, controller, intent,
+      }, intent === "insert" ? "" : reader.draftText(), reader.pendingFiles(), false, abort.signal);
       if (this.#destroyed || attempt !== this.#uploadAttempt) return;
-      this.#uploadAbort = undefined;
-      switch (outcome.result) {
-      case "forwarded":
+      if (outcome.result === "forwarded") {
         this.#uploadState = "ready";
-        reader.inputForwarded(true, true);
+        reader.inputForwarded(intent === "submit", true);
         reader.hideComposer();
-        break;
-      case "occupied":
-        this.#uploadState = "occupied";
-        reader.inputOccupied(outcome.message, () => {
-          if (window.confirm("Take control? The current controller will lose input.")) void this.#sendFiles(true);
-        });
-        break;
-      case "unknown":
-        this.#uploadState = "uncertain";
-        reader.inputUncertain(outcome.message, () => {
-          this.#uploadState = "ready";
-          this.#syncReaderResizeAvailability();
-          this.#syncReaderActions();
-          this.#renderReaderStatus();
-        });
-        break;
-      default:
+      } else if (outcome.result === "unknown") this.#uploadUncertain(outcome.message);
+      else {
         this.#uploadState = "failed";
-        reader.inputFailed(outcome.message, () => void this.#sendFiles(false));
+        reader.inputFailed(outcome.message, () => { void this.#sendFiles(intent, false); });
       }
     } catch {
       if (this.#destroyed || attempt !== this.#uploadAttempt) return;
-      this.#uploadAbort = undefined;
-      this.#uploadState = "uncertain";
-      reader.inputUncertain("The result could not be confirmed. Check the terminal before sending the files again.", () => {
-        this.#uploadState = "ready";
-        this.#syncReaderResizeAvailability();
-        this.#syncReaderActions();
-        this.#renderReaderStatus();
-      });
+      this.#uploadUncertain("The result could not be confirmed. Check the terminal before sending the files again.");
     }
-    this.#syncReaderResizeAvailability();
-    this.#syncReaderActions();
-    this.#renderReaderStatus();
+    this.#uploadAbort = undefined;
+    this.#render();
   }
 
-  async #startDesktop(): Promise<void> {
-    const terminal = new XTermAdapter();
-    this.#xterm = terminal;
-    await terminal.mount(this.#surface, {
-      onData: (data) => {
-        if (this.#ownership === "controlling") this.#controller?.input(data);
-      },
-      onResize: (dimensions) => {
-        if (this.#ownership === "controlling") this.#controller?.resize(dimensions);
-      },
-      onScroll: (scroll) => this.#ownership === "controlling" && this.#controller?.scroll(scroll) === true,
-    });
-    if (this.#destroyed) {
-      terminal.destroy();
-      return;
-    }
-    this.#connectObserver(terminal.dimensions());
+  #uploadUncertain(message: string): void {
+    this.#uploadState = "uncertain";
+    this.#reader?.inputUncertain(message, () => { this.#uploadState = "ready"; this.#render(); });
   }
 
-  #connectObserver(dimensions: TerminalDimensions): void {
+  #render(): void {
     if (this.#destroyed) return;
-    const previous = this.#observer;
-    this.#observer = undefined;
-    previous?.disconnect();
-    this.#observerReady = false;
-    let receivedFrame = false;
-    const session = new TerminalSession("observe", {
-      onFrame: (frame, bytes) => {
-        if (this.#observer !== session) return;
-        if (this.#reader) {
-          if (!receivedFrame && this.#hasObserved) this.#reader.connectionReset();
-          const currentDimensions = this.#reader.observerRows(frame.height);
-          this.#readerInput?.resize(currentDimensions);
-          this.#readerSizer?.observerFrame(currentDimensions);
-          this.#reader.refreshSoon();
-        } else {
-          if (frame.full) this.#xterm?.replace(bytes);
-          else this.#xterm?.write(bytes);
-        }
-        if (receivedFrame) return;
-        receivedFrame = true;
-        this.#observerReady = true;
-        this.#ownership = nextTerminalOwnership(this.#ownership, "observer-ready");
-        this.#hasObserved = true;
-        if (this.#readerMode) {
-          this.#syncReaderResizeAvailability();
-          this.#syncReaderActions();
-          this.#renderReaderStatus();
-        } else {
-          this.#renderDesktopOwnership();
-          if (this.#desktopAutoAcquire) {
-            this.#desktopAutoAcquire = false;
-            this.#connectController(false);
-          }
-        }
-      },
-      onLog: (event) => {
-        if (event !== "session.close" || this.#observer !== session) return;
-        this.#observer = undefined;
-        this.#observerReady = false;
-        this.#syncReaderResizeAvailability();
-        this.#readerSizer?.observerLost();
-        this.#reader?.pauseLiveRefresh();
-        this.#syncReaderActions();
-        if (this.#controller || this.#ownership === "controlling" || this.#ownership === "requesting") this.#desktopAutoAcquire = true;
-        this.#releaseController(false);
-        this.#ownership = nextTerminalOwnership(this.#ownership, "observer-lost");
-        this.#scheduleObserverReconnect();
-      },
-      onStatus: (message) => {
-        if (message === "Connecting") this.#setStatus("Connecting");
-      },
-    }, { endpoint: "/api/terminal", terminalID: this.terminalID });
-    this.#observer = session;
-    session.connect(this.paneID, dimensions);
-  }
-
-  #syncReaderResizeAvailability(): void {
-    const inputReady = this.#readerInput?.state() === "ready";
-    this.#readerSizer?.setAvailable(this.#observerReady && inputReady && this.#uploadState === "ready");
-  }
-
-  #scheduleObserverReconnect(): void {
-    if (this.#destroyed || this.#observerRetry !== undefined) return;
-    this.#setStatus("Reconnecting");
-    this.#observerRetry = window.setTimeout(() => {
-      this.#observerRetry = undefined;
-      const dimensions = this.#reader?.dimensions() ?? this.#xterm?.dimensions() ?? { cols: 80, rows: 24 };
-      this.#connectObserver(dimensions);
-    }, reconnectDelayMilliseconds);
-  }
-
-  #connectController(takeover: boolean): void {
-    if (this.#destroyed || this.#readerMode || !this.#observerReady || !this.#observer || this.#controller) return;
-    this.#ownership = nextTerminalOwnership(this.#ownership, "request");
-    this.#renderDesktopOwnership(takeover ? "Taking control" : "Requesting control");
-    let lastStatus = "";
-    const session = new TerminalSession(takeover ? "takeover" : "control", {
-      onFrame: () => {
-        if (this.#controller !== session || this.#ownership !== "requesting") return;
-        this.#ownership = nextTerminalOwnership(this.#ownership, "acquired");
-        this.#renderDesktopOwnership();
-        this.#xterm?.focus();
-      },
-      onLog: (event) => {
-        if (event !== "session.close" || this.#controller !== session) return;
-        this.#controller = undefined;
-        if (this.#destroyed || !this.#observerReady) return;
-        this.#ownership = nextTerminalOwnership(
-          this.#ownership,
-          lastStatus.includes("already has an attached client") ? "occupied" : "failed",
-        );
-        this.#renderDesktopOwnership();
-      },
-      onStatus: (message) => {
-        lastStatus = message;
-      },
-    }, { endpoint: "/api/terminal", terminalID: this.terminalID });
-    this.#controller = session;
-    session.connect(this.paneID, this.#xterm?.dimensions() ?? { cols: 80, rows: 24 });
-  }
-
-  #releaseController(explicit: boolean): void {
-    const controller = this.#controller;
-    this.#controller = undefined;
-    controller?.disconnect();
-    if (explicit) this.#desktopAutoAcquire = false;
-    if (!this.#observerReady) return;
-    this.#ownership = nextTerminalOwnership(this.#ownership, "release");
-    this.#renderDesktopOwnership();
-  }
-
-  #renderDesktopOwnership(temporaryStatus?: string): void {
-    if (this.#readerMode) return;
+    const state = this.#uploadState !== "ready" ? this.#uploadState : this.#readerInput?.state() ?? "ready";
+    const live = this.#ownership === "controlling" || this.#ownership === "observing" || this.#ownership === "occupied";
+    const availability = readerActionAvailability(live, state);
+    availability.send = availability.send && this.#typedRequests.size === 0 && (this.#ownership === "controlling" || this.#ownership === "occupied");
+    this.#reader?.setActionAvailability(availability);
+    this.#reader?.setFileSelectionAvailable(live && this.#agentStatus !== undefined && state === "ready");
+    for (const button of this.#shortcuts) button.disabled = !availability.send;
+    if (this.#message) {
+      this.#message.disabled = !availability.send;
+      this.#message.hidden = !this.#readerVisible && this.#agentStatus === undefined;
+    }
+    if (this.#toggle) this.#toggle.disabled = this.#uploadState === "requesting";
     const control = terminalOwnershipAction(this.#ownership);
     this.#controlAction.hidden = control === undefined;
-    this.#controlAction.onclick = null;
-    if (control === "release") {
-      this.#controlAction.textContent = "Release";
-      this.#controlAction.onclick = () => this.#releaseController(true);
-    } else if (control === "takeover") {
-      this.#controlAction.textContent = "Take over";
-      this.#controlAction.onclick = () => {
-        if (window.confirm("Take control? The current controller will lose input.")) this.#connectController(true);
-      };
-    } else if (control === "control") {
-      this.#controlAction.textContent = "Control";
-      this.#controlAction.onclick = () => this.#connectController(false);
-    }
-    const status = temporaryStatus ?? ({
-      controlling: "Controlling",
-      observing: "Observing",
-      occupied: "Controlled elsewhere · observing",
-      requesting: "Requesting control",
-      waiting: "Connecting",
+    this.#controlAction.disabled = state === "forwarding" || state === "requesting";
+    this.#controlAction.textContent = control === "release" ? "Release" : control === "takeover" ? "Take over" : "Control";
+    const status = state === "forwarding" ? "Forwarding input" : this.#uploadState === "requesting" ? "Sending files" : ({
+      controlling: "Controlling", observing: "Observing", occupied: "Controlled elsewhere · observing",
+      requesting: "Requesting control", waiting: this.#hasConnected ? "Reconnecting" : "Connecting",
     } satisfies Record<TerminalOwnership, string>)[this.#ownership];
-    this.#setStatus(status);
-  }
-
-  #setStatus(message: string): void {
-    this.#connectionStatus = message;
-    this.#renderStatus();
-  }
-
-  #renderStatus(): void {
-    if (this.#destroyed) return;
-    this.#status.textContent = [this.#agentStatus, this.#connectionStatus, this.#newOutput ? "New output" : undefined].filter(Boolean).join(" · ");
+    this.#status.textContent = [this.#agentStatus, status, this.#newOutput ? "New output" : undefined].filter(Boolean).join(" · ");
+    this.#xterm.setInputEnabled(this.#canType());
   }
 }

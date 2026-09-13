@@ -16,7 +16,9 @@ import (
 )
 
 type terminalFileRequest struct {
-	Files []struct {
+	Controller string `json:"controller"`
+	Intent     string `json:"intent"`
+	Files      []struct {
 		Data string `json:"data"`
 		Name string `json:"name"`
 	} `json:"files"`
@@ -97,11 +99,22 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 		if err := validateBeforeWrite(); err != nil {
 			return uploads.NotSent, err
 		}
-		chunks, err := uploadTerminalSubmission(paths, envelope.Text)
+		var chunks []string
+		var err error
+		if envelope.Intent == "insert" {
+			chunks, err = uploadTerminalInsertion(paths)
+		} else {
+			chunks, err = uploadTerminalSubmission(paths, envelope.Text)
+		}
 		if err != nil {
 			return uploads.NotSent, err
 		}
-		outcome, err := s.terminal.SendBatch(request, initial.paneID, initial.terminalID, envelope.Takeover, validateBeforeWrite, chunks)
+		var outcome terminalBatchOutcome
+		if envelope.Controller != "" {
+			outcome, err = s.terminal.sendControllerBatch(request, envelope.Controller, initial.paneID, initial.terminalID, validateBeforeWrite, chunks)
+		} else {
+			outcome, err = s.terminal.SendBatch(request, initial.paneID, initial.terminalID, envelope.Takeover, validateBeforeWrite, chunks)
+		}
 		switch outcome {
 		case terminalBatchForwarded:
 			return uploads.Forwarded, err
@@ -161,6 +174,10 @@ func readTerminalFileRequest(request *http.Request, limit uploads.Limit) (termin
 	}
 	if !validTerminalIdentity(envelope.WorkspaceID) || !validTerminalIdentity(envelope.PaneID) || !validTerminalIdentity(envelope.TerminalID) || len(envelope.Files) == 0 {
 		return terminalFileRequest{}, nil, errors.New("files were not sent because the exact target or file list is invalid")
+	}
+	if envelope.Controller == "" && envelope.Intent != "" || envelope.Controller != "" &&
+		(len(envelope.Controller) != 64 || envelope.Takeover || envelope.Intent != "submit" && envelope.Intent != "insert" || envelope.Intent == "insert" && envelope.Text != "") {
+		return terminalFileRequest{}, nil, errors.New("files were not sent because the controlling connection or intent is invalid")
 	}
 	files := make([]uploads.File, 0, len(envelope.Files))
 	var decodedTotal int64
@@ -244,6 +261,22 @@ func uploadTerminalSubmission(paths []string, text string) ([]string, error) {
 	value = strings.ReplaceAll(value, "\r", "\n")
 	value = strings.ReplaceAll(value, "\n", "\r")
 	return []string{"\x1b[200~" + value + "\x1b[201~", "\r"}, nil
+}
+
+func uploadTerminalInsertion(paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, errors.New("uploaded path list is empty")
+	}
+	var value strings.Builder
+	for _, path := range paths {
+		if err := validateGeneratedPath(path); err != nil {
+			return nil, err
+		}
+		value.WriteString("[User uploaded ")
+		value.WriteString(path)
+		value.WriteString("] ")
+	}
+	return []string{"\x1b[200~" + value.String() + "\x1b[201~"}, nil
 }
 
 func validateGeneratedPath(path string) error {

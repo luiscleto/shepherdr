@@ -45,6 +45,212 @@ func recognizedAgentState(workspace, pane, terminal string) herdr.State {
 	}
 }
 
+type trialInputWriter struct {
+	bytes.Buffer
+	write func([]byte) (int, error)
+}
+
+func (writer *trialInputWriter) Write(data []byte) (int, error) {
+	if writer.write != nil {
+		return writer.write(data)
+	}
+	return writer.Buffer.Write(data)
+}
+func (*trialInputWriter) Close() error { return nil }
+
+func trialController(t *testing.T, request *http.Request, writer io.WriteCloser) (*TerminalBridge, *terminalLiveController) {
+	t.Helper()
+	source := newFakeTerminalStateSource(recognizedAgentState("workspace-1", "pane-1", "term-send"))
+	bridge := testTerminalBridge(source)
+	lease, ok := bridge.acquireTarget("pane-1", "term-send")
+	if !ok {
+		t.Fatal("target unavailable")
+	}
+	session := &terminalChildSession{stdin: writer, controlled: true, exited: make(chan struct{})}
+	controller, err := bridge.registerController(request, session, lease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { bridge.unregisterController(controller); lease.Close(); bridge.Close() })
+	return bridge, controller
+}
+
+func TestTrialControllerHandleRequiresExactLiveTargetAndSignIn(t *testing.T) {
+	writer := &trialInputWriter{}
+	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files", nil)
+	identity := access.SessionIdentity{Digest: "session-a", TrustID: "trust-a"}
+	request = request.WithContext(context.WithValue(request.Context(), sessionContextKey, identity))
+	bridge, controller := trialController(t, request, writer)
+	validate := func() error { return nil }
+	wrongSignIn := request.WithContext(context.WithValue(request.Context(), sessionContextKey, access.SessionIdentity{Digest: "session-b", TrustID: "trust-a"}))
+	for _, candidate := range []struct {
+		request                *http.Request
+		handle, pane, terminal string
+	}{
+		{request, "wrong", "pane-1", "term-send"},
+		{request, controller.handle, "pane-2", "term-send"},
+		{request, controller.handle, "pane-1", "term-other"},
+		{wrongSignIn, controller.handle, "pane-1", "term-send"},
+		{httptest.NewRequest(http.MethodPost, "/", nil), controller.handle, "pane-1", "term-send"},
+	} {
+		outcome, _ := bridge.sendControllerBatch(candidate.request, candidate.handle, candidate.pane, candidate.terminal, validate, []string{"input"})
+		if outcome != terminalBatchNotSent || writer.Len() != 0 {
+			t.Fatal("invalid handle forwarded input")
+		}
+	}
+	bridge.unregisterController(controller)
+	outcome, _ := bridge.sendControllerBatch(request, controller.handle, "pane-1", "term-send", validate, []string{"input"})
+	if outcome != terminalBatchNotSent || writer.Len() != 0 {
+		t.Fatal("stale handle forwarded input")
+	}
+}
+
+func TestTrialInsertionHasOnePasteAndNoSubmission(t *testing.T) {
+	chunks, err := uploadTerminalInsertion([]string{"/tmp/one.txt", "/tmp/two.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 || chunks[0] != "\x1b[200~[User uploaded /tmp/one.txt] [User uploaded /tmp/two.png] \x1b[201~" || strings.ContainsAny(chunks[0], "\r\n") {
+		t.Fatalf("insertion = %q", chunks)
+	}
+	for _, path := range []string{"/tmp/bad\nname", "/tmp/bad\rname", "/tmp/bad\x1bname"} {
+		if _, err := uploadTerminalInsertion([]string{path}); err == nil {
+			t.Fatal("unsafe path accepted")
+		}
+	}
+}
+
+func TestTrialRetainedUploadStagesAndRollsBackOrRetainsUnknown(t *testing.T) {
+	for _, mode := range []string{"forwarded", "released", "unknown"} {
+		t.Run(mode, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/api/terminal/files", nil)
+			writer := &trialInputWriter{}
+			bridge, controller := trialController(t, request, writer)
+			if mode == "released" {
+				controller.session.controlled = false
+			}
+			if mode == "unknown" {
+				writer.write = func(data []byte) (int, error) { return 1, io.ErrClosedPipe }
+			}
+			root := t.TempDir()
+			manager, err := uploads.Open(filepath.Join(root, "files"), filepath.Join(root, "state", "uploads.json"), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(manager.Close)
+			application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, bridge, false)
+			application.ConfigureSignInOff()
+			application.SetFileUploads(manager, uploads.Limit{DecodedBytes: 32})
+			application.fileUploadState = bridge.targets
+			body, _ := json.Marshal(map[string]any{
+				"files":   []map[string]string{{"name": "trial.txt", "data": "AQID"}},
+				"pane_id": "pane-1", "terminal_id": "term-send", "workspace_id": "workspace-1",
+				"controller": controller.handle, "intent": "insert",
+			})
+			request.Body = io.NopCloser(bytes.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			application.Handler().ServeHTTP(response, request)
+			var result terminalFileResponse
+			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]uploads.ForwardResult{"forwarded": uploads.Forwarded, "released": uploads.NotSent, "unknown": uploads.Unknown}[mode]
+			if result.Result != want {
+				t.Fatalf("outcome = %s, want %s: %s", result.Result, want, response.Body.String())
+			}
+			staged, err := filepath.Glob(filepath.Join(root, "files", "*", "trial.txt"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantFiles := 1
+			if mode == "released" {
+				wantFiles = 0
+			}
+			if len(staged) != wantFiles {
+				t.Fatalf("retained files = %d, want %d", len(staged), wantFiles)
+			}
+			if mode == "forwarded" {
+				var command struct {
+					Text string `json:"text"`
+				}
+				if err := json.Unmarshal(writer.Bytes(), &command); err != nil {
+					t.Fatal(err)
+				}
+				path := strings.TrimSuffix(strings.TrimPrefix(command.Text, "\x1b[200~[User uploaded "), "] \x1b[201~")
+				data, err := os.ReadFile(path)
+				if err != nil || !bytes.Equal(data, []byte{1, 2, 3}) {
+					t.Fatalf("staged bytes: %v, %v", data, err)
+				}
+				if strings.ContainsAny(command.Text, "\r\n") {
+					t.Fatal("insertion submitted input")
+				}
+			}
+		})
+	}
+}
+
+func TestTrialReleaseAndInputSerializeWithCompleteUpload(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files", nil)
+	writer := &trialInputWriter{}
+	bridge, controller := trialController(t, request, writer)
+	started, resume, done := make(chan struct{}), make(chan struct{}), make(chan terminalBatchOutcome, 1)
+	var once sync.Once
+	writer.write = func(data []byte) (int, error) {
+		once.Do(func() { close(started); <-resume })
+		return writer.Buffer.Write(data)
+	}
+	go func() {
+		result, _ := bridge.sendControllerBatch(request, controller.handle, "pane-1", "term-send", func() error { return nil }, []string{"paste", "\r"})
+		done <- result
+	}()
+	<-started
+	released := make(chan struct{})
+	go func() {
+		controller.session.writeMutex.Lock()
+		_ = json.NewEncoder(controller.session.stdin).Encode(map[string]string{"type": "terminal.release"})
+		controller.session.controlled = false
+		controller.session.writeMutex.Unlock()
+		close(released)
+	}()
+	close(resume)
+	if result := <-done; result != terminalBatchForwarded {
+		t.Fatal("complete upload failed")
+	}
+	<-released
+	lines := strings.Split(strings.TrimSpace(writer.String()), "\n")
+	if len(lines) != 3 || !strings.Contains(lines[0], "paste") || !strings.Contains(lines[1], `\r`) || !strings.Contains(lines[2], "terminal.release") {
+		t.Fatalf("interleaved batch: %s", writer.String())
+	}
+	before := writer.Len()
+	result, _ := bridge.sendControllerBatch(request, controller.handle, "pane-1", "term-send", func() error { return nil }, []string{"late"})
+	if result != terminalBatchNotSent || writer.Len() != before {
+		t.Fatal("released controller accepted input")
+	}
+}
+
+func TestTrialUploadChecksStreamLifetimeBeforeEveryChunk(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files", nil)
+	ctx, cancel := context.WithCancel(request.Context())
+	defer cancel()
+	writer := &trialInputWriter{}
+	bridge, controller := trialController(t, request.WithContext(ctx), writer)
+	writes := 0
+	writer.write = func(data []byte) (int, error) {
+		writes++
+		cancel()
+		return len(data), nil
+	}
+	outcome, _ := bridge.sendControllerBatch(request, controller.handle, "pane-1", "term-send", func() error { return nil }, []string{"paste", "\r"})
+	if outcome != terminalBatchUnknown || writes != 1 {
+		t.Fatalf("cancelled stream: outcome=%d writes=%d", outcome, writes)
+	}
+	outcome, _ = bridge.sendControllerBatch(request, controller.handle, "pane-1", "term-send", func() error { return nil }, []string{"retry"})
+	if outcome != terminalBatchNotSent || writes != 1 {
+		t.Fatal("cancelled stream accepted another input")
+	}
+}
+
 func testUploadManager(t *testing.T) *uploads.Manager {
 	t.Helper()
 	base := t.TempDir()

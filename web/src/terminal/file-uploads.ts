@@ -1,6 +1,8 @@
 import type { ReaderInputState } from "./reader-availability";
 
 export interface TerminalFileTarget {
+  controller?: string;
+  intent?: "insert" | "submit";
   paneID: string;
   terminalID: string;
   workspaceID: string;
@@ -56,6 +58,8 @@ export async function sendTerminalFiles(
   try {
     response = await fetcher("/api/terminal/files", {
       body: JSON.stringify({
+        controller: target.controller,
+        intent: target.intent,
         files: encoded,
         pane_id: target.paneID,
         takeover,

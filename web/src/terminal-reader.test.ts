@@ -6,7 +6,7 @@ import { Window } from "happy-dom";
 
 import { terminalReaderForDevice } from "./terminal/device";
 import { readerActionAvailability } from "./terminal/reader-availability";
-import { pauseReaderLiveRefresh, ReaderView, readerAtLatest, readerViewportColumns } from "./terminal/reader-view";
+import { pauseReaderLiveRefresh, ReaderView, readerAtLatest } from "./terminal/reader-view";
 
 class TestIntersectionObserver {
   readonly root = null;
@@ -52,6 +52,79 @@ function snapshot(ansi: string): Response {
   });
 }
 
+test("ten view toggles retain Reader nodes, position, draft, selection and files without hidden reads", async (t) => {
+  const { host, browser } = withReaderBrowser(t);
+  const previousFetch = globalThis.fetch;
+  let reads = 0;
+  globalThis.fetch = async () => { reads++; return snapshot("retained output"); };
+  t.after(() => { globalThis.fetch = previousFetch; });
+  const reader = new ReaderView(host, { onLog() {}, onStatus() {}, onSubmit: () => true }, { endpoint: "/api/terminal/read", collapsibleComposer: true });
+  await reader.open("pane-1", "term-1");
+  reader.setActionAvailability({ observerReady: true, recover: false, send: true });
+  reader.setFileSelectionAvailable(true);
+  reader.showComposer();
+  const editor = host.querySelector("textarea")!;
+  const output = host.querySelector(".reader-output")!;
+  const scroll = host.querySelector<HTMLElement>(".reader-scroll")!;
+  editor.value = "keep this draft";
+  editor.setSelectionRange(2, 5);
+  scroll.scrollTop = 120;
+  const fileInput = host.querySelector<HTMLInputElement>(".reader-file-input")!;
+  Object.defineProperty(fileInput, "files", { value: [new browser.File(["tiny"], "trial.txt")], configurable: true });
+  fileInput.dispatchEvent(new browser.Event("change") as unknown as Event);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const fileCard = host.querySelector(".reader-file-chip");
+  assert.equal(Boolean(fileCard), true);
+  const text = output.querySelector("span")?.firstChild ?? output.firstChild!;
+  const range = document.createRange();
+  range.selectNodeContents(text);
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(range);
+  const selection = window.getSelection()!.toString();
+  for (let count = 0; count < 10; count++) {
+    reader.setPresentation(false);
+    reader.refreshSoon();
+    await reader.refresh(true, true);
+    reader.setPresentation(true);
+  }
+  assert.equal(reads, 1);
+  assert.equal(host.querySelector(".reader-output") === output, true);
+  assert.equal(host.querySelector("textarea") === editor, true);
+  assert.equal(host.querySelector(".reader-file-chip") === fileCard, true);
+  assert.equal(editor.value, "keep this draft");
+  assert.equal(editor.selectionStart, 2);
+  assert.equal(editor.selectionEnd, 5);
+  assert.equal(scroll.scrollTop, 120);
+  assert.equal(window.getSelection()!.toString(), selection);
+  assert.equal(host.querySelector<HTMLElement>(".reader-composer")!.hidden, false);
+  reader.destroy();
+});
+
+test("Reader does not restore a saved selection after the person changes it in the other view", async (t) => {
+  const { host } = withReaderBrowser(t);
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => snapshot("old selection");
+  t.after(() => { globalThis.fetch = previousFetch; });
+  const reader = new ReaderView(host, { onLog() {}, onStatus() {}, onSubmit: () => true }, { endpoint: "/api/terminal/read" });
+  await reader.open("pane-1", "term-1");
+  const range = document.createRange();
+  range.selectNodeContents(host.querySelector(".reader-output")!);
+  window.getSelection()!.addRange(range);
+  reader.setPresentation(false);
+  const other = document.createElement("p");
+  other.textContent = "new selection";
+  document.body.append(other);
+  const next = document.createRange();
+  next.selectNodeContents(other);
+  window.getSelection()!.removeAllRanges();
+  window.getSelection()!.addRange(next);
+  document.dispatchEvent(new (window as unknown as { Event: typeof Event }).Event("selectionchange"));
+  window.getSelection()!.removeAllRanges();
+  reader.setPresentation(true);
+  assert.equal(window.getSelection()!.toString(), "");
+  reader.destroy();
+});
+
 test("Reader pauses moving output while someone is reading away from latest", () => {
   assert.equal(readerAtLatest(2_000, 400, 600), false);
   assert.equal(readerAtLatest(2_000, 1_400, 600), true);
@@ -62,17 +135,7 @@ test("Reader pauses moving output while someone is reading away from latest", ()
   assert.equal(pauseReaderLiveRefresh(true, false), false, "returning to latest permits one fresh snapshot");
 });
 
-test("Reader derives whole terminal columns from the visible output width", () => {
-  assert.equal(readerViewportColumns(360, 8), 45);
-  assert.equal(readerViewportColumns(359.9, 8), 44, "a partial cell must not be advertised to the terminal");
-  assert.equal(readerViewportColumns(15, 8), undefined, "Herdr requires at least two truthful columns");
-  assert.equal(readerViewportColumns(360, 0), undefined);
-  const styles = readFileSync(new URL("./terminal-reader.css", import.meta.url), "utf8");
-  assert.match(styles, /padding-right:\s*max\(0\.65rem, env\(safe-area-inset-right\)\)/);
-  assert.match(styles, /padding-left:\s*max\(0\.65rem, env\(safe-area-inset-left\)\)/);
-});
-
-test("current observer rows remain authoritative over later history snapshots", async (t) => {
+test("Reader uses snapshot dimensions only for reading", async (t) => {
   const { host } = withReaderBrowser(t);
   const previousFetch = globalThis.fetch;
   globalThis.fetch = async () => snapshot("output");
@@ -85,9 +148,8 @@ test("current observer rows remain authoritative over later history snapshots", 
 
   await reader.open("pane-1", "term-1");
   assert.equal(reader.dimensions().rows, 24);
-  assert.equal(reader.observerRows(51).rows, 51);
   await reader.refresh(true, false);
-  assert.equal(reader.dimensions().rows, 51);
+  assert.equal(reader.dimensions().rows, 24);
   reader.destroy();
 });
 
