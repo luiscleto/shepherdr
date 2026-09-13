@@ -4,9 +4,15 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-13
+
 ### Changed
 
-- Bundle IBM Plex Mono regular and bold so Reader and the full terminal can use the same supplied fonts for text, tables, and separators.
+- Bundle IBM Plex Mono regular and bold for consistent text, tables, and separators in Reader and the full terminal.
+
+### Fixed
+
+- Wait for fonts to load before measuring the terminal for the first time.
 
 ## [0.3.0] - 2026-09-13
 
@@ -88,7 +94,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Works with Herdr 0.8.0 through 0.8.2. Older versions do not start; newer versions start with a warning that they have not been tested.
 - macOS downloads are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/luiscleto/shepherdr/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/luiscleto/shepherdr/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/luiscleto/shepherdr/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/luiscleto/shepherdr/compare/v0.2.0...v0.2.1
