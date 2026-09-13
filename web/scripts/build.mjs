@@ -5,12 +5,13 @@ import { build } from "esbuild";
 
 await rm("dist", { force: true, recursive: true });
 await mkdir("dist", { recursive: true });
-await build({ bundle: true, entryPoints: ["src/main.ts"], minify: true, outfile: "dist/app.js" });
+await build({ bundle: true, entryPoints: ["src/main.ts"], loader: { ".woff2": "file" }, minify: true, outfile: "dist/app.js" });
 await build({ bundle: true, entryPoints: ["src/terminal-lab.ts"], minify: true, outfile: "dist/terminal-lab.js" });
-await build({ bundle: true, entryPoints: ["src/terminal-lab.css"], minify: true, outfile: "dist/terminal-lab.css" });
+await build({ bundle: true, entryPoints: ["src/terminal-lab.css"], loader: { ".woff2": "file" }, minify: true, outfile: "dist/terminal-lab.css" });
 
 for (const name of [
   "index.html",
+  "IBM-Plex-Mono-LICENSE.txt",
   "terminal-lab.html",
   "manifest.webmanifest",
   "service-worker.js",

@@ -14,6 +14,43 @@ const { TerminalPage, XTermAdapter } = await import(`data:text/javascript;base64
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
+test("xterm waits for both font outcomes and departure prevents delayed resources", async t => {
+  const browser = new Window({ url: "http://localhost/" });
+  const originalDocument = globalThis.document;
+  const requests: string[] = [];
+  let finishBold!: (faces: FontFace[]) => void;
+  Object.defineProperty(browser.document, "fonts", { value: {
+    load(font: string) {
+      requests.push(font);
+      return requests.length === 1
+        ? Promise.reject(new Error("regular unavailable"))
+        : new Promise<FontFace[]>(resolve => { finishBold = resolve; });
+    },
+  } });
+  globalThis.document = browser.document as unknown as Document;
+  const adapter = new XTermAdapter();
+  t.after(() => {
+    adapter.destroy();
+    globalThis.document = originalDocument;
+    browser.close();
+  });
+  const host = browser.document.createElement("div");
+  let completed = false;
+  let resizeCalls = 0;
+  const mounted = adapter.mount(host, { onData() {}, onResize() { resizeCalls++; } })
+    .then(() => { completed = true; });
+  await tick();
+  assert.equal(requests.join(";"), 'normal 400 14px "IBM Plex Mono";normal 700 14px "IBM Plex Mono"');
+  assert.equal(completed, false);
+  assert.equal(host.childElementCount, 0);
+  adapter.destroy();
+  finishBold([]);
+  await mounted;
+  assert.equal(host.childElementCount, 0);
+  assert.equal(resizeCalls, 0);
+  assert.equal(adapter.paste("probe"), false);
+});
+
 function pageBrowser(t: test.TestContext, mobile: boolean) {
   const browser = new Window({ url: "http://localhost/" });
   const originals = new Map<string, unknown>();

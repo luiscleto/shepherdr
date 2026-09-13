@@ -4,6 +4,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+- Bundle IBM Plex Mono regular and bold so Reader and the full terminal can use the same supplied fonts for text, tables, and separators.
+
 ## [0.3.0] - 2026-09-13
 
 ### Added

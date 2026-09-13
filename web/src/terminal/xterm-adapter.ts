@@ -26,10 +26,20 @@ export class XTermAdapter implements TerminalAdapter {
   #inputEnabled = true;
   #touchCleanup: (() => void) | undefined;
   #pasteCleanup: (() => void) | undefined;
+  #destroyed = false;
 
   constructor(private readonly scrollback = 10_000) {}
 
   async mount(host: HTMLElement, events: TerminalAdapterEvents): Promise<void> {
+    if (this.#destroyed) return;
+    // Settle both local faces before xterm caches its initial cell metrics.
+    // Unavailable faces use the existing fallback; one failure must not skip
+    // waiting for the other face. The page may be destroyed during this wait.
+    await Promise.allSettled([
+      document.fonts.load('normal 400 14px "IBM Plex Mono"'),
+      document.fonts.load('normal 700 14px "IBM Plex Mono"'),
+    ]);
+    if (this.#destroyed) return;
     const terminal = new Terminal({
       allowProposedApi: false,
       cursorBlink: true,
@@ -195,6 +205,7 @@ export class XTermAdapter implements TerminalAdapter {
   }
 
   destroy(): void {
+    this.#destroyed = true;
     this.#pasteCleanup?.();
     this.#touchCleanup?.();
     this.#resizeObserver?.disconnect();
