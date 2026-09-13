@@ -153,8 +153,9 @@ export class TerminalPage {
       onStatus: () => undefined,
       onNewOutput: (available) => { this.#newOutput = available; this.#render(); },
       onPendingFilesEmpty: () => {
+        const previous = this.#uploadState;
         this.#uploadState = uploadStateAfterLastFileRemoved(this.#uploadState);
-        reader.clearInputRecovery();
+        if (previous !== this.#uploadState) reader.clearInputRecovery();
         this.#render();
       },
       onLayout: () => this.#layout(),
@@ -306,7 +307,10 @@ export class TerminalPage {
           this.#reader?.refreshSoon();
           if (received) return;
           received = true;
-          if (mode !== "observe") this.#ownership = "controlling";
+          if (mode !== "observe") {
+            this.#ownership = "controlling";
+            if (this.#lastDimensions) session.resize(this.#lastDimensions);
+          }
           else if (this.#ownership !== "occupied") this.#ownership = "observing";
           this.#render();
           if (!this.#mobile && mode !== "observe") this.#xterm.focus();
@@ -332,6 +336,10 @@ export class TerminalPage {
           if (occupied) {
             this.#desiredControl = false;
             this.#ownership = "occupied";
+            void this.#connect("observe");
+          } else if (!this.#mobile && mode !== "observe") {
+            this.#desiredControl = false;
+            this.#ownership = "waiting";
             void this.#connect("observe");
           } else {
             this.#ownership = "waiting";
@@ -438,7 +446,7 @@ export class TerminalPage {
     this.#reader?.setFileSelectionAvailable(live && this.#agentStatus !== undefined && state === "ready");
     for (const button of this.#shortcuts) button.disabled = !availability.send;
     if (this.#message) {
-      this.#message.disabled = !availability.send;
+      this.#message.disabled = this.#readerVisible ? !availability.observerReady || state !== "ready" : !availability.send;
       this.#message.hidden = !this.#readerVisible && this.#agentStatus === undefined;
     }
     if (this.#toggle) this.#toggle.disabled = this.#uploadState === "requesting";

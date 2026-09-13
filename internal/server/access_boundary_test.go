@@ -322,12 +322,34 @@ func TestProtectedInvalidationClosesHomeAndTerminalSocketsAndCollectsChildren(t 
 			connection := dialProtectedWebSocket(t, httpServer.URL, path, token)
 			defer connection.Close()
 			_ = connection.SetReadDeadline(time.Now().Add(time.Second))
-			if _, _, err := connection.ReadMessage(); err != nil {
+			if mode != "observe" {
+				var controller struct {
+					Type   string `json:"type"`
+					Handle string `json:"handle"`
+				}
+				if err := connection.ReadJSON(&controller); err != nil || controller.Type != "terminal.controller" || len(controller.Handle) != 64 {
+					t.Fatalf("initial controller metadata = %+v, error = %v", controller, err)
+				}
+			}
+			var frame struct {
+				Type string `json:"type"`
+				Seq  int    `json:"seq"`
+			}
+			if err := connection.ReadJSON(&frame); err != nil {
 				t.Fatalf("read initial Terminal frame: %v", err)
+			}
+			if frame.Type != "terminal.frame" || frame.Seq != 1 {
+				t.Fatalf("initial frame = %+v", frame)
 			}
 			waitForTerminalChildren(t, bridge, 1)
 			signOutTestSession(t, manager, token)
 			waitForTerminalChildren(t, bridge, 0)
+			bridge.mutex.Lock()
+			handles := len(bridge.controllers)
+			bridge.mutex.Unlock()
+			if handles != 0 {
+				t.Fatalf("controller handles after sign-out = %d", handles)
+			}
 			_ = connection.SetReadDeadline(time.Now().Add(time.Second))
 			if _, _, err := connection.ReadMessage(); err == nil {
 				t.Fatal("Terminal socket remained open after sign-out")

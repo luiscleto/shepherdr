@@ -20,9 +20,8 @@ import (
 
 const (
 	requestTimeout          = 5 * time.Second
-	minimumSupportedVersion = "0.8.0"
+	minimumSupportedVersion = "0.9.0"
 	maximumSupportedVersion = "0.9.0"
-	protocol20              = 20
 	protocol22              = 22
 )
 
@@ -117,14 +116,7 @@ func checkCompatibility(version string, protocol uint32) (string, error) {
 	if semver.Prerelease(parsed) != "" {
 		return fmt.Sprintf("Herdr %s is outside Shepherdr's supported stable Herdr range %s through %s; continuing best-effort", version, minimumSupportedVersion, maximumSupportedVersion), nil
 	}
-	stableVersion := strings.TrimPrefix(semver.Canonical(parsed), "v")
-	if protocol != Protocol && protocol != protocol20 && protocol != protocol22 {
-		return "", &CompatibilityError{Version: version, Protocol: protocol, Reason: CompatibilityInterfaceMismatch}
-	}
-	if (stableVersion == minimumSupportedVersion && protocol != Protocol) ||
-		(stableVersion == "0.8.2" && protocol != protocol20) ||
-		(stableVersion == maximumSupportedVersion && protocol != protocol22) ||
-		(stableVersion != maximumSupportedVersion && protocol == protocol22) {
+	if protocol != protocol22 {
 		return "", &CompatibilityError{Version: version, Protocol: protocol, Reason: CompatibilityInterfaceMismatch}
 	}
 	return "", nil
@@ -145,7 +137,7 @@ func terminalManagementAvailable(version string) bool {
 		return false
 	}
 	stable := strings.TrimPrefix(semver.Canonical(parsed), "v")
-	return stable == minimumSupportedVersion || stable == "0.8.2" || stable == maximumSupportedVersion
+	return stable == "0.8.0" || stable == "0.8.2" || stable == maximumSupportedVersion
 }
 
 func TerminalManagementAvailable(version string) bool { return terminalManagementAvailable(version) }

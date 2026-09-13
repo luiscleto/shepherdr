@@ -15,7 +15,7 @@ https://github.com/user-attachments/assets/233f6030-c8c4-4ae8-827d-02913e2c4982
 
 ## Install
 
-Needs [Herdr](https://github.com/herdrdev/herdr) 0.8.0–0.9.0 running locally, `herdr` on `PATH`, and the same OS account as Herdr.
+This isolated mobile Terminal trial needs [Herdr](https://github.com/herdrdev/herdr) 0.9.0 or later running locally, `herdr` on `PATH`, and the same OS account as Herdr. The supported version is 0.9.0; newer or unknown versions retain the existing best-effort warning and are not claimed validated.
 
 Use matching Herdr CLI and server versions for terminal reads and control.
 

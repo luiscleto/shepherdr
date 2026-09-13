@@ -1,5 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
+import { terminalPaste } from "../terminal-input";
 import {
   initialTerminalWheelState,
   terminalWheelRows,
@@ -24,6 +25,7 @@ export class XTermAdapter implements TerminalAdapter {
   #controlling: boolean | undefined;
   #inputEnabled = true;
   #touchCleanup: (() => void) | undefined;
+  #pasteCleanup: (() => void) | undefined;
 
   async mount(host: HTMLElement, events: TerminalAdapterEvents): Promise<void> {
     const terminal = new Terminal({
@@ -64,6 +66,17 @@ export class XTermAdapter implements TerminalAdapter {
     this.#fit = fit;
     this.#host = host;
     this.#events = events;
+    // Rendered frames do not carry application input modes. Herdr 0.9 unwraps
+    // a complete paste and applies the real application's current paste mode.
+    const paste = (event: ClipboardEvent): void => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (!this.#inputEnabled) return;
+      const text = event.clipboardData?.getData("text/plain");
+      if (text) events.onData(terminalPaste(text));
+    };
+    host.addEventListener("paste", paste, true);
+    this.#pasteCleanup = () => host.removeEventListener("paste", paste, true);
     terminal.onData(events.onData);
     terminal.attachCustomWheelEventHandler((event) => {
       if (!events.onScroll || event.ctrlKey || event.deltaY === 0) return true;
@@ -180,6 +193,7 @@ export class XTermAdapter implements TerminalAdapter {
   }
 
   destroy(): void {
+    this.#pasteCleanup?.();
     this.#touchCleanup?.();
     this.#resizeObserver?.disconnect();
     this.#outputQueue = [];

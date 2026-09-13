@@ -365,7 +365,7 @@ export class ReaderView {
 
   setActionAvailability(availability: ReaderActionAvailability): void {
     this.#sendAvailable = availability.send;
-    const keepOpenForEditing = this.#collapsibleComposer && !this.#composer.hidden && !availability.observerReady;
+    const keepOpenForEditing = this.#collapsibleComposer && !this.#composer.hidden;
     this.#input.disabled = this.#submissionActive || !availability.send && !keepOpenForEditing;
     this.#addFiles.disabled = this.#submissionActive || this.#filesPreparing || !availability.send;
     if (this.#closeComposer) this.#closeComposer.disabled = this.#submissionActive;
@@ -398,8 +398,9 @@ export class ReaderView {
   }
 
   showComposer(): void {
-    if (!this.#collapsibleComposer || !this.#sendAvailable) return;
+    if (!this.#collapsibleComposer || this.#submissionActive) return;
     this.#composer.hidden = false;
+    this.#input.disabled = false;
     this.#input.focus();
     this.#events.onLayout?.();
   }

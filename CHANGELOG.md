@@ -4,7 +4,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
-- **TRIAL, isolated branch only:** checkpoint mobile Reader and full Terminal sharing retained control. Implementation is paused at the multiline-paste gate; this is not an accepted or released product change.
+- **TRIAL, isolated branch only:** mobile Reader and full Terminal share retained control and require Herdr 0.9.0. Explicit paste forwards one protected envelope without adding Enter. Validation remains incomplete; this is not an accepted or released product change.
 
 ## [0.2.2] - 2026-09-09
 

@@ -93,8 +93,8 @@ func TestProjectorUsesOneReadAndOneDirtyFollowUpForEventDuringBlockedRead(t *tes
 	if !live.HasHome {
 		t.Fatal("follow-up snapshot did not publish a complete Home")
 	}
-	if live.HerdrVersion != "0.8.0" {
-		t.Fatalf("published Herdr version = %q, want 0.8.0", live.HerdrVersion)
+	if live.HerdrVersion != "0.9.0" {
+		t.Fatalf("published Herdr version = %q, want 0.9.0", live.HerdrVersion)
 	}
 	cancel()
 	waitSignal(t, runDone, "projector shutdown")
@@ -495,8 +495,8 @@ func (fixture *loopFixture) prepareSnapshot(ctx context.Context, number int32) (
 
 func stableProjectorSnapshot() Snapshot {
 	return Snapshot{
-		Version:    "0.8.0",
-		Protocol:   Protocol,
+		Version:    "0.9.0",
+		Protocol:   protocol22,
 		Workspaces: []WorkspaceInfo{{ActiveTabID: "w1:t1", WorkspaceID: "w1", Number: 1, Label: "One"}},
 		Tabs:       []TabInfo{{TabID: "w1:t1", WorkspaceID: "w1", Number: 1, Label: "1"}},
 		Panes: []PaneInfo{{
@@ -507,8 +507,8 @@ func stableProjectorSnapshot() Snapshot {
 
 func ordinaryTitleSnapshot() Snapshot {
 	return Snapshot{
-		Version:    "0.8.0",
-		Protocol:   Protocol,
+		Version:    "0.9.0",
+		Protocol:   protocol22,
 		Workspaces: []WorkspaceInfo{{ActiveTabID: "w1:t1", WorkspaceID: "w1", Number: 1, Label: "One"}},
 		Tabs:       []TabInfo{{TabID: "w1:t1", WorkspaceID: "w1", Number: 1, Label: "1"}},
 		Panes: []PaneInfo{
@@ -660,7 +660,7 @@ func serveNewPaneFixture(ctx context.Context, listener net.Listener, snapshots, 
 			switch request.Method {
 			case "session.snapshot":
 				number := snapshots.Add(1)
-				snapshot := Snapshot{Version: "0.8.0", Protocol: Protocol}
+				snapshot := Snapshot{Version: "0.9.0", Protocol: protocol22}
 				if number > 1 {
 					snapshot = stableProjectorSnapshot()
 				}
