@@ -6,7 +6,7 @@ import { sendTerminalFiles, uploadStateAfterLastFileRemoved } from "./terminal/f
 import { terminalOwnershipAction, type TerminalOwnership } from "./terminal/ownership";
 import { readerActionAvailability, type ReaderInputState } from "./terminal/reader-availability";
 import { ReaderInputQueue } from "./terminal/reader-input";
-import { ReaderView, readerMessageAction } from "./terminal/reader-view";
+import { ReaderView, readerMessageAction, setIconButton } from "./terminal/reader-view";
 import { TerminalSession, type SessionMode } from "./terminal/session";
 import { XTermAdapter } from "./terminal/xterm-adapter";
 
@@ -55,7 +55,7 @@ export class TerminalPage {
   #reader: ReaderView | undefined;
   #readerInput: ReaderInputQueue | undefined;
   #readerTextQueued = false;
-  #xterm = new XTermAdapter();
+  #xterm: XTermAdapter;
   #terminalMount: HTMLDivElement;
   #layoutObserver: ResizeObserver | undefined;
   #session: TerminalSession | undefined;
@@ -89,6 +89,9 @@ export class TerminalPage {
     this.terminalID = target.terminalID;
     this.#workspaceID = target.workspaceID;
     this.#mobile = terminalReaderForDevice();
+    // Mobile scroll gestures navigate Herdr history. Local frame scrollback is
+    // reset on full frames; disabling it also removes FitAddon's unused gutter.
+    this.#xterm = new XTermAdapter(this.#mobile ? 0 : 10_000);
     this.#readerVisible = this.#mobile;
     const header = element("header", "terminal-header");
     const title = element("div", "terminal-title");
@@ -100,7 +103,7 @@ export class TerminalPage {
     const settings = settingsAction(document, () => options.onNotifications?.(), "terminal-notifications");
     header.append(action("Home", options.onHome, "terminal-home"), title);
     if (this.#mobile) {
-      this.#toggle = action("Full terminal", () => this.#switchView(), "terminal-view-toggle");
+      this.#toggle = action("", () => this.#switchView(), "terminal-view-toggle");
       header.append(this.#toggle);
     }
     header.append(settings);
@@ -268,7 +271,7 @@ export class TerminalPage {
     this.#terminalMount.style.visibility = this.#readerVisible ? "hidden" : "visible";
     this.#terminalMount.inert = this.#readerVisible;
     this.#terminalMount.style.pointerEvents = this.#readerVisible ? "none" : "auto";
-    if (this.#toggle) this.#toggle.textContent = this.#readerVisible ? "Full terminal" : "Reader";
+    if (this.#toggle) setIconButton(this.#toggle, this.#readerVisible ? "Full terminal" : "Reader", this.#readerVisible ? "terminal" : "phone");
     if (this.#message) {
       this.#message.textContent = this.#readerVisible ? "Message" : "📎";
       this.#message.setAttribute("aria-label", this.#readerVisible ? "Message" : "Attach files");

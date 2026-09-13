@@ -1526,11 +1526,15 @@ button.terminal-row:hover {
 .terminal-full-mount > .xterm { height: 100%; padding: 8px; }
 .terminal-shared-page .terminal-full-mount { position: absolute; inset: 0 0 auto; }
 .terminal-reader-mount { position: relative; height: 100%; background: transparent; }
+.terminal-shared-page .terminal-full-mount > .xterm,
 .terminal-shared-page .reader-output {
-  padding: 8px;
+  padding: 8px max(2px, env(safe-area-inset-right)) 8px max(2px, env(safe-area-inset-left));
+}
+.terminal-shared-page .reader-output {
   font-size: 14px;
 }
-.terminal-view-toggle { min-width: 44px; min-height: 44px; padding: 0.25rem 0.4rem; font-size: 0.78rem; }
+.terminal-view-toggle { display: grid; place-items: center; flex: 0 0 44px; width: 44px; min-width: 44px; min-height: 44px; padding: 0; }
+.terminal-view-toggle svg { width: 22px; height: 22px; pointer-events: none; }
 .terminal-command-bar button[hidden] { display: none; }
 
 .terminal-desktop-page .terminal-production-surface,

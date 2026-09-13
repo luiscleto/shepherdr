@@ -105,6 +105,26 @@ test("Release preserves local drafting and ten toggles keep the page's stream an
   assert.equal(host.querySelector<HTMLButtonElement>('[aria-label="Enter"]')!.disabled, true);
 });
 
+test("mobile view toggle has icon-only named terminal and phone actions beside Settings", async t => {
+  const { host, sockets } = pageBrowser(t, true);
+  await tick();
+  sockets[0].frame();
+  const toggle = host.querySelector<HTMLButtonElement>(".terminal-view-toggle")!;
+  assert.equal(toggle.textContent, "");
+  assert.equal(toggle.getAttribute("aria-label"), "Full terminal");
+  assert.equal(toggle.nextElementSibling?.classList.contains("terminal-notifications"), true);
+  assert.equal(toggle.querySelector("svg")?.getAttribute("aria-hidden"), "true");
+  const terminalPath = toggle.querySelector("path")?.getAttribute("d");
+  toggle.click();
+  assert.equal(toggle.textContent, "");
+  assert.equal(toggle.getAttribute("aria-label"), "Reader");
+  assert.equal(toggle.querySelector("path")?.getAttribute("d") !== terminalPath, true);
+  toggle.click();
+  assert.equal(toggle.getAttribute("aria-label"), "Full terminal");
+  assert.equal(sockets.length, 1);
+  assert.equal(sockets[0].commands.length, 0);
+});
+
 test("removing the last file cannot hide uncertain keyboard input recovery", async t => {
   const { host, browser, sockets, events } = pageBrowser(t, true);
   await tick();

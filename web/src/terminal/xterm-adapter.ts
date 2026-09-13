@@ -27,6 +27,8 @@ export class XTermAdapter implements TerminalAdapter {
   #touchCleanup: (() => void) | undefined;
   #pasteCleanup: (() => void) | undefined;
 
+  constructor(private readonly scrollback = 10_000) {}
+
   async mount(host: HTMLElement, events: TerminalAdapterEvents): Promise<void> {
     const terminal = new Terminal({
       allowProposedApi: false,
@@ -35,7 +37,7 @@ export class XTermAdapter implements TerminalAdapter {
       fontSize: 14,
       minimumContrastRatio: 4.5,
       screenReaderMode: true,
-      scrollback: 10_000,
+      scrollback: this.scrollback,
       theme: {
         background: "#101715",
         foreground: "#e5e7df",

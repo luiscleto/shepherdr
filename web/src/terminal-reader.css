@@ -232,3 +232,40 @@
 .reader-composer textarea:disabled {
   opacity: 0.65;
 }
+
+/* Full Terminal reuses the file controls, with no message-editor layout. */
+.terminal-file-insertion {
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  padding-inline: max(0.4rem, env(safe-area-inset-left)) max(0.4rem, env(safe-area-inset-right));
+}
+
+.terminal-file-insertion .reader-action-rail {
+  display: contents;
+}
+
+.terminal-file-insertion .reader-add-files {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.terminal-reader-page .reader-composer.terminal-file-insertion .reader-send {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  width: auto;
+  padding-inline: 0.65rem;
+}
+
+.terminal-file-insertion .reader-composer-close {
+  position: static;
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.terminal-file-insertion .reader-file-menu {
+  top: auto;
+  bottom: calc(100% - 0.4rem);
+  left: max(0.4rem, env(safe-area-inset-left));
+  right: auto;
+}

@@ -5,6 +5,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 ## [Unreleased]
 
 - **TRIAL, isolated branch only:** mobile Reader and full Terminal share retained control and require Herdr 0.9.0. Explicit paste forwards one protected envelope without adding Enter. Validation remains incomplete; this is not an accepted or released product change.
+- **TRIAL:** recover mobile content width, use terminal/phone view icons, and give full Terminal a compact files-only insertion panel. Human acceptance of this correction is pending.
 
 ## [0.2.2] - 2026-09-09
 

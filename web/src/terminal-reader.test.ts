@@ -125,6 +125,49 @@ test("Reader does not restore a saved selection after the person changes it in t
   reader.destroy();
 });
 
+test("files-only presentation reuses controls and preserves the Reader draft on insert and cancel", async t => {
+  const { host, browser } = withReaderBrowser(t);
+  let inserts = 0, submissions = 0;
+  const reader = new ReaderView(host, {
+    onLog() {}, onStatus() {}, onSubmit() { submissions++; return true; },
+    onInsertFiles() { inserts++; return true; },
+  }, { endpoint: "/api/terminal/read", collapsibleComposer: true });
+  reader.setActionAvailability({ edit: true, observerReady: true, recover: false, send: true });
+  reader.setFileSelectionAvailable(true);
+  reader.showComposer();
+  const editor = host.querySelector("textarea")!;
+  editor.value = "unsent Reader text";
+  editor.setSelectionRange(2, 5);
+  const picker = host.querySelector<HTMLInputElement>(".reader-file-input")!;
+  Object.defineProperty(picker, "files", { value: [new browser.File(["tiny"], "trial.txt")], configurable: true });
+  picker.dispatchEvent(new browser.Event("change") as unknown as Event);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const file = host.querySelector(".reader-file-chip");
+  const send = host.querySelector<HTMLButtonElement>(".reader-send")!;
+  reader.setPresentation(false);
+  reader.showFileInsertion();
+  assert.equal(Boolean(host.querySelector(".terminal-file-insertion")), true);
+  assert.equal(editor.hidden, true);
+  assert.equal(send.textContent, "Insert files");
+  assert.equal(host.querySelector(".reader-file-chip") === file, true);
+  send.click();
+  assert.equal(inserts, 1);
+  assert.equal(submissions, 0);
+  reader.inputForwarded(false, true);
+  assert.equal(editor.value, "unsent Reader text");
+  host.querySelector<HTMLButtonElement>('[aria-label="Cancel file insertion"]')!.click();
+  assert.equal(host.querySelector<HTMLElement>(".reader-file-menu")!.hidden, true);
+  reader.setPresentation(true);
+  assert.equal(Boolean(host.querySelector(".terminal-file-insertion")), false);
+  assert.equal(editor.hidden, false);
+  assert.equal(editor.selectionStart, 2);
+  assert.equal(editor.selectionEnd, 5);
+  assert.equal(host.querySelector("textarea") === editor, true);
+  assert.equal(send.textContent, "");
+  assert.equal(send.getAttribute("aria-label"), "Send text");
+  reader.destroy();
+});
+
 test("Reader pauses moving output while someone is reading away from latest", () => {
   assert.equal(readerAtLatest(2_000, 400, 600), false);
   assert.equal(readerAtLatest(2_000, 1_400, 600), true);
