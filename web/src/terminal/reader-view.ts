@@ -270,7 +270,7 @@ export class ReaderView {
       if (!this.#canSubmit() || !this.#events.onSubmit(this.#input.value, this.pendingFiles())) return;
       this.#events.onLog("reader.input", { characters: this.#input.value.length });
     });
-    this.setActionAvailability({ observerReady: false, recover: false, send: false });
+    this.setActionAvailability({ edit: true, observerReady: false, recover: false, send: false });
   }
 
   dimensions(): TerminalDimensions {
@@ -365,7 +365,7 @@ export class ReaderView {
 
   setActionAvailability(availability: ReaderActionAvailability): void {
     this.#sendAvailable = availability.send;
-    const keepOpenForEditing = this.#collapsibleComposer && !this.#composer.hidden;
+    const keepOpenForEditing = availability.edit && this.#collapsibleComposer && !this.#composer.hidden;
     this.#input.disabled = this.#submissionActive || !availability.send && !keepOpenForEditing;
     this.#addFiles.disabled = this.#submissionActive || this.#filesPreparing || !availability.send;
     if (this.#closeComposer) this.#closeComposer.disabled = this.#submissionActive;

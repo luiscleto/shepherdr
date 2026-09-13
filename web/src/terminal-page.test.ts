@@ -131,6 +131,78 @@ test("removing the last file cannot hide uncertain keyboard input recovery", asy
   assert.equal(sockets.reduce((count, socket) => count + socket.commands.filter(command => command.type === "terminal.input").length, 0), 1);
 });
 
+test("text forwarding locks the editor until ack; an unknown result retains the draft without replay", async t => {
+  const { host, browser, sockets } = pageBrowser(t, true);
+  await tick();
+  sockets[0].frame();
+  host.querySelector<HTMLButtonElement>('[aria-label="Message"]')!.click();
+  const editor = host.querySelector<HTMLTextAreaElement>("textarea")!;
+  editor.value = "draft A";
+  editor.dispatchEvent(new browser.Event("input"));
+  host.querySelector<HTMLButtonElement>('.reader-send')!.click();
+  assert.equal(editor.disabled, true);
+  assert.equal(JSON.stringify(sockets[0].commands[0].chunks), JSON.stringify(["\x1b[200~draft A\x1b[201~", "\r"]));
+  sockets[0].message({ type: "terminal.input-forwarded", request_id: 1 });
+  assert.equal(editor.value, "");
+  host.querySelector<HTMLButtonElement>('[aria-label="Message"]')!.click();
+  editor.value = "draft B";
+  editor.dispatchEvent(new browser.Event("input"));
+  host.querySelector<HTMLButtonElement>('.reader-send')!.click();
+  assert.equal(editor.disabled, true);
+  sockets[0].close();
+  assert.equal(editor.value, "draft B");
+  assert.equal(editor.disabled, false);
+  editor.value = "retained local draft";
+  sockets[0].message({ type: "terminal.input-forwarded", request_id: 2 });
+  assert.equal(editor.value, "retained local draft", "late acknowledgement cannot clear the uncertain draft");
+  const dismiss = [...host.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Dismiss")!;
+  dismiss.click();
+  assert.equal(editor.disabled, false);
+  assert.equal(sockets[0].commands.length, 2, "dismissal never replays input");
+});
+
+test("occupied text recovery keeps the editor locked through confirmed takeover and acknowledgement", async t => {
+  const { host, browser, sockets } = pageBrowser(t, true);
+  await tick();
+  sockets[0].message({ type: "terminal.status", message: "already has an attached client" });
+  sockets[0].close();
+  await tick();
+  sockets[1].frame();
+  host.querySelector<HTMLButtonElement>('[aria-label="Message"]')!.click();
+  const editor = host.querySelector<HTMLTextAreaElement>("textarea")!;
+  editor.value = "draft A";
+  editor.dispatchEvent(new browser.Event("input"));
+  host.querySelector<HTMLButtonElement>('.reader-send')!.click();
+  assert.equal(editor.disabled, true);
+  assert.equal(sockets[1].commands.length, 0);
+  const takeover = [...host.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Take over and send")!;
+  browser.confirm = () => true;
+  takeover.click();
+  assert.equal(editor.disabled, true, "requesting control retains the submitted text");
+  await tick();
+  assert.equal(new URL(sockets[2].url).searchParams.get("mode"), "takeover");
+  sockets[2].frame();
+  await tick();
+  assert.equal(editor.disabled, true, "forwarding retains the submitted text");
+  assert.equal(JSON.stringify(sockets[2].commands[0].chunks), JSON.stringify(["\x1b[200~draft A\x1b[201~", "\r"]));
+  sockets[2].message({ type: "terminal.input-forwarded", request_id: 1 });
+  assert.equal(editor.value, "");
+  assert.equal(sockets[2].commands.length, 1);
+});
+
+test("disconnect without a text submission leaves an open local draft editable", async t => {
+  const { host, sockets } = pageBrowser(t, true);
+  await tick();
+  sockets[0].frame();
+  host.querySelector<HTMLButtonElement>('[aria-label="Message"]')!.click();
+  const editor = host.querySelector<HTMLTextAreaElement>("textarea")!;
+  editor.value = "local draft";
+  sockets[0].close();
+  assert.equal(editor.disabled, false);
+  assert.equal(editor.value, "local draft");
+  assert.equal(sockets[0].commands.length, 0);
+});
+
 test("desktop controller failure falls back to observation and explicit Control", async t => {
   const { host, sockets } = pageBrowser(t, false);
   await tick();

@@ -60,7 +60,7 @@ test("ten view toggles retain Reader nodes, position, draft, selection and files
   t.after(() => { globalThis.fetch = previousFetch; });
   const reader = new ReaderView(host, { onLog() {}, onStatus() {}, onSubmit: () => true }, { endpoint: "/api/terminal/read", collapsibleComposer: true });
   await reader.open("pane-1", "term-1");
-  reader.setActionAvailability({ observerReady: true, recover: false, send: true });
+  reader.setActionAvailability({ edit: true, observerReady: true, recover: false, send: true });
   reader.setFileSelectionAvailable(true);
   reader.showComposer();
   const editor = host.querySelector("textarea")!;
@@ -170,8 +170,8 @@ test("the production Reader follows the primary coarse pointer even when another
 });
 
 test("Reader availability composes observer readiness with every unresolved send state", () => {
-  assert.deepEqual(readerActionAvailability(false, "ready"), { observerReady: false, recover: false, send: false });
-  assert.deepEqual(readerActionAvailability(true, "ready"), { observerReady: true, recover: false, send: true });
+  assert.equal(JSON.stringify(readerActionAvailability(false, "ready")), JSON.stringify({ edit: true, observerReady: false, recover: false, send: false }));
+  assert.equal(JSON.stringify(readerActionAvailability(true, "ready")), JSON.stringify({ edit: true, observerReady: true, recover: false, send: true }));
   for (const state of ["requesting", "forwarding", "failed", "occupied", "uncertain"] as const) {
     assert.equal(readerActionAvailability(true, state).send, false, `${state} must keep the command row unavailable after reconnect`);
   }
