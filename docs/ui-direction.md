@@ -90,15 +90,21 @@ Creation, close, and deletion change Home only after Herdr confirms them. If She
 
 Terminal uses the human terminal title and a short connection or input state. These states describe the terminal, not the agent. The surrounding controls use the Home palette; the terminal surface keeps its own high-contrast colors.
 
-On a phone, Terminal provides a stable reading surface with browser selection, older available output, continued live output, **Message**, and horizontally scrollable shortcuts. **Message** opens the text composer; there are no persistent control buttons. During a temporary disconnect, an open composer keeps its draft, selection, pending files, and focus, but send and remote shortcuts are unavailable.
+On a phone, Terminal opens in Reader: a stable reading surface with browser selection, older available output, continued live output, **Message**, and horizontally scrollable shortcuts. Beside Settings, an icon-only terminal button opens the full terminal and an icon-only phone button returns to Reader. Keep accessible names **Full terminal** and **Reader** and 44-by-44 targets. Use narrow side gutters while respecting safe areas. Full Terminal uses native keyboard input through its real input area, focused only by an explicit tap.
+
+Both views share retained control of the same terminal. Switching preserves Reader's place, selection, draft, and pending files; history navigation remains independent in each view. Fit the terminal to the actual available content area, including keyboard and composer changes. Never resize another controller's terminal while observing.
+
+**Message** opens Reader's text composer. Keep the applicable **Control**, **Take over**, or **Release** action compact within terminal actions, without a persistent ownership button row. Opening attempts ordinary control without focus; an occupied terminal stays under its existing controller until confirmed takeover. Release leaves observation until explicit Control. Switching views and sending retain control. During a temporary disconnect, an open composer keeps its draft, selection, pending files, and focus, but send and remote shortcuts are unavailable.
 
 The composer shows **Add files** only while the exact terminal has a Herdr-recognized agent. Its compact paperclip action opens **Photos** and **Files** choices. The platform decides the actual picker sources, multi-selection, and focus return; Shepherdr does not force camera capture or promise that every source exists.
 
 While selected files are read, show **Preparing files…** and keep send unavailable. Pending attachments are compact cards in a contained horizontal scrolling strip. Each card has a recognizable filename and size, an optional browser-local image thumbnail, and a compact remove icon with an accessible **Remove _filename_** label. The add, send, close, and remove controls may be icon-only, but they keep clear accessible names and 44-by-44 targets.
 
-Picker cancel, temporary disconnect, definite not-sent results, and unknown results preserve text and pending files. Files can be sent without text. A confirmed send clears the submitted draft. An unknown result tells the person to check the terminal before deliberately sending again. There is no automatic retry.
+Full Terminal replaces **Message** with an accessible **Attach files** paperclip. Its compact files-only panel contains selection, preparation feedback, a horizontal file strip, cancel, and explicit **Insert files**. It has no message textarea. Insertion adds file references at the application's current cursor without Enter; the person submits them separately. Cancel inserts nothing and preserves pending files and the separate Reader draft. Reader's **Send** still submits text, files, or both.
 
-If another controller is present, offer only the confirmed **Take over and send** path. Desktop Terminal uses the full renderer and keeps interactive control until **Release**.
+Picker cancel, temporary disconnect, definite not-sent results, and unknown results preserve text and pending files. A confirmed Reader send clears the submitted draft; full-terminal file insertion leaves that draft alone. An unknown result tells the person to check the terminal before deliberately sending again. There is no automatic retry.
+
+If another controller is present, takeover requires confirmation that the current controller will lose input. Reader's **Take over and send** submits only the action explicitly confirmed. Losing control leaves observation without fighting back or replaying input. Explicit paste inserts text once without appending Enter. Desktop Terminal uses the full renderer and keeps interactive control until **Release**.
 
 File language stays local and truthful: Shepherdr sends local filesystem paths through Terminal. Do not say the files were delivered to a model or read by an agent.
 

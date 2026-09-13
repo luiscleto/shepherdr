@@ -4,8 +4,25 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
-- **TRIAL, isolated branch only:** mobile Reader and full Terminal share retained control and require Herdr 0.9.0. Explicit paste forwards one protected envelope without adding Enter. Validation remains incomplete; this is not an accepted or released product change.
-- **TRIAL:** recover mobile content width, use terminal/phone view icons, and give full Terminal a compact files-only insertion panel. Human acceptance of this correction is pending.
+## [0.3.0] - 2026-09-13
+
+### Added
+
+- Switch from Reader to a full terminal on your phone for direct typing, then return without losing your reading place, message draft, or selected files.
+- Insert file paths at the full terminal's cursor from a compact files-only panel, without pressing Enter. Reader's **Send** still submits messages and files together.
+
+### Changed
+
+- Reader and the full terminal retain the same control and use the terminal's actual available size, without taking control from someone else automatically.
+- Smaller side gutters leave more room for terminal output. Terminal and phone icons beside Settings switch views.
+
+### Fixed
+
+- Explicit paste preserves multiline text and inserts it once without adding Enter.
+
+### Compatibility
+
+- **Breaking:** Herdr 0.9.0 is now the minimum. Update Herdr before upgrading Shepherdr. Herdr 0.9.0 is validated; newer or unknown versions run best effort with a warning.
 
 ## [0.2.2] - 2026-09-09
 
@@ -67,7 +84,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Works with Herdr 0.8.0 through 0.8.2. Older versions do not start; newer versions start with a warning that they have not been tested.
 - macOS downloads are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/luiscleto/shepherdr/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/luiscleto/shepherdr/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/luiscleto/shepherdr/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/luiscleto/shepherdr/compare/v0.1.1...v0.2.0

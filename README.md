@@ -15,24 +15,24 @@ https://github.com/user-attachments/assets/233f6030-c8c4-4ae8-827d-02913e2c4982
 
 ## Install
 
-This isolated mobile Terminal trial needs [Herdr](https://github.com/herdrdev/herdr) 0.9.0 or later running locally, `herdr` on `PATH`, and the same OS account as Herdr. The supported version is 0.9.0; newer or unknown versions retain the existing best-effort warning and are not claimed validated.
+Shepherdr needs [Herdr](https://github.com/herdrdev/herdr) 0.9.0 or later running locally, `herdr` on `PATH`, and the same OS account as Herdr. Herdr 0.9.0 is validated; newer or unknown versions run best effort with a warning.
 
 Use matching Herdr CLI and server versions for terminal reads and control.
 
-Download the archive for this machine from the [latest release](https://github.com/luiscleto/shepherdr/releases/latest), plus `shepherdr_0.2.2_checksums.txt`.
+Download the archive for this machine from the [latest release](https://github.com/luiscleto/shepherdr/releases/latest), plus its matching checksum file. The examples below use v0.3.0; until it is published, use the version shown on the release page.
 
 | System | Archive |
 | --- | --- |
-| Linux x86-64 | `shepherdr_0.2.2_linux_amd64.tar.gz` |
-| Linux ARM64 | `shepherdr_0.2.2_linux_arm64.tar.gz` |
-| macOS Intel | `shepherdr_0.2.2_darwin_amd64.tar.gz` |
-| macOS Apple silicon | `shepherdr_0.2.2_darwin_arm64.tar.gz` |
+| Linux x86-64 | `shepherdr_0.3.0_linux_amd64.tar.gz` |
+| Linux ARM64 | `shepherdr_0.3.0_linux_arm64.tar.gz` |
+| macOS Intel | `shepherdr_0.3.0_darwin_amd64.tar.gz` |
+| macOS Apple silicon | `shepherdr_0.3.0_darwin_arm64.tar.gz` |
 
 macOS builds are unsigned. Expect a system warning on first run.
 
 ```sh
-archive=shepherdr_0.2.2_linux_amd64.tar.gz
-grep "  ${archive}$" shepherdr_0.2.2_checksums.txt | sha256sum -c -
+archive=shepherdr_0.3.0_linux_amd64.tar.gz
+grep "  ${archive}$" shepherdr_0.3.0_checksums.txt | sha256sum -c -
 tar -xzf "$archive"
 mkdir -p "$HOME/.local/bin"
 install -m 0755 "${archive%.tar.gz}/shepherdr" "$HOME/.local/bin/shepherdr"
@@ -45,7 +45,7 @@ On macOS, use `shasum -a 256 -c -` instead of `sha256sum -c -`. Put the binary o
 
 ```sh
 go install github.com/luiscleto/shepherdr@latest
-# or pin: go install github.com/luiscleto/shepherdr@v0.2.2
+# or pin after publication: go install github.com/luiscleto/shepherdr@v0.3.0
 ```
 
 **From source** — Go 1.27+, Node.js 20+, npm:
@@ -55,6 +55,8 @@ npm ci --prefix web
 npm run build --prefix web
 go build -o bin/shepherdr .
 ```
+
+To upgrade to v0.3.0, update Herdr to at least 0.9.0 first. Stop Shepherdr, keep its state and configuration, replace the binary with the verified download, check `shepherdr --version`, then restart it.
 
 ## Start
 
@@ -141,11 +143,17 @@ shepherdr -reset-notifications
 
 Best effort. No history, no delivery guarantee.
 
-## Send files
+## Terminal and files
 
-On a phone, **Message** opens the composer. **Add files** appears only while that exact terminal has a recognized agent. **Photos** and **Files** use the browser's ordinary pickers.
+On a phone, Terminal opens in Reader for reading and selecting output. The terminal icon beside Settings opens the full terminal for direct typing; tap its input area to open the keyboard. The phone icon returns to Reader, keeping your reading place, draft, and pending files.
 
-Shepherdr stores the files on this machine and sends their absolute paths:
+Both views keep control until you release it or another controller takes over. Opening a terminal never takes control from someone else; taking over requires confirmation.
+
+In Reader, **Message** opens the composer. **Add files** appears only while that exact terminal has a recognized agent. **Photos** and **Files** use the browser's ordinary pickers. **Send** submits the message and any selected file paths.
+
+While a recognized agent is present, the full terminal's paperclip opens a compact files-only panel. **Insert files** adds local file references at the current cursor without pressing Enter. Submit them yourself when ready; your Reader message draft stays separate.
+
+Shepherdr stores the files on this machine. Reader sends their absolute paths as:
 
 ```text
 User uploaded files:

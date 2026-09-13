@@ -16,8 +16,8 @@ Shepherdr manages Herdr. It does not replace Herdr or create another organizatio
 2. On later visits, sign in with a passkey, or deliberately run with sign-in off.
 3. See Herdr's current workspaces and terminals, with agent identity and status when an agent is present.
 4. See how many agents are working and which are blocked.
-5. Open the intended exact terminal and its composer.
-6. Send text, shortcuts, or, while a recognized agent is present, selected files and optional text.
+5. Open the intended exact terminal in Reader; choose **Message** or switch to the full terminal for direct typing.
+6. Send text or shortcuts; while a recognized agent is present, send files with optional text from Reader or insert file references in the full terminal for deliberate submission.
 7. Choose notifications for this browser or installed app.
 8. Open an exact current terminal from a status notification, or return to Home when that target is gone.
 
@@ -54,9 +54,13 @@ Each action checks fresh Herdr state and runs one at a time. Shepherdr reports a
 
 ## Terminal and file sending
 
-Home opens only an exact current terminal. On a phone, Terminal observes without taking control between sends, supports browser text selection and older available output, and offers **Message** plus terminal shortcuts. **Message** opens the composer. Text or shortcut input takes control only long enough for one acknowledged batch and then releases it. A conflict requires a confirmed **Take over and send**; input is never retried automatically. Desktop Terminal retains interactive control until release.
+Home opens only an exact current terminal. On a phone, Terminal opens in Reader with browser text selection, older available output, **Message**, and terminal shortcuts. A terminal icon beside Settings opens the full terminal for direct keyboard input; a phone icon returns to Reader. Both views share one retained controller for the same Herdr terminal, with no separate runtime or conversation. Switching preserves Reader's place, selection, draft, and pending files. Both views reach history still retained by Herdr, with independent navigation rather than a shared scroll position.
 
-While the exact current terminal has a Herdr-recognized agent, the phone composer can select arbitrary files, remove pending files, and send files with or without text. Shepherdr stores the selected files temporarily on its own machine and sends their absolute local paths through Terminal. It does not claim the files were delivered to a model or read by an agent.
+Opening the terminal attempts ordinary control without input or keyboard focus. If another controller is present, Shepherdr observes without stealing control. **Control**, confirmed **Take over**, and **Release** are explicit actions; Reader conflict recovery can submit the one confirmed **Take over and send** action. Switching views and successful sends retain control. Release leaves observation until explicit Control, and losing control never triggers a fight to regain it. Input is never retried automatically. The terminal uses its actual available dimensions while controlling; observation never resizes another controller's terminal. Desktop retains its existing interactive control until release.
+
+While the exact current terminal has a Herdr-recognized agent, Reader's composer can select arbitrary files, remove pending files, and send files with or without text. The full terminal has a compact files-only panel: **Insert files** inserts local file references at the application's cursor without Enter, leaving the Reader draft separate. Reader's **Send** submits its text and path list. Shepherdr stores the selected files temporarily on its own machine and sends their absolute local paths through Terminal. It does not claim the files were delivered to a model or read by an agent.
+
+This behavior was accepted by the human on 2026-09-13; [the accepted mobile Terminal direction](mobile-terminal-shared-trial-proposal.md) records its scope and evidence. Herdr 0.9.0 is the minimum and the validated version. Newer or unknown versions retain a best-effort warning, not a validation claim.
 
 Files stay with their workspace when an agent exits or changes and when Shepherdr restarts. After the workspace is gone, Shepherdr tries to delete only the staging folder it created for that workspace. Cleanup can fail, and a crash may leave files behind. This temporary operator-owned storage is not durable file history.
 

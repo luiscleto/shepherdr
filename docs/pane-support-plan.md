@@ -83,6 +83,8 @@ Re-read the impact immediately before closing. If it changed, refuse the stale c
 
 ## Compatibility
 
+The version range and version-specific acceptance checks below are historical to this implementation plan. The [accepted mobile Terminal direction](mobile-terminal-shared-trial-proposal.md) supersedes the old support range: Shepherdr now requires Herdr 0.9.0, which is validated; newer or unknown versions run best effort with a warning. This does not change the management action design.
+
 The management actions use the confirmed common surface in Herdr 0.8.0 and 0.8.2. Do not use the 0.8.2-only split option or promise identical focus behavior after closing.
 
 There is no canonical Herdr 0.8.1 release to verify. If a server literally reports 0.8.1, viewing and opening remain available, but these new terminal-management actions stay hidden until that version is verified.

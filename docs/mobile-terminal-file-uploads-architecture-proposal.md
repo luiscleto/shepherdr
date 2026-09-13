@@ -6,6 +6,8 @@ Approved: 2026-08-23
 
 Date: 2026-08-23
 
+Current amendment, 2026-09-13: the [accepted mobile Terminal direction](mobile-terminal-shared-trial-proposal.md#accepted-behavior) supersedes this document's release-after-phone-batch rules and Reader-only interface scope. Mobile uploads now forward through the retained controller: Reader Send submits, while the full-terminal files-only panel inserts paths without Enter. Storage, cleanup, limits, recognized-agent gating, and access rules below remain applicable. Earlier version references record the original evidence; the current minimum and validated Herdr version is 0.9.0, with best-effort warnings for newer or unknown versions.
+
 This direction records the implemented file-send behavior within the current Terminal and access architecture. `docs/mobile-terminal-attachments-discovery.md` remains historical pre-implementation evidence. Shepherdr sends local paths through Terminal and does not claim delivery to a model or that an agent read a file. It does not add another agent runtime.
 
 ## Decision status and scope
@@ -89,6 +91,8 @@ This is an application of the approved access architecture, not a new access pro
 
 ## Shared Terminal batch-send operation
 
+The temporary-control description below is historical for mobile callers and remains relevant only to legacy HTTP requests without retained-connection fields. Current mobile forwarding and insert-versus-submit behavior follow the accepted direction linked above. In particular, mobile sends do not release control, and file insertion does not append Enter.
+
 The current Terminal bridge and file-send route use one shared server-side batch-send operation. It receives the exact target, completed text batch, ordinary or explicitly confirmed takeover intent, request/session cancellation context, and the existing control ownership. It preserves the accepted Terminal behavior in one place:
 
 - exact pane and terminal targeting with no fallback;
@@ -114,6 +118,8 @@ A file-only send emits the file list without requiring person text. Before calli
 Herdr's acknowledgement proves only that terminal input was forwarded. The recognized agent can exit between the final check and write while the terminal remains. Shepherdr does not claim atomic agent delivery, native attachment delivery, or that an agent/provider/model read a file.
 
 ## Mobile interface and honest failures
+
+This subsection describes Reader's composer. The accepted full-terminal files-only panel is specified in the amendment above; it keeps the Reader text draft separate.
 
 The phone command is **Message**. Its composer shows the compact **Add files** icon only while the exact current terminal displays a Herdr-recognized agent; it does not show a disabled placeholder on an ordinary terminal. **Add files** offers **Photos** and **Files**, and the composer may send text, files, or both.
 

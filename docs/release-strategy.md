@@ -1,14 +1,20 @@
-# First release strategy
+# Release strategy
 
 Status: approved
 
 ## Release shape
 
-The immutable `v0.1.0` candidate remains unpublished. Shepherdr's first published release is the compatible fix-forward release `v0.1.1`. Downloadable GitHub Release archives are the primary installation path. A plain, manually dispatched GitHub Actions workflow builds candidates from an existing approved tag and exact commit, attaches only candidates that pass their gates to a draft release, and stops. It never creates a tag or publishes a release; a human reviews and publishes the draft.
+Historical first-release decision: the immutable `v0.1.0` candidate remained unpublished; the compatible fix-forward `v0.1.1` became the first published release. The original [release setup wave](wave-release-setup.md) records that work, not the version for later releases.
+
+Current preparation, authorized 2026-09-13: `v0.3.0`, a minor feature release with a breaking minimum of Herdr 0.9.0. Update Herdr before upgrading Shepherdr. The latest published release is `v0.2.2`; preparation does not claim that `v0.3.0` is published.
+
+Downloadable GitHub Release archives are the primary installation path. A plain, manually dispatched GitHub Actions workflow builds candidates from an existing approved tag and exact commit, attaches only candidates that pass their gates to a draft release, and stops. It never creates a tag or publishes a release; a human reviews and publishes the draft.
 
 Candidate targets are Linux amd64, Linux arm64, macOS amd64, and macOS arm64. Each binary must be built and exercised on a native GitHub-hosted runner with `CGO_ENABLED=0`. A target is omitted if its native build, tests, packaged-binary checks, or real Herdr smoke check fails. Cross-compilation alone is not support evidence. Windows is later work: Herdr supports Windows, but Shepherdr's current Unix-specific storage and locking primitives do not compile there.
 
-Archives use predictable names such as `shepherdr_0.1.1_linux_amd64.tar.gz`. Each contains one top-level directory with the executable, `README.md`, `CHANGELOG.md`, and `LICENSE`; the release also provides a SHA-256 checksum file.
+Archives use predictable names such as `shepherdr_0.3.0_linux_amd64.tar.gz`. Each contains one top-level directory with the executable, `README.md`, `CHANGELOG.md`, and `LICENSE`; the release also provides a SHA-256 checksum file.
+
+The current workflow allows only the existing `v0.3.0` tag and verifies that it, the checkout, and `origin/master` all identify the exact full `commit_sha` input. Native smoke checks use matching Herdr 0.9.0 CLI/server. The human accepted product commit `20adb743e5c51dedcd2a901ca44e72efe0e2a9f2` on 2026-09-13; release preparation leaves that product code unchanged. An independent reviewer must review the preparation, then a separate integrator integrates only the approved result. The orchestrator reports the prepared state before the later tag and workflow dispatch. The dispatch inputs will be `tag=v0.3.0` and `commit_sha=<full approved integrated master SHA>`, not the earlier product-only SHA.
 
 ## Browser assets and installation
 
