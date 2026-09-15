@@ -4,6 +4,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- Reader offers **Open Terminal** when you try to scroll further back after a history read returns no additional output.
+
 ### Changed
 
 - Remember your last Reader or Terminal view choice in this browser for subsequent terminal opens.

@@ -163,6 +163,7 @@ export class TerminalPage {
         this.#render();
       },
       onLayout: () => this.#layout(),
+      onOpenTerminal: () => { if (this.#readerVisible) this.#switchView(); },
       onInsertFiles: () => { void this.#sendFiles("insert", false); return true; },
       onSubmit: (text, files) => {
         if (files.length) { void this.#sendFiles("submit", false); return true; }

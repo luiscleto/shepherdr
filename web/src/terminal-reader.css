@@ -60,6 +60,21 @@
   height: 1px;
 }
 
+.reader-history-hint {
+  padding: 0.4rem 0.65rem;
+  color: #e5e7df;
+  font-size: 0.82rem;
+}
+
+.reader-history-hint button {
+  min-height: 44px;
+  margin-left: 0.4rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-decoration: underline;
+}
+
 .reader-composer {
   position: relative;
   display: grid;

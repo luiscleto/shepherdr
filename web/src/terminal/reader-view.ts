@@ -16,6 +16,7 @@ interface ReaderEvents {
   onStatus(message: string): void;
   onSubmit(text: string, files: readonly File[]): boolean;
   onInsertFiles?(): boolean;
+  onOpenTerminal?(): void;
   onLayout?(): void;
 }
 
@@ -70,6 +71,8 @@ export class ReaderView {
   #filesPreparing = false;
   #historyLines = historyPageLines;
   #historyRefreshPending = false;
+  #historyHint: HTMLDivElement;
+  #historyHintRequested = false;
   #host: HTMLElement;
   #input: HTMLTextAreaElement;
   #intersectionObserver: IntersectionObserver;
@@ -97,7 +100,8 @@ export class ReaderView {
   #readEndpoint: string;
   #topSentinel: HTMLDivElement;
   #terminalID: string | undefined;
-  #allHistoryLoaded = false;
+  // Only an unchanged successful read is evidence for the hint, not the depth cap.
+  #historyStop: "unchanged" | "other" | undefined;
   #selectionChange: () => void;
 
   constructor(host: HTMLElement, events: ReaderEvents, options: ReaderOptions) {
@@ -116,8 +120,35 @@ export class ReaderView {
     this.#output.setAttribute("aria-label", "Terminal output");
     this.#scroll = document.createElement("div");
     this.#scroll.className = "reader-scroll";
-    this.#scroll.append(this.#topSentinel, this.#output);
+    this.#historyHint = document.createElement("div");
+    this.#historyHint.className = "reader-history-hint";
+    this.#historyHint.hidden = true;
+    const historyMessage = document.createElement("span");
+    historyMessage.textContent = "More history may be available in Terminal.";
+    const openTerminal = document.createElement("button");
+    openTerminal.type = "button";
+    openTerminal.textContent = "Open Terminal";
+    openTerminal.addEventListener("click", () => this.#events.onOpenTerminal?.());
+    this.#historyHint.append(historyMessage, openTerminal);
+    this.#scroll.append(this.#topSentinel, this.#historyHint, this.#output);
+    this.#scroll.addEventListener("wheel", (event) => {
+      if (!event.ctrlKey && !event.buttons && event.deltaY < 0) this.#requestHistoryHint();
+    }, { passive: true });
+    let touchY: number | undefined;
+    this.#scroll.addEventListener("touchstart", (event) => {
+      touchY = event.touches.length === 1 ? event.touches[0].clientY : undefined;
+    }, { passive: true });
+    this.#scroll.addEventListener("touchmove", (event) => {
+      const nextY = event.touches.length === 1 ? event.touches[0].clientY : undefined;
+      if (nextY !== undefined && touchY !== undefined && nextY > touchY) this.#requestHistoryHint();
+      touchY = nextY;
+    }, { passive: true });
+    this.#scroll.addEventListener("keydown", (event) => {
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey &&
+        ["ArrowUp", "PageUp", "Home"].includes(event.key)) this.#requestHistoryHint();
+    }, { passive: true });
     this.#scroll.addEventListener("scroll", () => {
+      if (this.#scroll.scrollTop > 160) this.#historyHintRequested = false;
       if (this.#newOutput && this.#atLatest() && !this.#hasSelection()) {
         this.#setNewOutput(false);
         this.refreshSoon();
@@ -206,9 +237,9 @@ export class ReaderView {
     host.replaceChildren(this.#scroll, this.#composer, this.#sendFeedback);
 
     this.#intersectionObserver = new IntersectionObserver((entries) => {
-      if (!this.#visible || !entries.some((entry) => entry.isIntersecting) || !this.#pane || !this.#lastANSI || this.#allHistoryLoaded || this.#hasSelection()) return;
+      if (!this.#visible || !entries.some((entry) => entry.isIntersecting) || !this.#pane || !this.#lastANSI || this.#historyStop || this.#hasSelection()) return;
       if (this.#historyLines >= maximumHistoryLines) {
-        this.#allHistoryLoaded = true;
+        this.#historyStop = "other";
         return;
       }
       this.#historyLines = Math.min(maximumHistoryLines, this.#historyLines + historyPageLines);
@@ -289,7 +320,9 @@ export class ReaderView {
     this.#lastANSI = "";
     this.#generation = undefined;
     this.#setNewOutput(false);
-    this.#allHistoryLoaded = false;
+    this.#historyStop = undefined;
+    this.#historyHintRequested = false;
+    this.#historyHint.hidden = true;
     await this.refresh(true, false);
     return this.#dimensions;
   }
@@ -320,6 +353,7 @@ export class ReaderView {
       this.#refreshQueued = { force: force || queued?.force === true, preserveTop: preserveTop || queued?.preserveTop === true };
       return;
     }
+    if (!preserveTop) this.#historyHintRequested = false;
     this.#loading = true;
     const abort = new AbortController();
     this.#abort = abort;
@@ -333,8 +367,14 @@ export class ReaderView {
       if (!this.#visible) { this.#setNewOutput(true); return; }
       if (this.#abort !== abort || this.#pane !== pane || !this.#validSnapshot(snapshot)) throw new Error("invalid terminal history response");
       this.#dimensions = { cols: snapshot.cols, rows: snapshot.rows };
+      if (snapshot.ansi !== this.#lastANSI) {
+        // Keep the existing pagination stop, but discard stale hint evidence.
+        if (this.#historyStop === "unchanged") this.#historyStop = "other";
+        this.#setHistoryHint(false);
+      }
       if (preserveTop && snapshot.ansi === this.#lastANSI) {
-        this.#allHistoryLoaded = true;
+        this.#historyStop = "unchanged";
+        if (this.#historyHintRequested) this.#requestHistoryHint();
         this.#events.onStatus("All retained output is loaded");
         return;
       }
@@ -351,10 +391,12 @@ export class ReaderView {
       this.#events.onLog("reader.snapshot", { characters: snapshot.ansi.length, lines: this.#historyLines, ...this.#dimensions });
     } catch (error) {
       if (abort.signal.aborted) return;
+      if (this.#abort === abort) this.#historyHintRequested = false;
       this.#events.onStatus("Could not read terminal output");
       this.#events.onLog("reader.failed", String(error));
     } finally {
       if (this.#abort === abort) {
+        if (preserveTop) this.#historyHintRequested = false;
         this.#loading = false;
         const queued = this.#refreshQueued;
         this.#refreshQueued = undefined;
@@ -429,6 +471,7 @@ export class ReaderView {
   setPresentation(visible: boolean): void {
     if (visible === this.#visible || this.#submissionActive) return;
     if (!visible) {
+      this.#historyHintRequested = false;
       const selection = window.getSelection();
       this.#savedSelection = this.#hasSelection() && selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : undefined;
       this.pauseLiveRefresh();
@@ -741,6 +784,21 @@ export class ReaderView {
   #hasSelection(): boolean {
     const selection = window.getSelection();
     return Boolean(selection && !selection.isCollapsed && selection.anchorNode && this.#output.contains(selection.anchorNode));
+  }
+
+  #requestHistoryHint(): void {
+    if (!this.#events.onOpenTerminal || !this.#visible || !this.#lastANSI ||
+      this.#scroll.scrollTop > 160 || this.#hasSelection()) return;
+    this.#historyHintRequested = true;
+    if (this.#historyStop === "unchanged") this.#setHistoryHint(true);
+  }
+
+  #setHistoryHint(visible: boolean): void {
+    if (this.#historyHint.hidden === !visible) return;
+    const oldHeight = this.#scroll.scrollHeight;
+    const oldTop = this.#scroll.scrollTop;
+    this.#historyHint.hidden = !visible;
+    if (oldTop > 0) this.#scroll.scrollTop = oldTop + this.#scroll.scrollHeight - oldHeight;
   }
 
   #atLatest(): boolean {

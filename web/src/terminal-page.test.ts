@@ -68,11 +68,18 @@ function pageBrowser(t: test.TestContext, mobile: boolean) {
     }
   }
   class Observer { observe() {} disconnect() {} }
+  let historyIntersection!: () => void;
+  class HistoryObserver extends Observer {
+    constructor(callback: IntersectionObserverCallback) {
+      super();
+      historyIntersection = () => callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+    }
+  }
   browser.matchMedia = () => ({ matches: mobile }) as ReturnType<Window["matchMedia"]>;
   const globals = {
     window: browser, document: browser.document, location: browser.location,
     HTMLElement: browser.HTMLElement, HTMLSpanElement: browser.HTMLSpanElement,
-    ResizeObserver: Observer, IntersectionObserver: Observer, WebSocket: Socket,
+    ResizeObserver: Observer, IntersectionObserver: HistoryObserver, WebSocket: Socket,
     fetch: async () => new Response(JSON.stringify({ ansi: "retained", cols: 40, rows: 20, generation: 1, terminal_id: "term-trial" })),
   };
   for (const [key, value] of Object.entries(globals)) {
@@ -94,8 +101,31 @@ function pageBrowser(t: test.TestContext, mobile: boolean) {
     for (const [key, value] of originals) (globalThis as Record<string, unknown>)[key] = value;
     browser.close();
   });
-  return { host, browser, sockets, events: () => events, page };
+  return { host, browser, sockets, events: () => events, page, historyIntersection: () => historyIntersection() };
 }
+
+test("Reader history hint opens the same Terminal view and remembers it without stream commands", async t => {
+  const { host, browser, sockets, historyIntersection } = pageBrowser(t, true);
+  await tick();
+  sockets[0].frame();
+  historyIntersection();
+  await tick();
+  const hint = host.querySelector<HTMLElement>(".reader-history-hint")!;
+  assert.equal(hint.hidden, true);
+  host.querySelector(".reader-scroll")!.dispatchEvent(new browser.WheelEvent("wheel", { deltaY: -10 }));
+  assert.equal(hint.hidden, false);
+  const output = host.querySelector(".reader-output");
+  const editor = host.querySelector<HTMLTextAreaElement>("textarea")!;
+  editor.value = "keep draft";
+  hint.querySelector<HTMLButtonElement>("button")!.click();
+  assert.equal(host.querySelector(".terminal-view-toggle")!.getAttribute("aria-label"), "Reader");
+  assert.equal(host.querySelector<HTMLElement>(".terminal-full-mount")!.style.visibility, "visible");
+  assert.equal(browser.localStorage.getItem("shepherdr.terminal.view"), "terminal");
+  assert.equal(sockets.length, 1);
+  assert.equal(sockets[0].commands.length, 0);
+  assert.equal(host.querySelector(".reader-output") === output, true);
+  assert.equal(editor.value, "keep draft");
+});
 
 for (const mobile of [true, false]) {
   test(`${mobile ? "mobile" : "desktop"} acquisition sends the latest measured size once after an older first frame`, async t => {
