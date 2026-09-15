@@ -57,7 +57,7 @@ function snapshot(ansi: string): Response {
   });
 }
 
-test("Reader history hint requires upward intent, reuses a confirmed result, and clears stale evidence", async (t) => {
+test("Reader history banner requires upward intent, reuses a confirmed result, and clears stale evidence", async (t) => {
   let reader: ReaderView;
   const { host, browser } = withReaderBrowser(t, () => reader?.destroy());
   let ansi = "retained";
@@ -67,11 +67,12 @@ test("Reader history hint requires upward intent, reuses a confirmed result, and
   reader = new ReaderView(host, {
     onLog() {}, onStatus() {}, onSubmit: () => true, onOpenTerminal() { opens++; },
   }, { endpoint: "/api/terminal/read" });
-  const hint = host.querySelector<HTMLElement>(".reader-history-hint")!;
+  const hint = host.querySelector<HTMLElement>(".reader-history-banner")!;
   const scroll = host.querySelector<HTMLElement>(".reader-scroll")!;
   const upward = () => scroll.dispatchEvent(new browser.WheelEvent("wheel", { deltaY: -10 }) as unknown as Event);
   await reader.open("pane-1", "term-1");
   assert.equal(hint.hidden, true);
+  Object.defineProperties(scroll, { scrollHeight: { value: 1200 }, clientHeight: { value: 300 } });
   await reader.refresh(false, false);
   assert.equal(hint.hidden, true, "ordinary live output cannot show the hint");
   TestIntersectionObserver.latest.intersect();
@@ -92,8 +93,8 @@ test("Reader history hint requires upward intent, reuses a confirmed result, and
   upward();
   assert.equal(hint.hidden, false);
   assert.equal(hint.querySelector("span")?.textContent, "More history may be available in Terminal.");
-  assert.equal(hint.parentElement === scroll, true);
-  assert.equal(host.querySelectorAll(".reader-history-hint").length, 1);
+  assert.equal(hint.parentElement === host, true);
+  assert.equal(host.querySelectorAll(".reader-history-banner").length, 1);
   assert.equal(reads, before, "the hint must not initiate another read");
   hint.querySelector<HTMLButtonElement>("button")!.click();
   assert.equal(opens, 1);
@@ -102,7 +103,7 @@ test("Reader history hint requires upward intent, reuses a confirmed result, and
   assert.equal(hint.hidden, true, "additional output invalidates the hint");
   upward();
   assert.equal(hint.hidden, true, "growth invalidates the previous no-growth result");
-  await reader.refresh(true, true);
+  await new Promise(resolve => setTimeout(resolve, 0));
   upward();
   assert.equal(hint.hidden, false);
   await reader.open("pane-2", "term-1");
@@ -110,7 +111,7 @@ test("Reader history hint requires upward intent, reuses a confirmed result, and
   assert.equal(hint.hidden, true, "a new pane has no confirmed no-growth result");
 });
 
-test("Reader history hint qualifies an in-flight older result, but not failures or selection drags", async (t) => {
+test("Reader history banner qualifies an in-flight older result, but not failures or selection drags", async (t) => {
   let reader: ReaderView;
   const { host, browser } = withReaderBrowser(t, () => reader?.destroy());
   t.mock.method(globalThis, "fetch", async () => snapshot("retained"));
@@ -118,7 +119,7 @@ test("Reader history hint qualifies an in-flight older result, but not failures 
     onLog() {}, onStatus() {}, onSubmit: () => true, onOpenTerminal() {},
   }, { endpoint: "/api/terminal/read" });
   await reader.open("pane-1", "term-1");
-  const hint = host.querySelector<HTMLElement>(".reader-history-hint")!;
+  const hint = host.querySelector<HTMLElement>(".reader-history-banner")!;
   const scroll = host.querySelector<HTMLElement>(".reader-scroll")!;
   const upward = () => scroll.dispatchEvent(new browser.WheelEvent("wheel", { deltaY: -10 }) as unknown as Event);
   let finish!: (response: Response) => void;
@@ -156,7 +157,7 @@ test("Reader history hint qualifies an in-flight older result, but not failures 
   assert.equal(hint.hidden, false, "upward intent during an older read qualifies its success");
 });
 
-test("Reader history hint handles passive touch and keyboard intent but never the depth cap alone", async (t) => {
+test("Reader history banner handles passive touch and keyboard intent but never the depth cap alone", async (t) => {
   let reader: ReaderView;
   const { host, browser } = withReaderBrowser(t, () => reader?.destroy());
   let sequence = 0;
@@ -165,7 +166,7 @@ test("Reader history hint handles passive touch and keyboard intent but never th
     onLog() {}, onStatus() {}, onSubmit: () => true, onOpenTerminal() {},
   }, { endpoint: "/api/terminal/read" });
   await reader.open("pane-1", "term-1");
-  const hint = host.querySelector<HTMLElement>(".reader-history-hint")!;
+  const hint = host.querySelector<HTMLElement>(".reader-history-banner")!;
   const scroll = host.querySelector<HTMLElement>(".reader-scroll")!;
   for (let page = 0; page < 40; page++) {
     TestIntersectionObserver.latest.intersect();
@@ -175,6 +176,7 @@ test("Reader history hint handles passive touch and keyboard intent but never th
   scroll.dispatchEvent(key as unknown as Event);
   assert.equal(key.defaultPrevented, false);
   assert.equal(hint.hidden, true, "the configured depth limit is not a no-growth result");
+  assert.equal(sequence, 40, "history reads stop at 20,000 lines");
   t.mock.method(globalThis, "fetch", async () => snapshot("retained"));
   await reader.open("pane-2", "term-1");
   await reader.refresh(true, true);
@@ -184,7 +186,7 @@ test("Reader history hint handles passive touch and keyboard intent but never th
   await reader.refresh(true, true);
   const touch = (type: string, positions: number[]) => {
     const event = new browser.Event(type, { cancelable: true });
-    Object.defineProperty(event, "touches", { value: positions.map(clientY => ({ clientY })) });
+    Object.defineProperty(event, "touches", { value: positions.map(clientY => ({ clientX: 20, clientY })) });
     scroll.dispatchEvent(event as unknown as Event);
     assert.equal(event.defaultPrevented, false);
   };
@@ -196,36 +198,101 @@ test("Reader history hint handles passive touch and keyboard intent but never th
   assert.equal(hint.hidden, false);
 });
 
-test("Reader history hint does not retain intent after a selection-deferred read fails", async (t) => {
+test("Reader upward intent during a live read checks older output once after success", async (t) => {
   let reader: ReaderView;
   const { host, browser } = withReaderBrowser(t, () => reader?.destroy());
-  let fail = false;
-  let reads = 0;
-  t.mock.method(globalThis, "fetch", async () => {
-    reads++;
-    if (fail) throw new Error("offline");
-    return snapshot("retained");
-  });
+  t.mock.method(globalThis, "fetch", async () => snapshot("retained"));
   reader = new ReaderView(host, {
     onLog() {}, onStatus() {}, onSubmit: () => true, onOpenTerminal() {},
   }, { endpoint: "/api/terminal/read" });
   await reader.open("pane-1", "term-1");
-  const hint = host.querySelector<HTMLElement>(".reader-history-hint")!;
-  host.querySelector(".reader-scroll")!.dispatchEvent(new browser.WheelEvent("wheel", { deltaY: -10 }) as unknown as Event);
-  const range = browser.document.createRange();
-  range.selectNodeContents(host.querySelector(".reader-output")!);
-  browser.getSelection()!.addRange(range);
-  await reader.refresh(true, true);
-  assert.equal(reads, 1, "selection defers the read");
-  fail = true;
-  browser.getSelection()!.removeAllRanges();
-  browser.document.dispatchEvent(new browser.Event("selectionchange"));
+  let finish!: (response: Response) => void;
+  const depths: number[] = [];
+  t.mock.method(globalThis, "fetch", (url: string) => {
+    depths.push(Number(new URL(url, "http://localhost").searchParams.get("lines")));
+    return depths.length === 1 ? new Promise<Response>(resolve => { finish = resolve; }) : Promise.resolve(snapshot("retained"));
+  });
+  const live = reader.refresh(false, false);
+  const scroll = host.querySelector<HTMLElement>(".reader-scroll")!;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    scroll.dispatchEvent(new browser.WheelEvent("wheel", { deltaY: -10 }) as unknown as Event);
+  }
+  const banner = host.querySelector<HTMLElement>(".reader-history-banner")!;
+  assert.equal(banner.hidden, true);
+  assert.equal(depths.join(","), "500");
+  finish(snapshot("retained"));
+  await live;
   await new Promise(resolve => setTimeout(resolve, 0));
-  assert.equal(reads, 2);
-  assert.equal(hint.hidden, true);
-  fail = false;
-  await reader.refresh(true, true);
-  assert.equal(hint.hidden, true, "the failed deferred request cannot qualify a later success");
+  assert.equal(depths.join(","), "500,1000", "one attempt is not lost or multiplied by an in-flight live read");
+  assert.equal(banner.hidden, false);
+});
+
+test("Reader checks nonoverflow upward touch intent without another intersection or scroll event", async (t) => {
+  let reader: ReaderView;
+  const { host, browser } = withReaderBrowser(t, () => reader?.destroy());
+  const depths: number[] = [];
+  let ansi = "alternate screen";
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    depths.push(Number(new URL(url, "http://localhost").searchParams.get("lines")));
+    return snapshot(ansi);
+  });
+  reader = new ReaderView(host, {
+    onLog() {}, onStatus() {}, onSubmit: () => true, onOpenTerminal() {},
+  }, { endpoint: "/api/terminal/read" });
+  const banner = host.querySelector<HTMLElement>(".reader-history-banner")!;
+  const scroll = host.querySelector<HTMLElement>(".reader-scroll")!;
+  Object.defineProperties(scroll, { scrollHeight: { value: 300 }, clientHeight: { value: 300 } });
+  const touch = (type: string, y: number, x = 20) => {
+    const event = new browser.Event(type, { cancelable: true });
+    Object.defineProperty(event, "touches", { value: [{ clientX: x, clientY: y }] });
+    scroll.dispatchEvent(event as unknown as Event);
+    assert.equal(event.defaultPrevented, false);
+  };
+  TestIntersectionObserver.latest.intersect();
+  await reader.open("pane-1", "term-1");
+  scroll.scrollTop = 0; // happy-dom does not clamp scrollTop to the nonoverflow extent.
+  touch("touchstart", 80);
+  touch("touchmove", 40);
+  touch("touchstart", 40);
+  touch("touchmove", 44);
+  touch("touchmove", 45, 80);
+  assert.equal(depths.join(","), "500", "downward movement, jitter and horizontal swipes do not read history");
+  assert.equal(banner.hidden, true);
+  touch("touchstart", 40);
+  touch("touchmove", 80);
+  touch("touchmove", 110);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(depths.join(","), "500,1000");
+  assert.equal(banner.hidden, false);
+  assert.equal(scroll.scrollTop, 0);
+  const close = banner.querySelector<HTMLButtonElement>('[aria-label="Dismiss history hint"]')!;
+  assert.equal(close.querySelector("svg") !== null, true);
+  close.click();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    touch("touchstart", 40);
+    touch("touchmove", 80);
+  }
+  assert.equal(banner.hidden, true);
+  assert.equal(depths.length, 2, "unchanged exhaustion stops repeated reads");
+  ansi = "updated alternate screen";
+  await reader.refresh(false, false);
+  scroll.scrollTop = 0;
+  reader.setPresentation(false);
+  touch("touchstart", 40);
+  touch("touchmove", 80);
+  assert.equal(depths.length, 3, "full Terminal cannot request Reader history");
+  reader.setPresentation(true);
+  touch("touchstart", 40);
+  touch("touchmove", 80);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(depths.length, 4);
+  assert.equal(banner.hidden, true, "dismissal survives output and view changes for this visit");
+  await reader.open("pane-2", "term-1");
+  scroll.scrollTop = 0;
+  touch("touchstart", 40);
+  touch("touchmove", 80);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(banner.hidden, false, "a new visit can show the banner again");
 });
 
 test("ten view toggles retain Reader nodes, position, draft, selection and files without hidden reads", async (t) => {

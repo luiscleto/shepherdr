@@ -12,6 +12,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 - Remember your last Reader or Terminal view choice in this browser for subsequent terminal opens.
 
+### Fixed
+
+- Detect upward Reader history attempts even when the output fits without scrolling. Show the history hint as a dismissible banner below the header without moving the reading area.
+
 ## [0.3.1] - 2026-09-13
 
 ### Changed

@@ -73,6 +73,7 @@ export class ReaderView {
   #historyRefreshPending = false;
   #historyHint: HTMLDivElement;
   #historyHintRequested = false;
+  #historyHintDismissed = false;
   #host: HTMLElement;
   #input: HTMLTextAreaElement;
   #intersectionObserver: IntersectionObserver;
@@ -121,28 +122,50 @@ export class ReaderView {
     this.#scroll = document.createElement("div");
     this.#scroll.className = "reader-scroll";
     this.#historyHint = document.createElement("div");
-    this.#historyHint.className = "reader-history-hint";
+    this.#historyHint.className = "reader-history-banner";
     this.#historyHint.hidden = true;
     const historyMessage = document.createElement("span");
+    historyMessage.setAttribute("role", "status");
     historyMessage.textContent = "More history may be available in Terminal.";
     const openTerminal = document.createElement("button");
     openTerminal.type = "button";
     openTerminal.textContent = "Open Terminal";
     openTerminal.addEventListener("click", () => this.#events.onOpenTerminal?.());
-    this.#historyHint.append(historyMessage, openTerminal);
-    this.#scroll.append(this.#topSentinel, this.#historyHint, this.#output);
+    const dismissHistory = document.createElement("button");
+    dismissHistory.type = "button";
+    dismissHistory.className = "reader-history-close reader-icon-button";
+    setIconButton(dismissHistory, "Dismiss history hint", "close");
+    dismissHistory.addEventListener("click", () => {
+      this.#historyHintDismissed = true;
+      this.#historyHintRequested = false;
+      this.#setHistoryHint(false);
+    });
+    this.#historyHint.append(historyMessage, openTerminal, dismissHistory);
+    this.#scroll.append(this.#topSentinel, this.#output);
     this.#scroll.addEventListener("wheel", (event) => {
       if (!event.ctrlKey && !event.buttons && event.deltaY < 0) this.#requestHistoryHint();
     }, { passive: true });
-    let touchY: number | undefined;
+    let touchStart: { x: number; y: number } | undefined;
     this.#scroll.addEventListener("touchstart", (event) => {
-      touchY = event.touches.length === 1 ? event.touches[0].clientY : undefined;
+      const touch = event.touches.length === 1 ? event.touches[0] : undefined;
+      touchStart = touch ? { x: touch.clientX, y: touch.clientY } : undefined;
     }, { passive: true });
     this.#scroll.addEventListener("touchmove", (event) => {
-      const nextY = event.touches.length === 1 ? event.touches[0].clientY : undefined;
-      if (nextY !== undefined && touchY !== undefined && nextY > touchY) this.#requestHistoryHint();
-      touchY = nextY;
+      const touch = event.touches.length === 1 ? event.touches[0] : undefined;
+      if (!touch) { touchStart = undefined; return; }
+      if (!touchStart) return;
+      const dy = touch.clientY - touchStart.y;
+      const dx = Math.abs(touch.clientX - touchStart.x);
+      // Observe deliberate vertical history intent once per gesture. Leave
+      // scrolling, selection and overscroll entirely with the browser.
+      if (Math.abs(dy) < 16 && dx < 16) return;
+      if (dy >= 16 && dy > dx && this.#scroll.scrollTop > 160) return;
+      touchStart = undefined;
+      if (dy >= 16 && dy > dx) this.#requestHistoryHint();
     }, { passive: true });
+    for (const type of ["touchend", "touchcancel"]) {
+      this.#scroll.addEventListener(type, () => { touchStart = undefined; }, { passive: true });
+    }
     this.#scroll.addEventListener("keydown", (event) => {
       if (!event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey &&
         ["ArrowUp", "PageUp", "Home"].includes(event.key)) this.#requestHistoryHint();
@@ -234,16 +257,10 @@ export class ReaderView {
       this.#composer.hidden = true;
     }
     this.#composer.append(this.#fileMenu, this.#fileInput, this.#photoInput, this.#filePreparationStatus, this.#fileList);
-    host.replaceChildren(this.#scroll, this.#composer, this.#sendFeedback);
+    host.replaceChildren(this.#scroll, this.#composer, this.#sendFeedback, this.#historyHint);
 
     this.#intersectionObserver = new IntersectionObserver((entries) => {
-      if (!this.#visible || !entries.some((entry) => entry.isIntersecting) || !this.#pane || !this.#lastANSI || this.#historyStop || this.#hasSelection()) return;
-      if (this.#historyLines >= maximumHistoryLines) {
-        this.#historyStop = "other";
-        return;
-      }
-      this.#historyLines = Math.min(maximumHistoryLines, this.#historyLines + historyPageLines);
-      void this.refresh(true, true);
+      if (entries.some((entry) => entry.isIntersecting)) this.#readOlderOutput();
     }, { root: this.#scroll, rootMargin: "160px 0px 0px" });
     this.#intersectionObserver.observe(this.#topSentinel);
     this.#selectionChange = () => {
@@ -322,6 +339,7 @@ export class ReaderView {
     this.#setNewOutput(false);
     this.#historyStop = undefined;
     this.#historyHintRequested = false;
+    this.#historyHintDismissed = false;
     this.#historyHint.hidden = true;
     await this.refresh(true, false);
     return this.#dimensions;
@@ -368,13 +386,13 @@ export class ReaderView {
       if (this.#abort !== abort || this.#pane !== pane || !this.#validSnapshot(snapshot)) throw new Error("invalid terminal history response");
       this.#dimensions = { cols: snapshot.cols, rows: snapshot.rows };
       if (snapshot.ansi !== this.#lastANSI) {
-        // Keep the existing pagination stop, but discard stale hint evidence.
-        if (this.#historyStop === "unchanged") this.#historyStop = "other";
+        // Changed output needs fresh exhaustion evidence on the next attempt.
+        if (this.#historyStop === "unchanged") this.#historyStop = undefined;
         this.#setHistoryHint(false);
       }
       if (preserveTop && snapshot.ansi === this.#lastANSI) {
         this.#historyStop = "unchanged";
-        if (this.#historyHintRequested) this.#requestHistoryHint();
+        if (this.#historyHintRequested && this.#scroll.scrollTop <= 160 && !this.#hasSelection()) this.#setHistoryHint(true);
         this.#events.onStatus("All retained output is loaded");
         return;
       }
@@ -400,6 +418,9 @@ export class ReaderView {
         this.#loading = false;
         const queued = this.#refreshQueued;
         this.#refreshQueued = undefined;
+        // An attempt during a successful live read still needs an older read.
+        // Failures clear the intent above; history reads never chain themselves.
+        if (!preserveTop && this.#historyHintRequested && !queued?.preserveTop) this.#readOlderOutput();
         if (queued) void this.refresh(queued.force, queued.preserveTop);
       }
     }
@@ -472,6 +493,7 @@ export class ReaderView {
     if (visible === this.#visible || this.#submissionActive) return;
     if (!visible) {
       this.#historyHintRequested = false;
+      this.#setHistoryHint(false);
       const selection = window.getSelection();
       this.#savedSelection = this.#hasSelection() && selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : undefined;
       this.pauseLiveRefresh();
@@ -791,14 +813,23 @@ export class ReaderView {
       this.#scroll.scrollTop > 160 || this.#hasSelection()) return;
     this.#historyHintRequested = true;
     if (this.#historyStop === "unchanged") this.#setHistoryHint(true);
+    // The sentinel may have intersected before the first snapshot and remain
+    // visible forever when output fits. Intent must also reach the bounded read.
+    else this.#readOlderOutput();
+  }
+
+  #readOlderOutput(): void {
+    if (!this.#visible || !this.#pane || !this.#lastANSI || this.#loading || this.#historyStop || this.#hasSelection()) return;
+    if (this.#historyLines >= maximumHistoryLines) {
+      this.#historyStop = "other";
+      return;
+    }
+    this.#historyLines = Math.min(maximumHistoryLines, this.#historyLines + historyPageLines);
+    void this.refresh(true, true);
   }
 
   #setHistoryHint(visible: boolean): void {
-    if (this.#historyHint.hidden === !visible) return;
-    const oldHeight = this.#scroll.scrollHeight;
-    const oldTop = this.#scroll.scrollTop;
-    this.#historyHint.hidden = !visible;
-    if (oldTop > 0) this.#scroll.scrollTop = oldTop + this.#scroll.scrollHeight - oldHeight;
+    this.#historyHint.hidden = !visible || this.#historyHintDismissed || !this.#visible;
   }
 
   #atLatest(): boolean {
