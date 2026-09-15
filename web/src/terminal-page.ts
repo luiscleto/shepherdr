@@ -8,6 +8,7 @@ import { readerActionAvailability, type ReaderInputState } from "./terminal/read
 import { ReaderInputQueue } from "./terminal/reader-input";
 import { ReaderView, readerMessageAction, setIconButton } from "./terminal/reader-view";
 import { TerminalSession, type SessionMode } from "./terminal/session";
+import { readTerminalView, saveTerminalView } from "./terminal/view-preference";
 import { XTermAdapter } from "./terminal/xterm-adapter";
 
 export interface TerminalPageTarget {
@@ -92,7 +93,7 @@ export class TerminalPage {
     // Mobile scroll gestures navigate Herdr history. Local frame scrollback is
     // reset on full frames; disabling it also removes FitAddon's unused gutter.
     this.#xterm = new XTermAdapter(this.#mobile ? 0 : 10_000);
-    this.#readerVisible = this.#mobile;
+    this.#readerVisible = this.#mobile && (readTerminalView() ?? "reader") === "reader";
     const header = element("header", "terminal-header");
     const title = element("div", "terminal-title");
     this.#title = element("h1", undefined, target.title);
@@ -216,6 +217,7 @@ export class TerminalPage {
       controls.append(button);
     }
     this.#host.append(controls);
+    reader.setPresentation(this.#readerVisible);
     void reader.open(this.paneID, this.terminalID);
   }
 
@@ -262,6 +264,7 @@ export class TerminalPage {
   #switchView(): void {
     if (this.#uploadState === "requesting") return;
     this.#readerVisible = !this.#readerVisible;
+    saveTerminalView(this.#readerVisible ? "reader" : "terminal");
     this.#reader?.setPresentation(this.#readerVisible);
     this.#present();
     this.#render();

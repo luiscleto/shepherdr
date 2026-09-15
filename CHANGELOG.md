@@ -4,6 +4,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+- Remember your last Reader or Terminal view choice in this browser for subsequent terminal opens.
+
 ## [0.3.1] - 2026-09-13
 
 ### Changed
