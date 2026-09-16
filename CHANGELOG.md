@@ -8,18 +8,18 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ### Added
 
-- **Send keys** offers common keys, F1–F12, and printable characters with Ctrl, Alt / Option, Shift, Super / Command, and Hyper. Pin shortcuts without sending them, then edit, remove, or reorder them in this browser. The terminal application determines each combination's effect; Alt / Option means terminal Alt.
-- A dismissible Reader hint offers **Open Terminal** when you try to scroll further back and a successful history read finds no additional output, even when the output fits without scrolling. Dismissal lasts for the current terminal visit.
+- **Send keys** for common keys, F1–F12, and character/modifier combinations. Save and reorder your own shortcuts in this browser.
+- Reader offers a dismissible **Open Terminal** hint when no more history is available in Reader.
 
 ### Changed
 
-- Remember your last Reader or Terminal view choice in this browser for subsequent terminal opens.
-- Put **Send keys** beside **Message** and default shortcuts to Esc, Up, Down, Backspace, and Ctrl+C, with fixed Enter after the first shortcut. Existing saved choices stay unchanged; **Restore defaults** applies the new list.
-- Sending keys retains control and leaves unsent Reader messages and files alone. While observing, choose **Control** or confirmed **Take over** before sending. The Send keys sheet closes only after Herdr accepts the key; failed or unknown sends keep it open and are never retried automatically.
+- Remember your last Reader or Terminal view in this browser.
+- Update the default bar with Esc, Enter, Up, Down, Backspace, and Ctrl+C. Saved shortcuts stay unchanged.
+- **Send keys** closes after a successful send and leaves message drafts and attachments untouched.
 
 ### Compatibility
 
-- Herdr 0.9.0 remains the minimum and validated version. Newer or unknown versions run best effort with a warning.
+- Requires Herdr 0.9.0 or later (0.9.0 validated).
 
 ## [0.3.1] - 2026-09-13
 
