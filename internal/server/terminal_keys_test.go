@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -86,7 +85,7 @@ func TestTerminalKeyGuardsAndOutcomes(t *testing.T) {
 			case "authority":
 				request = request.WithContext(context.WithValue(ctx, authorityCommitContextKey, authorityCommit(func(func() error) error { return errors.New("signed out") })))
 			}
-			path := filepath.Join(t.TempDir(), "h.sock")
+			path := shortSocketPath(t)
 			listener, err := net.Listen("unix", path)
 			if err != nil {
 				t.Fatal(err)
