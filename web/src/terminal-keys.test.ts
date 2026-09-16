@@ -15,7 +15,7 @@ for (const stored of [null, '[{"base":"f1"}]']) {
     // Begin with working storage, including when another test used the fallback.
     saveShortcuts([{ base: "f1" }]);
     if (stored === null) storage.removeItem(storageKey);
-    assert.equal(JSON.stringify(readShortcuts()), stored ?? '[{"base":"esc"},{"base":"c","ctrl":true},{"base":"up"},{"base":"down"}]');
+    assert.equal(JSON.stringify(readShortcuts()), stored ?? '[{"base":"esc"},{"base":"up"},{"base":"down"},{"base":"backspace"},{"base":"c","ctrl":true}]');
     const write = t.mock.method(storage, "setItem", () => { throw new Error("quota exceeded"); });
     saveShortcuts([{ base: "k", ctrl: true, shift: true }]);
     assert.equal(storage.getItem(storageKey), stored);
@@ -42,11 +42,13 @@ test("key preferences validate combinations and editing never sends", t => {
   t.after(() => { sheet.destroy(); globalThis.window = originalWindow; globalThis.document = originalDocument; browser.close(); });
   const click = (text: string) => Array.from(document.querySelectorAll("button")).find(button => button.textContent === text)!.click();
   const labeled = (label: string) => document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click();
-  const expectedDefaults = '[{"base":"esc"},{"base":"c","ctrl":true},{"base":"up"},{"base":"down"}]';
+  const expectedDefaults = '[{"base":"esc"},{"base":"up"},{"base":"down"},{"base":"backspace"},{"base":"c","ctrl":true}]';
   assert.equal(JSON.stringify(saved), expectedDefaults);
   // Existing choices, including the earlier defaults and an empty list, stay put.
   saveShortcuts([{ base: "esc" }, { base: "tab" }]);
   assert.equal(JSON.stringify(readShortcuts()), '[{"base":"esc"},{"base":"tab"}]');
+  saveShortcuts([{ base: "esc" }, { base: "c", ctrl: true }, { base: "up" }, { base: "down" }]);
+  assert.equal(JSON.stringify(readShortcuts()), '[{"base":"esc"},{"base":"c","ctrl":true},{"base":"up"},{"base":"down"}]');
   saveShortcuts([]);
   assert.equal(JSON.stringify(readShortcuts()), '[]');
   click("Character"); click("Ctrl"); click("Super / Command"); click("Hyper");
@@ -58,7 +60,7 @@ test("key preferences validate combinations and editing never sends", t => {
   const current = document.querySelector("input")!;
   current.value = "+"; current.dispatchEvent(new browser.Event("input") as unknown as Event);
   click("Save shortcut"); labeled("Remove Esc");
-  assert.equal(JSON.stringify(readShortcuts()), JSON.stringify([{ base: "c", ctrl: true }, { base: "up" }, { base: "+", ctrl: true, super: true, hyper: true }, { base: "down" }]));
+  assert.equal(JSON.stringify(readShortcuts()), JSON.stringify([{ base: "up" }, { base: "down" }, { base: "backspace" }, { base: "+", ctrl: true, super: true, hyper: true }, { base: "c", ctrl: true }]));
   assert.equal(sends, 0);
   click("Restore defaults");
   assert.equal(JSON.stringify(readShortcuts()), expectedDefaults);

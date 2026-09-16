@@ -42,7 +42,7 @@ export function keyLabel(key: KeySelection): string {
 }
 
 const storageKey = "shepherdr.terminal.shortcuts";
-const defaults = (): KeySelection[] => [{ base: "esc" }, { base: "c", ctrl: true }, { base: "up" }, { base: "down" }];
+const defaults = (): KeySelection[] => [{ base: "esc" }, { base: "up" }, { base: "down" }, { base: "backspace" }, { base: "c", ctrl: true }];
 let visitShortcuts: KeySelection[] | undefined;
 let shortcutWriteFailed = false;
 

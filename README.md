@@ -151,7 +151,7 @@ Both views keep control until you release it or another controller takes over. O
 
 **Send keys** lets you choose Esc, Tab, Enter, Backspace, arrows, F1–F12, or one printable character, with Ctrl, Alt / Option, Shift, Super / Command, and Hyper. Herdr interprets the combination for the terminal. While observing, use **Control** or confirmed **Take over** first. Keys act immediately, independently of your unsent message and files. If the result is unknown, check the terminal before deliberately sending again.
 
-Pin combinations without sending them, then edit, remove, reorder, or restore the shortcuts in this browser. Esc, Ctrl+C, Up, and Down start pinned, in that order. Saved choices stay unchanged; **Restore defaults** applies the new list. Tab remains in the picker and can be pinned. Enter, Send keys, control, and Message or Attach files remain available with their usual rules.
+Pin combinations without sending them, then edit, remove, reorder, or restore the shortcuts in this browser. Esc, Up, Down, Backspace, and Ctrl+C start pinned, in that order, with fixed Enter after the first shortcut. Saved choices stay unchanged; **Restore defaults** applies the new list. Tab remains in the picker and can be pinned. Enter, Send keys, control, and Message or Attach files remain available with their usual rules.
 
 In Reader, **Message** opens the composer. **Add files** appears only while that exact terminal has a recognized agent. **Photos** and **Files** use the browser's ordinary pickers. **Send** submits the message and any selected file paths.
 

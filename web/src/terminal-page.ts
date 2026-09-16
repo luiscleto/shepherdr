@@ -227,7 +227,7 @@ export class TerminalPage {
     const enter = action("Enter", () => this.#sendKey({ base: "enter" }));
     enter.setAttribute("aria-label", "Enter");
     this.#shortcuts.push(enter);
-    controls.append(sendKeys, this.#controlAction, this.#savedShortcuts, enter);
+    controls.append(sendKeys, this.#controlAction, this.#savedShortcuts);
     this.#host.append(controls);
     this.#keysSheet = new KeysSheet(this.#host, {
       send: key => this.#sendKey(key),
@@ -239,6 +239,7 @@ export class TerminalPage {
           this.#shortcuts.push(shortcut);
           this.#savedShortcuts.append(shortcut);
         }
+        this.#savedShortcuts.insertBefore(enter, this.#savedShortcuts.children.item(1));
         this.#render();
       },
       dismiss: () => this.#readerInput?.dismissUncertain(),

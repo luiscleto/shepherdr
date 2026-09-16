@@ -18,6 +18,7 @@ test("logical keys leave the Reader draft alone and require deliberate recovery 
   const { host, browser, sockets } = pageBrowser(t, true);
   await tick(); sockets[0].frame();
   const byText = (text: string) => Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === text)!;
+  assert.equal(Array.from(host.querySelectorAll(".terminal-command-bar button"), button => button.textContent).join("|"), "Message|Send keys|Release|Esc|Enter|↑|↓|Backspace|Ctrl + c");
   byText("Message").click();
   const editor = host.querySelector<HTMLTextAreaElement>("textarea")!;
   editor.value = "unsent message"; editor.setSelectionRange(2, 5);
@@ -84,6 +85,25 @@ test("logical keys leave the Reader draft alone and require deliberate recovery 
   assert.equal(sockets[1].commands.length, 0);
 });
 
+test("fixed Enter keeps saved shortcut order and survives an empty list and Restore defaults", async t => {
+  const saved = '[{"base":"tab"},{"base":"esc"}]';
+  const { host, browser, sockets } = pageBrowser(t, true, saved);
+  await tick(); sockets[0].frame();
+  const labels = () => Array.from(host.querySelectorAll(".terminal-command-bar button"), button => button.textContent).join("|");
+  const click = (text: string) => Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === text)!.click();
+  assert.equal(labels(), "Message|Send keys|Release|Tab|Enter|Esc");
+  assert.equal(browser.localStorage.getItem("shepherdr.terminal.shortcuts"), saved);
+  click("Send keys"); click("Edit shortcuts");
+  host.querySelector<HTMLButtonElement>('[aria-label="Remove Tab"]')!.click();
+  host.querySelector<HTMLButtonElement>('[aria-label="Remove Esc"]')!.click();
+  assert.equal(labels(), "Message|Send keys|Release|Enter");
+  assert.equal(browser.localStorage.getItem("shepherdr.terminal.shortcuts"), "[]");
+  click("Restore defaults");
+  assert.equal(labels(), "Message|Send keys|Release|Esc|Enter|↑|↓|Backspace|Ctrl + c");
+  assert.equal(host.querySelectorAll('.terminal-command-bar [aria-label="Enter"]').length, 1);
+  assert.equal(sockets[0].commands.length, 0);
+});
+
 test("xterm waits for both font outcomes and departure prevents delayed resources", async t => {
   const browser = new Window({ url: "http://localhost/" });
   const originalDocument = globalThis.document;
@@ -121,8 +141,9 @@ test("xterm waits for both font outcomes and departure prevents delayed resource
   assert.equal(adapter.paste("probe"), false);
 });
 
-function pageBrowser(t: test.TestContext, mobile: boolean) {
+function pageBrowser(t: test.TestContext, mobile: boolean, savedShortcuts?: string) {
   const browser = new Window({ url: "http://localhost/" });
+  if (savedShortcuts !== undefined) browser.localStorage.setItem("shepherdr.terminal.shortcuts", savedShortcuts);
   const originals = new Map<string, unknown>();
   const sockets: Socket[] = [];
   class Socket extends EventTarget {

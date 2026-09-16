@@ -11,7 +11,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ### Changed
 
-- Start optional terminal shortcuts with Esc, Ctrl+C, Up, and Down. Existing saved choices stay unchanged; Restore defaults applies the new list.
+- Order the default terminal bar as Message, Send keys, Release, Esc, Enter, Up, Down, Backspace, Ctrl+C. Fixed Enter follows the first optional shortcut. Existing saved choices stay unchanged; Restore defaults applies the new list.
 - Terminal shortcuts and fixed Enter use Herdr's key encoding while retaining control. Keys leave unsent Reader messages and files alone; observing requires explicit Control or Take over first.
 - Remember your last Reader or Terminal view choice in this browser for subsequent terminal opens.
 
