@@ -155,13 +155,13 @@ function pageBrowser(t: test.TestContext, mobile: boolean) {
   return { host, browser, sockets, events: () => events, page, historyIntersection: () => historyIntersection() };
 }
 
-test("Reader history hint opens the same Terminal view and remembers it without stream commands", async t => {
+test("Reader history banner opens the same Terminal view and remembers it without stream commands", async t => {
   const { host, browser, sockets, historyIntersection } = pageBrowser(t, true);
   await tick();
   sockets[0].frame();
   historyIntersection();
   await tick();
-  const hint = host.querySelector<HTMLElement>(".reader-history-hint")!;
+  const hint = host.querySelector<HTMLElement>(".reader-history-banner")!;
   assert.equal(hint.hidden, true);
   host.querySelector(".reader-scroll")!.dispatchEvent(new browser.WheelEvent("wheel", { deltaY: -10 }));
   assert.equal(hint.hidden, false);
@@ -172,6 +172,9 @@ test("Reader history hint opens the same Terminal view and remembers it without 
   assert.equal(host.querySelector(".terminal-view-toggle")!.getAttribute("aria-label"), "Reader");
   assert.equal(host.querySelector<HTMLElement>(".terminal-full-mount")!.style.visibility, "visible");
   assert.equal(browser.localStorage.getItem("shepherdr.terminal.view"), "terminal");
+  assert.equal(hint.hidden, true, "the banner is suppressed in full Terminal");
+  host.querySelector<HTMLButtonElement>(".terminal-view-toggle")!.click();
+  assert.equal(hint.hidden, true, "returning to Reader alone cannot reveal the banner");
   assert.equal(sockets.length, 1);
   assert.equal(sockets[0].commands.length, 0);
   assert.equal(host.querySelector(".reader-output") === output, true);
