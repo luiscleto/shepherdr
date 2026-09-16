@@ -4,6 +4,33 @@ import { Window } from "happy-dom";
 import { KeysSheet } from "./terminal/keys-sheet";
 import { validateKey, readShortcuts, saveShortcuts, type KeySelection } from "./terminal/keys";
 
+for (const stored of [null, '[{"base":"f1"}]']) {
+  test(`shortcut edits survive failed writes with ${stored === null ? "missing" : "stale"} readable storage`, t => {
+    const browser = new Window({ url: "http://localhost" });
+    const originalWindow = globalThis.window;
+    globalThis.window = browser as unknown as Window & typeof globalThis;
+    t.after(() => { globalThis.window = originalWindow; browser.close(); });
+    const storage = browser.localStorage;
+    const storageKey = "shepherdr.terminal.shortcuts";
+    // Begin with working storage, including when another test used the fallback.
+    saveShortcuts([{ base: "f1" }]);
+    if (stored === null) storage.removeItem(storageKey);
+    assert.equal(JSON.stringify(readShortcuts()), stored ?? '[{"base":"esc"},{"base":"tab"}]');
+    const write = t.mock.method(storage, "setItem", () => { throw new Error("quota exceeded"); });
+    saveShortcuts([{ base: "k", ctrl: true, shift: true }]);
+    assert.equal(storage.getItem(storageKey), stored);
+    assert.equal(JSON.stringify(readShortcuts()), '[{"base":"k","ctrl":true,"shift":true}]');
+    // Another terminal reads the same visit, including a deliberate empty list.
+    assert.equal(JSON.stringify(readShortcuts()), '[{"base":"k","ctrl":true,"shift":true}]');
+    saveShortcuts([]);
+    assert.equal(JSON.stringify(readShortcuts()), '[]');
+    write.mock.restore();
+    saveShortcuts([{ base: "tab" }]);
+    assert.equal(storage.getItem(storageKey), '[{"base":"tab"}]');
+    assert.equal(JSON.stringify(readShortcuts()), '[{"base":"tab"}]');
+  });
+}
+
 test("key preferences validate combinations and editing never sends", t => {
   const browser = new Window({ url: "http://localhost" });
   const originalWindow = globalThis.window, originalDocument = globalThis.document;

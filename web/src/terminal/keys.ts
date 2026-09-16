@@ -44,12 +44,14 @@ export function keyLabel(key: KeySelection): string {
 const storageKey = "shepherdr.terminal.shortcuts";
 const defaults = (): KeySelection[] => [{ base: "esc" }, { base: "tab" }];
 let visitShortcuts: KeySelection[] | undefined;
+let shortcutWriteFailed = false;
 
 export function readShortcuts(): KeySelection[] {
   try {
-    const raw = window.localStorage.getItem(storageKey);
+    // A readable store may still contain older preferences after a failed write.
+    const raw = shortcutWriteFailed ? undefined : window.localStorage.getItem(storageKey);
     if (raw === null) visitShortcuts = defaults();
-    else {
+    else if (raw !== undefined) {
       const parsed: unknown = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         visitShortcuts = parsed.map(validateKey).filter((key): key is KeySelection => key !== undefined);
@@ -61,7 +63,10 @@ export function readShortcuts(): KeySelection[] {
 
 export function saveShortcuts(keys: KeySelection[]): void {
   visitShortcuts = keys.map(validateKey).filter((key): key is KeySelection => key !== undefined);
-  try { window.localStorage.setItem(storageKey, JSON.stringify(visitShortcuts)); } catch { /* Visit-local fallback. */ }
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(visitShortcuts));
+    shortcutWriteFailed = false;
+  } catch { shortcutWriteFailed = true; }
 }
 
 export function defaultShortcuts(): KeySelection[] { return defaults(); }
