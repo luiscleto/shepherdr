@@ -2,21 +2,19 @@
 
 <table>
   <tr>
-    <td rowspan="3" width="50%" align="center" valign="top">
+    <td rowspan="2" width="33%" align="center" valign="top">
       <a href="docs/images/home.png"><strong>Home</strong><br><img src="docs/images/home.png" width="270" alt="Home with grouped terminals, agent statuses, and the working count"></a>
     </td>
-    <td width="50%" align="center" valign="top">
+    <td width="33%" height="1" align="center" valign="top">
+      <a href="docs/images/send-files.png"><strong>Reader and files</strong><br><img src="docs/images/send-files.png" width="270" alt="Reader with terminal output, a message, selected screenshots, and terminal controls"></a>
+    </td>
+    <td rowspan="2" width="33%" align="center" valign="top">
+      <a href="docs/images/send-keys.png"><strong>Send keys</strong><br><img src="docs/images/send-keys.png" width="270" alt="Terminal header and Reader output above Send keys with modifiers, common keys, and a shortcut preview"></a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top">
       <a href="docs/images/notifications.png"><strong>Notifications</strong><br><img src="docs/images/notifications.png" width="270" alt="Shepherdr notifications in the phone's notification panel"></a>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" valign="top">
-      <a href="docs/images/send-files.png"><strong>Send files</strong><br><img src="docs/images/send-files.png" width="270" alt="A message with selected screenshots ready to send"></a>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" valign="top">
-      <a href="docs/images/send-keys.png"><strong>Send keys</strong><br><img src="docs/images/send-keys.png" width="270" alt="Send keys with modifiers, common keys, and a shortcut preview"></a>
     </td>
   </tr>
 </table>
