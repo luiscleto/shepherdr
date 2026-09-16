@@ -6,10 +6,12 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ### Added
 
+- **Send keys** offers common keys, F1–F12, and printable characters with Ctrl, Alt / Option, Shift, Super / Command, and Hyper. Pin, edit, remove, and reorder shortcuts in this browser.
 - Reader offers **Open Terminal** when you try to scroll further back after a history read returns no additional output.
 
 ### Changed
 
+- Terminal shortcuts and fixed Enter use Herdr's key encoding while retaining control. Keys leave unsent Reader messages and files alone; observing requires explicit Control or Take over first.
 - Remember your last Reader or Terminal view choice in this browser for subsequent terminal opens.
 
 ## [0.3.1] - 2026-09-13

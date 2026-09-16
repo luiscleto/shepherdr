@@ -1,5 +1,6 @@
 @import "@xterm/xterm/css/xterm.css";
 @import "./terminal-reader.css";
+@import "./terminal-keys.css";
 
 :root {
   --paper: #f7f3f1;

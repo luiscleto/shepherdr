@@ -149,12 +149,20 @@ func (validator *terminalFrameValidator) Accept(line []byte) (string, error) {
 }
 
 type terminalBrowserCommand struct {
+	isKey         bool
+	key           string
 	childCommands []any
 	release       bool
 	requestID     uint64
 }
 
 func validatedTerminalCommand(message []byte) (terminalBrowserCommand, error) {
+	var kind struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(message, &kind) == nil && kind.Type == "terminal.send-key" {
+		return validatedTerminalKeyCommand(message)
+	}
 	var envelope struct {
 		Bytes     *string  `json:"bytes"`
 		Chunks    []string `json:"chunks"`

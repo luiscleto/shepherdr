@@ -28,6 +28,8 @@ func validTerminalIdentity(value string) bool {
 }
 
 type terminalTarget struct {
+	workspace  string
+	tab        string
 	cols       int
 	generation uint64
 	pane       string
@@ -40,9 +42,11 @@ func terminalTargetFromState(state herdr.State, pane, terminal string) (terminal
 		return terminalTarget{}, false
 	}
 	found := false
+	var bound herdr.PaneInfo
 	for _, candidate := range state.Snapshot.Panes {
 		if candidate.PaneID == pane && candidate.TerminalID == terminal {
 			found = true
+			bound = candidate
 			break
 		}
 	}
@@ -53,6 +57,7 @@ func terminalTargetFromState(state herdr.State, pane, terminal string) (terminal
 		for _, candidate := range layout.Panes {
 			if candidate.PaneID == pane && candidate.Rect.Width >= 2 && candidate.Rect.Height >= 1 {
 				return terminalTarget{
+					workspace: bound.WorkspaceID, tab: bound.TabID,
 					cols: candidate.Rect.Width, generation: state.Gap, pane: pane,
 					rows: candidate.Rect.Height, terminal: terminal,
 				}, true
@@ -67,7 +72,7 @@ func (target terminalTarget) matches(state herdr.State) bool {
 		return false
 	}
 	current, ok := terminalTargetFromState(state, target.pane, target.terminal)
-	return ok && current.generation == target.generation
+	return ok && current.generation == target.generation && current.workspace == target.workspace && current.tab == target.tab
 }
 
 type terminalTargetLease struct {

@@ -14,6 +14,57 @@ const { TerminalPage, XTermAdapter } = await import(`data:text/javascript;base64
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
+test("logical keys leave the Reader draft alone and require deliberate recovery without reconnecting", async t => {
+  const { host, browser, sockets } = pageBrowser(t, true);
+  await tick(); sockets[0].frame();
+  const byText = (text: string) => Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === text)!;
+  byText("Message").click();
+  const editor = host.querySelector<HTMLTextAreaElement>("textarea")!;
+  editor.value = "unsent message"; editor.setSelectionRange(2, 5);
+  editor.dispatchEvent(new browser.Event("input", { bubbles: true }));
+  const picker = host.querySelector<HTMLInputElement>(".reader-file-input")!;
+  Object.defineProperty(picker, "files", { value: [new browser.File(["pending bytes"], "unsent.txt")] });
+  picker.dispatchEvent(new browser.Event("change"));
+  await tick();
+  byText("Send keys").click();
+  assert.equal(byText("Send keys").querySelectorAll("svg").length, 0);
+  assert.equal(byText("Send keys").nextElementSibling?.textContent, "Release");
+  const sheet = host.querySelector<HTMLDialogElement>(".keys-sheet")!;
+  const pick = (text: string) => Array.from(sheet.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === text)!;
+  pick("Ctrl").click(); pick("Backspace").click(); pick("Pin shortcut").click();
+  assert.equal(sockets[0].commands.length, 0);
+  pick("Send Ctrl + Backspace").click();
+  assert.equal(JSON.stringify(sockets[0].commands), JSON.stringify([{ type: "terminal.send-key", key: { base: "backspace", ctrl: true }, request_id: 1 }]));
+  assert.equal(editor.value, "unsent message");
+  sockets[0].message({ type: "terminal.input-forwarded", request_id: 1 });
+  assert.equal(pick("Send Ctrl + Backspace").disabled, true);
+  sockets[0].message({ type: "terminal.key-result", request_id: 1, result: "accepted" });
+  assert.equal(editor.value, "unsent message");
+  assert.equal(editor.selectionStart, 2);
+  assert.equal(host.querySelectorAll('[aria-label="Remove unsent.txt"]').length, 1);
+  assert.equal(host.querySelector<HTMLElement>(".reader-composer")!.hidden, false);
+  assert.equal(browser.document.activeElement === editor, false);
+  assert.equal(sockets.length, 1);
+  pick("Send Ctrl + Backspace").click();
+  sockets[0].message({ type: "terminal.key-result", request_id: 2, result: "not_sent" });
+  assert.equal(sockets.length, 1);
+  pick("Send Ctrl + Backspace").click();
+  sockets[0].message({ type: "terminal.key-result", request_id: 3, result: "unknown" });
+  assert.equal(pick("Send Ctrl + Backspace").disabled, true);
+  pick("Dismiss").click();
+  assert.equal(sockets[0].commands.length, 3);
+  assert.equal(editor.value, "unsent message");
+  sheet.close();
+  host.querySelector<HTMLButtonElement>('[aria-label="Enter"]')!.click();
+  assert.equal(JSON.stringify(sockets[0].commands[3].key), JSON.stringify({ base: "enter" }));
+  sockets[0].message({ type: "terminal.key-result", request_id: 4, result: "accepted" });
+  host.querySelector<HTMLButtonElement>(".terminal-control-action")!.click();
+  await tick(); sockets[1].frame();
+  assert.equal(host.querySelector<HTMLButtonElement>('[aria-label="Enter"]')!.disabled, true);
+  byText("Send keys").click(); pick("Tab").click(); pick("Pin shortcut").click();
+  assert.equal(sockets[1].commands.length, 0);
+});
+
 test("xterm waits for both font outcomes and departure prevents delayed resources", async t => {
   const browser = new Window({ url: "http://localhost/" });
   const originalDocument = globalThis.document;

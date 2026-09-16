@@ -353,6 +353,18 @@ func (c *Client) CloseTerminal(ctx context.Context, paneID string) error {
 	}{PaneID: paneID}, expectMutationResult("ok"))
 }
 
+// SendKeys submits exactly one logical combination. The caller validates the
+// public key capability and its current target/control authority.
+func (c *Client) SendKeys(ctx context.Context, paneID, key string) error {
+	if paneID == "" || key == "" {
+		return &MutationError{Err: errors.New("key target or selection is empty")}
+	}
+	return c.mutate(ctx, "pane-send-keys", "pane.send_keys", struct {
+		PaneID string   `json:"pane_id"`
+		Keys   []string `json:"keys"`
+	}{paneID, []string{key}}, expectMutationResult("ok"))
+}
+
 func validatePaneInfoMutation(raw json.RawMessage) error {
 	_, err := decodePaneInfoMutation(raw)
 	return err

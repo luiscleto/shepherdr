@@ -1,5 +1,6 @@
 import type { ReaderInputState } from "./reader-availability";
 import type { TerminalSessionLike } from "./session";
+import type { KeySelection, KeyResult } from "./keys";
 
 interface ReaderInputEvents {
   onFailed(message: string): void;
@@ -9,6 +10,7 @@ interface ReaderInputEvents {
   onSending(count: number): void;
   onState?(state: ReaderInputState): void;
   onUncertain(message: string): void;
+  onKeyResult?(result: KeyResult): void;
 }
 
 interface ReaderInputOptions {
@@ -23,7 +25,7 @@ export class ReaderInputQueue {
   #options: ReaderInputOptions;
   #state: ReaderInputState = "ready";
   #pending: string[] | undefined;
-  #active: { session: TerminalSessionLike; requestID: number } | undefined;
+  #active: { session: TerminalSessionLike; requestID: number; key?: boolean } | undefined;
   #timer: number | undefined;
   #generation = 0;
 
@@ -34,6 +36,25 @@ export class ReaderInputQueue {
 
   state(): ReaderInputState { return this.#state; }
   enqueue(text: string): boolean { return this.enqueueBatch([text]); }
+
+  sendKey(key: KeySelection): boolean {
+    const session = this.#options.session();
+    if (this.#state !== "ready" || !session) return false;
+    const requestID = session.sendKey?.(key);
+    if (requestID === undefined) return false;
+    this.#active = { session, requestID, key: true };
+    this.#setState("forwarding");
+    this.#timer = window.setTimeout(() => this.#uncertain(), 2_500);
+    return true;
+  }
+
+  keyResult(session: TerminalSessionLike, requestID: number, result: KeyResult): void {
+    if (!this.#active?.key || this.#active.session !== session || this.#active.requestID !== requestID) return;
+    this.#clearTimer();
+    this.#active = undefined;
+    this.#setState(result === "unknown" ? "uncertain" : "ready");
+    this.#events.onKeyResult?.(result);
+  }
 
   enqueueBatch(chunks: string[]): boolean {
     const batch = chunks.filter(Boolean);
@@ -57,7 +78,7 @@ export class ReaderInputQueue {
   }
 
   forwarded(session: TerminalSessionLike, requestID: number): void {
-    if (this.#active?.session !== session || this.#active.requestID !== requestID) return;
+    if (this.#active?.session !== session || this.#active.requestID !== requestID || this.#active.key) return;
     this.#clearTimer();
     this.#active = undefined;
     this.#setState("ready");
@@ -114,6 +135,10 @@ export class ReaderInputQueue {
 
   #uncertain(): void {
     if (!this.#active) return;
+    if (this.#active.key) {
+      this.keyResult(this.#active.session, this.#active.requestID, "unknown");
+      return;
+    }
     this.inputUnconfirmed();
   }
 

@@ -1,4 +1,5 @@
 import type { TerminalDimensions, TerminalScroll } from "./adapter";
+import { validateKey, type KeySelection, type KeyResult } from "./keys";
 
 export type SessionMode = "observe" | "control" | "takeover";
 
@@ -31,11 +32,13 @@ interface TerminalController {
   handle: string;
 }
 
-type TerminalServerMessage = TerminalFrame | TerminalStatus | TerminalInputForwarded | TerminalHeartbeat | TerminalController;
+interface TerminalKeyResult { type: "terminal.key-result"; request_id: number; result: KeyResult }
+type TerminalServerMessage = TerminalFrame | TerminalStatus | TerminalInputForwarded | TerminalHeartbeat | TerminalController | TerminalKeyResult;
 
 export interface TerminalSessionEvents {
   onFrame(frame: TerminalFrame, bytes: Uint8Array): void;
   onInputForwarded?(requestID: number): void;
+  onKeyResult?(requestID: number, result: KeyResult): void;
   onLog(message: string, detail?: unknown): void;
   onStatus(message: string): void;
 }
@@ -45,6 +48,7 @@ export interface TerminalSessionLike {
   disconnect(): void;
   input(text: string): number | undefined;
   inputBatch(chunks: string[]): number | undefined;
+  sendKey?(key: KeySelection): number | undefined;
   resize(dimensions: TerminalDimensions): void;
   scroll(scroll: TerminalScroll): boolean;
 }
@@ -102,6 +106,8 @@ export class TerminalFrameSequence {
 function parseNonFrameMessage(value: unknown): TerminalServerMessage {
   if (!value || typeof value !== "object") throw new Error("terminal message is not an object");
   const message = value as Record<string, unknown>;
+  if (message.type === "terminal.key-result" && exactKeys(message, ["type", "request_id", "result"]) &&
+    positiveSafeInteger(message.request_id) && typeof message.result === "string" && ["accepted", "not_sent", "unknown"].includes(message.result)) return message as unknown as TerminalKeyResult;
   if (message.type === "terminal.controller" && exactKeys(message, ["type", "handle"]) &&
     typeof message.handle === "string" && /^[a-f0-9]{64}$/.test(message.handle)) return message as unknown as TerminalController;
   if (message.type === "terminal.heartbeat" && exactKeys(message, ["type"])) {
@@ -175,6 +181,8 @@ export class TerminalSession implements TerminalSessionLike {
           this.#events.onInputForwarded?.(message.request_id);
         } else if (message.type === "terminal.controller" && this.#mode !== "observe") {
           this.#controllerHandle = message.handle;
+        } else if (message.type === "terminal.key-result") {
+          this.#events.onKeyResult?.(message.request_id, message.result);
         }
       } catch (error) {
         this.#events.onLog("session.invalid-message", String(error));
@@ -203,6 +211,12 @@ export class TerminalSession implements TerminalSessionLike {
     const batch = chunks.filter(Boolean);
     if (batch.length === 0) return undefined;
     return this.#sendInput("terminal.input-batch", { chunks: batch });
+  }
+
+  sendKey(selection: KeySelection): number | undefined {
+    const key = validateKey(selection);
+    if (!key) return undefined;
+    return this.#sendInput("terminal.send-key", { key });
   }
 
   resize(dimensions: TerminalDimensions): void {
@@ -237,7 +251,7 @@ export class TerminalSession implements TerminalSessionLike {
 
   controllerHandle(): string | undefined { return this.#controllerHandle; }
 
-  #sendInput(type: "terminal.input" | "terminal.input-batch", fields: Record<string, unknown>): number | undefined {
+  #sendInput(type: "terminal.input" | "terminal.input-batch" | "terminal.send-key", fields: Record<string, unknown>): number | undefined {
     if (this.#mode === "observe") {
       this.#events.onLog("input.blocked", { reason: "observer" });
       return undefined;

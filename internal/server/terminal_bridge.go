@@ -14,9 +14,11 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/luiscleto/shepherdr/internal/herdr"
 )
 
 const (
@@ -38,6 +40,7 @@ type TerminalBridge struct {
 	logger     *slog.Logger
 	socketPath string
 	targets    TerminalStateSource
+	keys       *herdr.Client
 	upgrader   websocket.Upgrader
 
 	closeOnce   sync.Once
@@ -58,6 +61,7 @@ func NewTerminalBridge(binary, socketPath string, logger *slog.Logger, targets T
 		logger:      logger,
 		socketPath:  socketPath,
 		targets:     targets,
+		keys:        herdr.NewClient(socketPath, logger),
 		upgrader: websocket.Upgrader{
 			HandshakeTimeout: 5 * time.Second,
 		},
@@ -261,6 +265,7 @@ type terminalStreamEvent struct {
 }
 
 type terminalChildSession struct {
+	inputEnded atomic.Bool
 	writeMutex sync.Mutex
 	controlled bool
 	bridge     *TerminalBridge
@@ -317,11 +322,18 @@ func (bridge *TerminalBridge) startTerminalSession(
 }
 
 func (session *terminalChildSession) scan(stdout io.Reader) {
+	defer session.inputEnded.Store(true)
 	defer close(session.exited)
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), terminalBridgeMaxFrameBytes)
 	for scanner.Scan() {
 		line := bytes.Clone(scanner.Bytes())
+		var kind struct {
+			Type string `json:"type"`
+		}
+		if json.Unmarshal(line, &kind) == nil && kind.Type == "terminal.closed" {
+			session.inputEnded.Store(true)
+		}
 		select {
 		case session.events <- terminalStreamEvent{line: line}:
 		case <-session.done:
@@ -331,6 +343,7 @@ func (session *terminalChildSession) scan(stdout io.Reader) {
 			return
 		}
 	}
+	session.inputEnded.Store(true)
 	scanErr := scanner.Err()
 	waitErr := session.command.Wait()
 	session.bridge.forget(session.command)
@@ -344,6 +357,7 @@ func (session *terminalChildSession) scan(stdout io.Reader) {
 }
 
 func (session *terminalChildSession) close(release bool) {
+	session.inputEnded.Store(true)
 	defer session.cancel()
 	session.writeMutex.Lock()
 	session.controlled = false
@@ -461,7 +475,11 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 			case message := <-clientMessages:
 				command, err := validatedTerminalCommand(message)
 				outcome := terminalBatchNotSent
-				if err == nil && settings.mode != "observe" {
+				if err == nil && command.isKey {
+					session.writeMutex.Lock()
+					outcome, err = bridge.sendTerminalKey(request, session, lease, command.key)
+					session.writeMutex.Unlock()
+				} else if err == nil && settings.mode != "observe" {
 					session.writeMutex.Lock()
 					if session.controlled {
 						if stdin, ok := session.stdin.(*os.File); ok {
@@ -479,7 +497,7 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 				case <-inputDone:
 					return
 				}
-				if command.release || outcome != terminalBatchForwarded {
+				if command.release || !command.isKey && outcome != terminalBatchForwarded {
 					return
 				}
 			case <-inputDone:
@@ -543,6 +561,21 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 			}
 			return
 		case result := <-inputResults:
+			if result.command.isKey {
+				outcome := "not_sent"
+				if result.outcome == terminalBatchForwarded {
+					outcome = "accepted"
+				}
+				if result.outcome == terminalBatchUnknown {
+					outcome = "unknown"
+				}
+				if err := withCommitAuthority(request, func() error {
+					return writeJSON(connection, map[string]any{"type": "terminal.key-result", "request_id": result.command.requestID, "result": outcome})
+				}); err != nil {
+					return
+				}
+				continue
+			}
 			if settings.mode == "observe" {
 				_ = writeTerminalStatus(connection, "An observing terminal cannot send input")
 				continue

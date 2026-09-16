@@ -8,6 +8,10 @@ This records Terminal targeting, file storage, and acceptance guidance. The [acc
 
 Shepherdr opens only the exact current terminal chosen from Home. A missing, stale, replaced, or mismatched terminal is unavailable; Shepherdr never falls back to another terminal.
 
+**Send keys** selects one confirmed public Herdr key and optional Ctrl, Alt / Option, Shift, Super / Command, and Hyper modifiers. Common includes Esc, Tab, Enter, Backspace and the four arrows; F keys covers F1–F12; Character uses the native keyboard for one printable Unicode scalar. Fixed Enter and saved shortcuts use this same logical-key operation. Herdr encodes the key for the current terminal protocol. The existing terminal WebSocket retains its controller, rechecks its exact target and authority, and reports accepted, not sent, or unknown without replay. While observing, use explicit Control or confirmed Take over before sending. Unsent Reader text and files remain independent.
+
+Esc and Tab start as optional browser-local shortcuts. Selecting, pinning, editing, removing, reordering, and restoring defaults send no input and acquire no control. Fixed actions remain available under their existing rules. The [approved Send keys brief](send-keys-plan.md) records the accepted final-check takeover/replacement window and lack of guaranteed arrival ordering across key RPCs and stream writes. Herdr acceptance means queued input, not application consumption.
+
 ### Historical mobile behavior — superseded
 
 The mobile description in this subsection is historical. Current mobile behavior is Reader by default plus a full-terminal icon toggle, shared retained control without stealing, independent history navigation, and insert-only full-terminal files alongside Reader Send. Follow the [accepted behavior](mobile-terminal-shared-trial-proposal.md#accepted-behavior), not the temporary-control requirements below.

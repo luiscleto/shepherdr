@@ -1,4 +1,6 @@
-import { terminalKeySequences, terminalSubmission } from "./terminal-input";
+import { terminalSubmission } from "./terminal-input";
+import { keyLabel, type KeySelection } from "./terminal/keys";
+import { KeysSheet } from "./terminal/keys-sheet";
 import { settingsAction } from "./settings-action";
 import type { TerminalDimensions } from "./terminal/adapter";
 import { terminalReaderForDevice } from "./terminal/device";
@@ -51,6 +53,8 @@ export class TerminalPage {
   #toggle: HTMLButtonElement | undefined;
   #message: HTMLButtonElement | undefined;
   #shortcuts: HTMLButtonElement[] = [];
+  #keysSheet: KeysSheet | undefined;
+  #savedShortcuts = element("span", "terminal-saved-shortcuts");
   #mobile: boolean;
   #readerVisible: boolean;
   #reader: ReaderView | undefined;
@@ -108,7 +112,6 @@ export class TerminalPage {
       header.append(this.#toggle);
     }
     header.append(settings);
-    if (!this.#mobile) header.append(this.#controlAction);
     this.#surface = element("div", "terminal-production-surface");
     this.#surface.setAttribute("aria-label", target.title);
     this.#terminalMount = element("div", "terminal-full-mount");
@@ -116,6 +119,13 @@ export class TerminalPage {
     host.className = `terminal-screen ${this.#mobile ? "terminal-reader-page terminal-shared-page" : "terminal-desktop-page"}`;
     host.replaceChildren(header, this.#surface);
     if (this.#mobile) this.#mountReader();
+    else this.#readerInput = new ReaderInputQueue({
+      onFailed: () => undefined, onForwarded: () => undefined, onLog: () => undefined,
+      onOccupied: () => undefined, onSending: () => undefined, onUncertain: () => undefined,
+      onState: () => this.#render(), onKeyResult: result => this.#keysSheet?.result(result),
+    }, { session: () => this.#ownership === "controlling" ? this.#session : undefined,
+      occupied: () => this.#ownership === "occupied", acquire: takeover => this.#acquire(takeover) });
+    this.#mountKeyActions();
     this.#render();
     void this.#mountTerminal();
   }
@@ -143,6 +153,7 @@ export class TerminalPage {
     window.visualViewport?.removeEventListener("resize", this.#viewportChanged);
     window.visualViewport?.removeEventListener("scroll", this.#viewportChanged);
     this.#reader?.destroy();
+    this.#keysSheet?.destroy();
     this.#xterm.destroy();
     this.#host.replaceChildren();
     this.#host.style.height = "";
@@ -166,6 +177,7 @@ export class TerminalPage {
       onOpenTerminal: () => { if (this.#readerVisible) this.#switchView(); },
       onInsertFiles: () => { void this.#sendFiles("insert", false); return true; },
       onSubmit: (text, files) => {
+        if (this.#readerInput?.state() !== "ready") return false;
         if (files.length) { void this.#sendFiles("submit", false); return true; }
         this.#readerTextQueued = true;
         const accepted = this.#readerInput?.enqueueBatch(terminalSubmission(text)) ?? false;
@@ -183,6 +195,7 @@ export class TerminalPage {
         this.#render();
       },
       onLog: () => undefined,
+      onKeyResult: result => this.#keysSheet?.result(result),
       onOccupied: (message) => reader.inputOccupied(message, () => {
         if (window.confirm("Take control? The current controller will lose input.")) void input.retry(true);
       }),
@@ -198,28 +211,46 @@ export class TerminalPage {
       acquire: (takeover) => this.#acquire(takeover),
     });
     this.#readerInput = input;
-    const controls = element("nav", "terminal-command-bar");
-    controls.setAttribute("aria-label", "Terminal commands");
     this.#message = readerMessageAction(() => {
       if (this.#readerVisible) reader.showComposer();
       else reader.showFileInsertion();
     });
-    controls.append(this.#message, this.#controlAction);
-    const keys: Array<[string, string, string]> = [
-      ["escape", "Esc", "Escape"], ["enter", "Enter", "Enter"],
-      ["left", "←", "Left arrow"], ["up", "↑", "Up arrow"], ["down", "↓", "Down arrow"], ["right", "→", "Right arrow"],
-      ["ctrl-c", "Ctrl C", "Control C"], ["ctrl-d", "Ctrl D", "Control D"], ["ctrl-z", "Ctrl Z", "Control Z"],
-      ["tab", "Tab", "Tab"], ["backspace", "⌫", "Backspace"],
-    ];
-    for (const [key, label, name] of keys) {
-      const button = action(label, () => input.enqueue(terminalKeySequences[key]));
-      button.setAttribute("aria-label", name);
-      this.#shortcuts.push(button);
-      controls.append(button);
-    }
-    this.#host.append(controls);
     reader.setPresentation(this.#readerVisible);
     void reader.open(this.paneID, this.terminalID);
+  }
+
+  #mountKeyActions(): void {
+    const controls = element("nav", "terminal-command-bar");
+    controls.setAttribute("aria-label", "Terminal commands");
+    if (this.#message) controls.append(this.#message);
+    const sendKeys = action("Send keys", () => this.#keysSheet?.open(), "terminal-send-keys");
+    const enter = action("Enter", () => this.#sendKey({ base: "enter" }));
+    enter.setAttribute("aria-label", "Enter");
+    this.#shortcuts.push(enter);
+    controls.append(sendKeys, this.#controlAction, this.#savedShortcuts, enter);
+    this.#host.append(controls);
+    this.#keysSheet = new KeysSheet(this.#host, {
+      send: key => this.#sendKey(key),
+      changed: keys => {
+        this.#shortcuts = [enter];
+        this.#savedShortcuts.replaceChildren();
+        for (const key of keys) {
+          const shortcut = action(keyLabel(key), () => this.#sendKey(key));
+          this.#shortcuts.push(shortcut);
+          this.#savedShortcuts.append(shortcut);
+        }
+        this.#render();
+      },
+      dismiss: () => this.#readerInput?.dismissUncertain(),
+    });
+  }
+
+  #canSendKey(): boolean {
+    return this.#ownership === "controlling" && this.#uploadState === "ready" && this.#readerInput?.state() === "ready" && this.#typedRequests.size === 0;
+  }
+
+  #sendKey(key: KeySelection): boolean {
+    return this.#canSendKey() && (this.#readerInput?.sendKey(key) ?? false);
   }
 
   async #mountTerminal(): Promise<void> {
@@ -285,7 +316,7 @@ export class TerminalPage {
 
   #canType(): boolean {
     return !this.#readerVisible && this.#ownership === "controlling" && this.#uploadState !== "requesting" &&
-      (!this.#mobile || this.#readerInput?.state() === "ready");
+      this.#readerInput?.state() === "ready";
   }
 
   async #connect(mode: SessionMode): Promise<boolean> {
@@ -332,6 +363,7 @@ export class TerminalPage {
           this.#readerInput?.forwarded(session, requestID);
           this.#render();
         },
+        onKeyResult: (requestID, result) => this.#readerInput?.keyResult(session, requestID, result),
         onStatus: (message) => { lastStatus = message; },
         onLog: (event) => {
           if (event !== "session.close" || this.#session !== session) return;
@@ -396,6 +428,7 @@ export class TerminalPage {
   async #sendFiles(intent: "insert" | "submit", takeover: boolean): Promise<void> {
     const reader = this.#reader;
     if (!reader || !reader.hasPendingFiles() || this.#agentStatus === undefined ||
+      this.#readerInput?.state() !== "ready" ||
       this.#typedRequests.size > 0 || !["ready", "occupied", "failed"].includes(this.#uploadState)) return;
     this.#uploadIntent = intent;
     if (takeover && !await this.#acquire(true)) return;
@@ -451,7 +484,10 @@ export class TerminalPage {
     availability.send = availability.send && this.#typedRequests.size === 0 && (this.#ownership === "controlling" || this.#ownership === "occupied");
     this.#reader?.setActionAvailability(availability);
     this.#reader?.setFileSelectionAvailable(live && this.#agentStatus !== undefined && state === "ready");
-    for (const button of this.#shortcuts) button.disabled = !availability.send;
+    for (const button of this.#shortcuts) button.disabled = !this.#canSendKey();
+    this.#keysSheet?.available(this.#canSendKey(), this.#ownership === "controlling" ?
+      (state === "uncertain" ? "Check the terminal before sending again." : "Wait for the current input.") :
+      this.#ownership === "observing" ? "Use Control first." : this.#ownership === "occupied" ? "Use Take over first." : "Wait for the terminal to connect.");
     if (this.#message) {
       this.#message.disabled = this.#readerVisible ? !availability.observerReady || state !== "ready" : !availability.send;
       this.#message.hidden = !this.#readerVisible && this.#agentStatus === undefined;

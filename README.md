@@ -149,6 +149,10 @@ On a phone, Terminal opens in Reader for reading and selecting output. The termi
 
 Both views keep control until you release it or another controller takes over. Opening a terminal never takes control from someone else; taking over requires confirmation.
 
+**Send keys** lets you choose Esc, Tab, Enter, Backspace, arrows, F1–F12, or one printable character, with Ctrl, Alt / Option, Shift, Super / Command, and Hyper. Herdr interprets the combination for the terminal. While observing, use **Control** or confirmed **Take over** first. Keys act immediately, independently of your unsent message and files. If the result is unknown, check the terminal before deliberately sending again.
+
+Pin combinations without sending them, then edit, remove, reorder, or restore the shortcuts in this browser. Esc and Tab start pinned. Enter, Send keys, control, and Message or Attach files remain available with their usual rules.
+
 In Reader, **Message** opens the composer. **Add files** appears only while that exact terminal has a recognized agent. **Photos** and **Files** use the browser's ordinary pickers. **Send** submits the message and any selected file paths.
 
 While a recognized agent is present, the full terminal's paperclip opens a compact files-only panel. **Insert files** adds local file references at the current cursor without pressing Enter. Submit them yourself when ready; your Reader message draft stays separate.
