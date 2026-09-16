@@ -1,6 +1,25 @@
 # Shepherdr
 
-https://github.com/user-attachments/assets/233f6030-c8c4-4ae8-827d-02913e2c4982
+<table>
+  <tr>
+    <td rowspan="3" width="50%" align="center" valign="top">
+      <a href="docs/images/home.png"><strong>Home</strong><br><img src="docs/images/home.png" width="270" alt="Home with grouped terminals, agent statuses, and the working count"></a>
+    </td>
+    <td width="50%" align="center" valign="top">
+      <a href="docs/images/notifications.png"><strong>Notifications</strong><br><img src="docs/images/notifications.png" width="270" alt="Shepherdr notifications in the phone's notification panel"></a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top">
+      <a href="docs/images/send-files.png"><strong>Send files</strong><br><img src="docs/images/send-files.png" width="270" alt="A message with selected screenshots ready to send"></a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top">
+      <a href="docs/images/send-keys.png"><strong>Send keys</strong><br><img src="docs/images/send-keys.png" width="270" alt="Send keys with modifiers, common keys, and a shortcut preview"></a>
+    </td>
+  </tr>
+</table>
 
 **herdr, from your phone.**
 
