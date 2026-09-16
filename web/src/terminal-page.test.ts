@@ -18,7 +18,8 @@ test("logical keys leave the Reader draft alone and require deliberate recovery 
   const { host, browser, sockets } = pageBrowser(t, true);
   await tick(); sockets[0].frame();
   const byText = (text: string) => Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === text)!;
-  assert.equal(Array.from(host.querySelectorAll(".terminal-command-bar button"), button => button.textContent).join("|"), "Message|Send keys|Release|Esc|Enter|↑|↓|Backspace|Ctrl + c");
+  assert.equal(Array.from(host.querySelectorAll(".terminal-command-bar button"), button => button.getAttribute("aria-label") ?? button.textContent).join("|"), "Message|Send keys|Release|Esc|Enter|↑|↓|Backspace|Ctrl + c");
+  assert.equal(host.querySelector('.terminal-command-bar [aria-label="Backspace"]')!.textContent, "⌫");
   byText("Message").click();
   const editor = host.querySelector<HTMLTextAreaElement>("textarea")!;
   editor.value = "unsent message"; editor.setSelectionRange(2, 5);
@@ -33,6 +34,7 @@ test("logical keys leave the Reader draft alone and require deliberate recovery 
   const sheet = host.querySelector<HTMLDialogElement>(".keys-sheet")!;
   const pick = (text: string) => Array.from(sheet.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === text)!;
   pick("Ctrl").click(); pick("Backspace").click(); pick("Pin shortcut").click();
+  assert.equal(host.querySelector('.terminal-command-bar [aria-label="Ctrl + Backspace"]')!.textContent, "Ctrl + ⌫");
   assert.equal(sockets[0].commands.length, 0);
   assert.equal(sheet.open, true);
   pick("Send Ctrl + Backspace").click();
@@ -89,7 +91,7 @@ test("fixed Enter keeps saved shortcut order and survives an empty list and Rest
   const saved = '[{"base":"tab"},{"base":"esc"}]';
   const { host, browser, sockets } = pageBrowser(t, true, saved);
   await tick(); sockets[0].frame();
-  const labels = () => Array.from(host.querySelectorAll(".terminal-command-bar button"), button => button.textContent).join("|");
+  const labels = () => Array.from(host.querySelectorAll(".terminal-command-bar button"), button => button.getAttribute("aria-label") ?? button.textContent).join("|");
   const click = (text: string) => Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === text)!.click();
   assert.equal(labels(), "Message|Send keys|Release|Tab|Enter|Esc");
   assert.equal(browser.localStorage.getItem("shepherdr.terminal.shortcuts"), saved);
@@ -102,6 +104,8 @@ test("fixed Enter keeps saved shortcut order and survives an empty list and Rest
   assert.equal(labels(), "Message|Send keys|Release|Esc|Enter|↑|↓|Backspace|Ctrl + c");
   assert.equal(host.querySelectorAll('.terminal-command-bar [aria-label="Enter"]').length, 1);
   assert.equal(sockets[0].commands.length, 0);
+  host.querySelector<HTMLButtonElement>('.terminal-command-bar [aria-label="Backspace"]')!.click();
+  assert.equal(JSON.stringify(sockets[0].commands[0]), JSON.stringify({ type: "terminal.send-key", key: { base: "backspace" }, request_id: 1 }));
 });
 
 test("xterm waits for both font outcomes and departure prevents delayed resources", async t => {

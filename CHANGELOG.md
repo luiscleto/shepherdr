@@ -17,6 +17,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ### Fixed
 
+- Restore the bottom-bar Backspace symbol with its accessible name.
 - Keep bottom-bar separators consistent between fixed actions and saved shortcuts.
 - Close Send keys only after Herdr confirms the send, without sticky success text. Failed and unknown sends keep the sheet open with their notice and recovery.
 - Detect upward Reader history attempts even when the output fits without scrolling. Show the history hint as a dismissible banner below the header without moving the reading area.

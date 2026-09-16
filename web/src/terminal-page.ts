@@ -235,7 +235,9 @@ export class TerminalPage {
         this.#shortcuts = [enter];
         this.#savedShortcuts.replaceChildren();
         for (const key of keys) {
-          const shortcut = action(keyLabel(key), () => this.#sendKey(key));
+          const label = keyLabel(key);
+          const shortcut = action(key.base === "backspace" ? label.replace("Backspace", "⌫") : label, () => this.#sendKey(key));
+          if (key.base === "backspace") shortcut.setAttribute("aria-label", label);
           this.#shortcuts.push(shortcut);
           this.#savedShortcuts.append(shortcut);
         }
