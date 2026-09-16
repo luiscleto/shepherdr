@@ -6,21 +6,21 @@ Status: approved
 
 Historical first-release decision: the immutable `v0.1.0` candidate remained unpublished; the compatible fix-forward `v0.1.1` became the first published release. The original [release setup wave](wave-release-setup.md) records that work, not the version for later releases.
 
-Current preparation, authorized 2026-09-16: `v0.4.0`, with Send keys and custom shortcuts, browser view memory, and the dismissible Reader history hint. Previous releases remain immutable. The minimum remains Herdr 0.9.0. Update Herdr before upgrading Shepherdr if needed.
+Current preparation, authorized 2026-09-16: `v0.4.1`, with Send keys and custom shortcuts, browser view memory, and the dismissible Reader history hint. The `v0.4.0` tag remains immutable and unpublished. The last published release is `v0.3.1`; the `v0.4.1` notes cover all accepted user-visible changes since it. The minimum remains Herdr 0.9.0. Update Herdr before upgrading Shepherdr if needed.
 
 Downloadable GitHub Release archives are the primary installation path. A plain, manually dispatched GitHub Actions workflow builds candidates from an existing approved tag and exact commit, attaches only candidates that pass their gates to a draft release, and stops. It never creates a tag or publishes a release; a human reviews and publishes the draft.
 
 Candidate targets are Linux amd64, Linux arm64, macOS amd64, and macOS arm64. Each binary must be built and exercised on a native GitHub-hosted runner with `CGO_ENABLED=0`. A target is omitted if its native build, tests, packaged-binary checks, or real Herdr smoke check fails. Cross-compilation alone is not support evidence. Windows is later work: Herdr supports Windows, but Shepherdr's current Unix-specific storage and locking primitives do not compile there.
 
-Archives use predictable names such as `shepherdr_0.4.0_linux_amd64.tar.gz`. Each contains one top-level directory with the executable, `README.md`, `CHANGELOG.md`, and `LICENSE`; the release also provides a SHA-256 checksum file.
+Archives use predictable names such as `shepherdr_0.4.1_linux_amd64.tar.gz`. Each contains one top-level directory with the executable, `README.md`, `CHANGELOG.md`, and `LICENSE`; the release also provides a SHA-256 checksum file.
 
-The current workflow allows only an existing `v0.4.0` tag and verifies that it, the checkout, and `origin/master` all identify the exact full `commit_sha` input. Native smoke checks use matching Herdr 0.9.0 CLI/server. The human accepted the combined keys and banner UI at `8a1d5d191e7be825bf7dcbd6999afd51e731997f`; release preparation starts from that exact commit on `release/v0.4.0` and leaves product code unchanged. An independent reviewer must review the preparation. The orchestrator then handles integration, push, tag, and manual workflow dispatch, and assigns validation of the draft artifacts. The human reviews the release changelog before publication. Preparation alone does not authorize publication.
+The current workflow allows only an existing `v0.4.1` tag and verifies that it, the checkout, and `origin/master` all identify the exact full `commit_sha` input. Native smoke checks use matching Herdr 0.9.0 CLI/server. The human accepted the combined keys and banner UI at `8a1d5d191e7be825bf7dcbd6999afd51e731997f`; replacement release preparation starts from `18f0daa2c73b63b27f3ecea420785ee19b715fc4` on `release/v0.4.0`, including the test-fixture socket portability fix, and leaves product code unchanged. An independent reviewer must review the preparation. The orchestrator then handles integration, push, tag, and manual workflow dispatch, and assigns validation of the draft artifacts. The human reviews the release changelog before publication. Preparation alone does not authorize publication.
 
-After the approved result is on `master` and the existing `v0.4.0` tag points to that same full commit, invoke:
+After the approved result is on `master` and the existing `v0.4.1` tag points to that same full commit, invoke:
 
 ```sh
 gh workflow run release.yml --repo luiscleto/shepherdr --ref master \
-  -f tag=v0.4.0 -f commit_sha="<full-approved-master-SHA>"
+  -f tag=v0.4.1 -f commit_sha="<full-approved-master-SHA>"
 ```
 
 Replace the SHA placeholder with the exact approved integrated commit. The workflow stops at a draft; artifact validation and human changelog review precede publication.
