@@ -11,11 +11,14 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ### Changed
 
+- Start optional terminal shortcuts with Esc, Ctrl+C, Up, and Down. Existing saved choices stay unchanged; Restore defaults applies the new list.
 - Terminal shortcuts and fixed Enter use Herdr's key encoding while retaining control. Keys leave unsent Reader messages and files alone; observing requires explicit Control or Take over first.
 - Remember your last Reader or Terminal view choice in this browser for subsequent terminal opens.
 
 ### Fixed
 
+- Keep bottom-bar separators consistent between fixed actions and saved shortcuts.
+- Close Send keys only after Herdr confirms the send, without sticky success text. Failed and unknown sends keep the sheet open with their notice and recovery.
 - Detect upward Reader history attempts even when the output fits without scrolling. Show the history hint as a dismissible banner below the header without moving the reading area.
 
 ## [0.3.1] - 2026-09-13

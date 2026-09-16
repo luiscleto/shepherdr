@@ -10,7 +10,7 @@ Independent reviewer **keys-banner-reviewer** approved the technical proposal wi
 
 Follow [approved UI](ui-direction.md#send-keys), [Terminal](terminal-direction.md), [retained control](mobile-terminal-shared-trial-proposal.md#accepted-behavior), and existing [file](mobile-terminal-file-uploads-architecture-proposal.md) / [access](passkey-device-architecture-proposal.md) boundaries except the explicit key-send changes below.
 
-Use the approved paper sheet: Ctrl, Alt/Option, Shift, plus confirmed Super/Command and Hyper modifiers; Common/F keys/Character; one base plus modifiers; readable preview and explicit Send; pin without sending; browser-local edit/remove/reorder and Restore defaults. **Send keys is text-only, immediately before Release.** Default optional shortcuts are Esc/Tab; no arbitrary saved-count cap. Alt/Option means terminal Alt. Keep the same three categories and wrap modifier controls as needed; no additional category is necessary. Keep macros, profiles, global sticky modifiers and provider logic out.
+Use the approved paper sheet: Ctrl, Alt/Option, Shift, plus confirmed Super/Command and Hyper modifiers; Common/F keys/Character; one base plus modifiers; readable preview and explicit Send; pin without sending; browser-local edit/remove/reorder and Restore defaults. **Send keys is text-only, immediately before Release.** Following human phone feedback, default optional shortcuts are Esc, Ctrl+C, Up, Down, in that order; no arbitrary saved-count cap. Preserve saved choices; Restore defaults applies the new list. Tab remains in the picker and pinnable. Alt/Option means terminal Alt. Keep the same three categories and wrap modifier controls as needed; no additional category is necessary. Keep macros, profiles, global sticky modifiers and provider logic out.
 
 Viewed all five revised PNGs in `/tmp/shepherdr-keys-study.eVomdn/` (`01` bar, `03` Common, `02` F keys, `04` Character/keyboard, `05` editing), accompanying the [approved study](https://stitch.withgoogle.com/projects/7610091999668176410). Human corrections override incidental image text/geometry.
 
@@ -22,9 +22,9 @@ Current inventory from [TerminalPage](../web/src/terminal-page.ts) and [terminal
 | Control / Take over / Release | Fixed, lifecycle-dependent; existing confirmation |
 | Esc | Common picker + optional shortcut; default saved |
 | Enter | Fixed + Common picker |
-| Left, Up, Down, Right | Each an explicit Common key + optional shortcut |
-| Ctrl C, Ctrl D, Ctrl Z | Each reachable through Character + Ctrl + optional shortcut |
-| Tab | Explicit Common key + optional shortcut; default saved |
+| Left, Up, Down, Right | Each an explicit Common key + optional shortcut; Up and Down default saved |
+| Ctrl C, Ctrl D, Ctrl Z | Each reachable through Character + Ctrl + optional shortcut; Ctrl C default saved |
+| Tab | Explicit Common key + optional shortcut |
 | Backspace | Explicit Common key + optional shortcut; independent of phone keyboard |
 
 Keep Home, Settings, Reader/full-Terminal switch, reading/selection/copy/history, native typing/paste/scroll, composer Send/close, Add files/Photos/Files/removal, Insert files/cancel and existing message/file recovery in their own surfaces. Anything not replaceable by a key stays fixed. Fixed Enter and optional key buttons use the same key-send operation; native typing and Message/file submission retain their existing paths.

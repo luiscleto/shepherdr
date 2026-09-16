@@ -92,10 +92,12 @@ export class KeysSheet {
 
   result(result: KeyResult): void {
     this.#uncertain = result === "unknown";
-    this.#feedback.textContent = result === "accepted" ? "Key sent." : result === "not_sent" ? "Key not sent. Check control and try again." : "Could not confirm the key. Check the terminal before sending again.";
+    this.#feedback.textContent = result === "accepted" ? "" : result === "not_sent" ? "Key not sent. Check control and try again." : "Could not confirm the key. Check the terminal before sending again.";
     if (result !== "accepted") {
       if (this.#editing) { this.#editing = false; this.#render(); }
       this.open();
+    } else if (this.#dialog.open) {
+      this.#dialog.close();
     }
     this.#sync();
   }

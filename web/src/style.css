@@ -1573,7 +1573,9 @@ button.terminal-row:hover {
   white-space: nowrap;
 }
 
-.terminal-command-bar button + button {
+.terminal-command-bar button + button,
+.terminal-command-bar .terminal-saved-shortcuts > button:first-child,
+.terminal-command-bar .terminal-saved-shortcuts + button {
   border-left: 1px solid var(--line);
 }
 
