@@ -9,7 +9,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 ### Added
 
 - **Send keys** for common keys, F1–F12, and character/modifier combinations. Save and reorder your own shortcuts in this browser.
-- Reader offers a dismissible **Open Terminal** hint when no more history is available in Reader.
+- Reader offers a dismissible **Open Terminal** hint when no more history is available. This helps with Grok and other agents that require scrolling inside the terminal app to reach older output.
 
 ### Changed
 
