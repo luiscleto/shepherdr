@@ -4,23 +4,22 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-16
+
 ### Added
 
-- **Send keys** offers common keys, F1–F12, and printable characters with Ctrl, Alt / Option, Shift, Super / Command, and Hyper. Pin, edit, remove, and reorder shortcuts in this browser.
-- Reader offers **Open Terminal** when you try to scroll further back after a history read returns no additional output.
+- **Send keys** offers common keys, F1–F12, and printable characters with Ctrl, Alt / Option, Shift, Super / Command, and Hyper. Pin shortcuts without sending them, then edit, remove, or reorder them in this browser. The terminal application determines each combination's effect; Alt / Option means terminal Alt.
+- A dismissible Reader hint offers **Open Terminal** when you try to scroll further back and a successful history read finds no additional output, even when the output fits without scrolling. Dismissal lasts for the current terminal visit.
 
 ### Changed
 
-- Order the default terminal bar as Message, Send keys, Release, Esc, Enter, Up, Down, Backspace, Ctrl+C. Fixed Enter follows the first optional shortcut. Existing saved choices stay unchanged; Restore defaults applies the new list.
-- Terminal shortcuts and fixed Enter use Herdr's key encoding while retaining control. Keys leave unsent Reader messages and files alone; observing requires explicit Control or Take over first.
 - Remember your last Reader or Terminal view choice in this browser for subsequent terminal opens.
+- Put **Send keys** beside **Message** and default shortcuts to Esc, Up, Down, Backspace, and Ctrl+C, with fixed Enter after the first shortcut. Existing saved choices stay unchanged; **Restore defaults** applies the new list.
+- Sending keys retains control and leaves unsent Reader messages and files alone. While observing, choose **Control** or confirmed **Take over** before sending. The Send keys sheet closes only after Herdr accepts the key; failed or unknown sends keep it open and are never retried automatically.
 
-### Fixed
+### Compatibility
 
-- Restore the bottom-bar Backspace symbol with its accessible name.
-- Keep bottom-bar separators consistent between fixed actions and saved shortcuts.
-- Close Send keys only after Herdr confirms the send, without sticky success text. Failed and unknown sends keep the sheet open with their notice and recovery.
-- Detect upward Reader history attempts even when the output fits without scrolling. Show the history hint as a dismissible banner below the header without moving the reading area.
+- Herdr 0.9.0 remains the minimum and validated version. Newer or unknown versions run best effort with a warning.
 
 ## [0.3.1] - 2026-09-13
 
@@ -112,7 +111,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Works with Herdr 0.8.0 through 0.8.2. Older versions do not start; newer versions start with a warning that they have not been tested.
 - macOS downloads are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/luiscleto/shepherdr/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/luiscleto/shepherdr/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/luiscleto/shepherdr/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/luiscleto/shepherdr/compare/v0.2.1...v0.2.2
