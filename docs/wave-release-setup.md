@@ -2,7 +2,7 @@
 
 Status: approved implementation brief
 
-Historical scope: this is the original v0.1.0 setup brief. Its version restrictions and Herdr 0.8.2 smoke requirement are not current release inputs. The human authorized v0.3.0 preparation on 2026-09-13; follow [the current release strategy](release-strategy.md) and workflow for the v0.3.0 guard and Herdr 0.9.0 smoke. The original wave record below is retained unchanged.
+Historical scope: this is the original v0.1.0 setup brief. Its version restrictions and Herdr 0.8.2 smoke requirement are not current release inputs. Follow [the current release strategy](release-strategy.md) and workflow for the active version guard and matching Herdr CLI/server smoke checks. The original wave record below is retained unchanged.
 
 Preparation base: `c4ce5e8f6e2d96cf08f1f0258e5f0ad76e69ca89`
 

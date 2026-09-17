@@ -36,20 +36,20 @@ Shepherdr needs [Herdr](https://github.com/herdrdev/herdr) 0.9.0 or later runnin
 
 Use matching Herdr CLI and server versions for terminal reads and control.
 
-Download the archive for this machine from the [latest release](https://github.com/luiscleto/shepherdr/releases/latest), plus its matching checksum file. The examples below use v0.4.1.
+Download the archive for this machine from the [latest release](https://github.com/luiscleto/shepherdr/releases/latest), plus its matching checksum file. The examples below use v0.4.2.
 
 | System | Archive |
 | --- | --- |
-| Linux x86-64 | `shepherdr_0.4.1_linux_amd64.tar.gz` |
-| Linux ARM64 | `shepherdr_0.4.1_linux_arm64.tar.gz` |
-| macOS Intel | `shepherdr_0.4.1_darwin_amd64.tar.gz` |
-| macOS Apple silicon | `shepherdr_0.4.1_darwin_arm64.tar.gz` |
+| Linux x86-64 | `shepherdr_0.4.2_linux_amd64.tar.gz` |
+| Linux ARM64 | `shepherdr_0.4.2_linux_arm64.tar.gz` |
+| macOS Intel | `shepherdr_0.4.2_darwin_amd64.tar.gz` |
+| macOS Apple silicon | `shepherdr_0.4.2_darwin_arm64.tar.gz` |
 
 macOS builds are unsigned. Expect a system warning on first run.
 
 ```sh
-archive=shepherdr_0.4.1_linux_amd64.tar.gz
-grep "  ${archive}$" shepherdr_0.4.1_checksums.txt | sha256sum -c -
+archive=shepherdr_0.4.2_linux_amd64.tar.gz
+grep "  ${archive}$" shepherdr_0.4.2_checksums.txt | sha256sum -c -
 tar -xzf "$archive"
 mkdir -p "$HOME/.local/bin"
 install -m 0755 "${archive%.tar.gz}/shepherdr" "$HOME/.local/bin/shepherdr"
@@ -62,7 +62,7 @@ On macOS, use `shasum -a 256 -c -` instead of `sha256sum -c -`. Put the binary o
 
 ```sh
 go install github.com/luiscleto/shepherdr@latest
-# or pin a version: go install github.com/luiscleto/shepherdr@v0.4.1
+# or pin a version: go install github.com/luiscleto/shepherdr@v0.4.2
 ```
 
 **From source** — Go 1.27+, Node.js 20+, npm:
@@ -73,7 +73,7 @@ npm run build --prefix web
 go build -o bin/shepherdr .
 ```
 
-To upgrade to v0.4.1, update Herdr to at least 0.9.0 first. Stop Shepherdr, keep its state and configuration, replace the binary with the verified download, check `shepherdr --version`, then restart it.
+To upgrade to v0.4.2, update Herdr to at least 0.9.0 first. Stop Shepherdr, keep its state and configuration, replace the binary with the verified download, check `shepherdr --version`, then restart it.
 
 ## Start
 
