@@ -45,7 +45,7 @@ Connection and input messages describe the terminal connection, not the agent's 
 
 ## Runtime boundary
 
-The former Herdr 0.8.0–0.9.0 support range is superseded by the accepted minimum of 0.9.0. Herdr 0.9.0 is validated; newer or unknown versions run best effort with the existing warning. The Herdr CLI and server must have matching protocols. Herdr remains authoritative for the terminal process, output, and control.
+The former Herdr 0.8.0–0.9.0 support range is superseded by the accepted minimum of 0.9.0. Herdr 0.9.0–0.9.1 are validated; newer or unknown versions run best effort with the existing warning. The Herdr CLI and server must have matching protocols. Herdr remains authoritative for the terminal process, output, and control.
 
 The server rechecks the exact target for reads and sends. Current mobile file forwarding uses the retained controller as specified in the accepted direction; release-after-send is superseded. Shepherdr rechecks the exact current workspace, terminal, and recognized agent immediately before sending. Herdr cannot bind agent presence atomically to the terminal write, so a recognized agent can still exit in the final interval; Shepherdr makes no stronger delivery claim.
 

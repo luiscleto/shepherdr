@@ -4,6 +4,11 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Compatibility
+
+- Support Herdr 0.9.0–0.9.1, retaining the 0.9.0 minimum. Newer or unknown versions still run best effort with a warning.
+- Keep Split, Rename, and Close available on both validated Herdr versions.
+
 ## [0.4.1] - 2026-09-16
 
 ### Added

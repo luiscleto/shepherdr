@@ -456,3 +456,31 @@ func findProjectedTerminal(home Home, paneID string) *Terminal {
 	}
 	return nil
 }
+
+func TestProjectTerminalActionsAcrossSupportedVersions(t *testing.T) {
+	for _, version := range []string{"0.9.0", "0.9.1", "0.9.1+build.1", "0.9.2", "0.9.1-rc.1", "unknown"} {
+		t.Run(version, func(t *testing.T) {
+			snapshot := Snapshot{
+				Version: version, Protocol: 22,
+				Workspaces: []WorkspaceInfo{{ActiveTabID: "tab", WorkspaceID: "workspace"}},
+				Tabs:       []TabInfo{{TabID: "tab", WorkspaceID: "workspace"}},
+				Panes:      []PaneInfo{{CWD: "/work", PaneID: "pane", TabID: "tab", TerminalID: "terminal", WorkspaceID: "workspace"}},
+			}
+			home, err := Project(snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			terminal := findProjectedTerminal(home, "pane")
+			if terminal == nil {
+				t.Fatal("terminal was not projected")
+			}
+			want := []TerminalAction{}
+			if version == "0.9.0" || version == "0.9.1" || version == "0.9.1+build.1" {
+				want = []TerminalAction{TerminalActionSplit, TerminalActionRename, TerminalActionClose}
+			}
+			if !reflect.DeepEqual(terminal.Actions, want) {
+				t.Fatalf("actions = %v, want %v", terminal.Actions, want)
+			}
+		})
+	}
+}

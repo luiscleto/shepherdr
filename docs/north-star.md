@@ -60,7 +60,7 @@ Opening the terminal attempts ordinary control without input or keyboard focus. 
 
 While the exact current terminal has a Herdr-recognized agent, Reader's composer can select arbitrary files, remove pending files, and send files with or without text. The full terminal has a compact files-only panel: **Insert files** inserts local file references at the application's cursor without Enter, leaving the Reader draft separate. Reader's **Send** submits its text and path list. Shepherdr stores the selected files temporarily on its own machine and sends their absolute local paths through Terminal. It does not claim the files were delivered to a model or read by an agent.
 
-This behavior was accepted by the human on 2026-09-13; [the accepted mobile Terminal direction](mobile-terminal-shared-trial-proposal.md) records its scope and evidence. Herdr 0.9.0 is the minimum and the validated version. Newer or unknown versions retain a best-effort warning, not a validation claim.
+This behavior was accepted by the human on 2026-09-13; [the accepted mobile Terminal direction](mobile-terminal-shared-trial-proposal.md) records its scope and evidence. Herdr 0.9.0 remains the minimum; 0.9.0–0.9.1 are validated. Newer or unknown versions retain a best-effort warning, not a validation claim.
 
 Files stay with their workspace when an agent exits or changes and when Shepherdr restarts. After the workspace is gone, Shepherdr tries to delete only the staging folder it created for that workspace. Cleanup can fail, and a crash may leave files behind. This temporary operator-owned storage is not durable file history.
 

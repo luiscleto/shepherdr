@@ -83,7 +83,7 @@ Re-read the impact immediately before closing. If it changed, refuse the stale c
 
 ## Compatibility
 
-The version range and version-specific acceptance checks below are historical to this implementation plan. The [accepted mobile Terminal direction](mobile-terminal-shared-trial-proposal.md) supersedes the old support range: Shepherdr now requires Herdr 0.9.0, which is validated; newer or unknown versions run best effort with a warning. This does not change the management action design.
+The version range and version-specific acceptance checks below are historical to this implementation plan. The [accepted mobile Terminal direction](mobile-terminal-shared-trial-proposal.md) supersedes the old support range: Shepherdr requires Herdr 0.9.0 or later, with 0.9.0–0.9.1 validated; newer or unknown versions run best effort with a warning. Both validated versions retain Split, Rename, and Close; terminal management remains limited to explicitly verified stable releases. This does not change the management action design.
 
 The management actions use the confirmed common surface in Herdr 0.8.0 and 0.8.2. Do not use the 0.8.2-only split option or promise identical focus behavior after closing.
 

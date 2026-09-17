@@ -6,7 +6,7 @@ Approved: 2026-08-23
 
 Date: 2026-08-23
 
-Current amendment, 2026-09-13: the [accepted mobile Terminal direction](mobile-terminal-shared-trial-proposal.md#accepted-behavior) supersedes this document's release-after-phone-batch rules and Reader-only interface scope. Mobile uploads now forward through the retained controller: Reader Send submits, while the full-terminal files-only panel inserts paths without Enter. Storage, cleanup, limits, recognized-agent gating, and access rules below remain applicable. Earlier version references record the original evidence; the current minimum and validated Herdr version is 0.9.0, with best-effort warnings for newer or unknown versions.
+Current amendments, 2026-09-13 and 2026-09-17: the [accepted mobile Terminal direction](mobile-terminal-shared-trial-proposal.md#accepted-behavior) supersedes this document's release-after-phone-batch rules and Reader-only interface scope. Mobile uploads now forward through the retained controller: Reader Send submits, while the full-terminal files-only panel inserts paths without Enter. Storage, cleanup, limits, recognized-agent gating, and access rules below remain applicable. Earlier version references record the original evidence; the current minimum is Herdr 0.9.0 and validated versions are 0.9.0–0.9.1, with best-effort warnings for newer or unknown versions.
 
 This direction records the implemented file-send behavior within the current Terminal and access architecture. `docs/mobile-terminal-attachments-discovery.md` remains historical pre-implementation evidence. Shepherdr sends local paths through Terminal and does not claim delivery to a model or that an agent read a file. It does not add another agent runtime.
 
