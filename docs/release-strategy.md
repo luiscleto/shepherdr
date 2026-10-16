@@ -8,6 +8,8 @@ Historical first-release decision: the immutable `v0.1.0` candidate remained unp
 
 Current preparation, authorized 2026-09-17: `v0.4.2`, a compatibility patch supporting Herdr 0.9.1 while retaining Herdr 0.9.0 and Split, Rename, and Close on both validated versions. Herdr 0.9.0 remains the minimum; newer or unknown versions run best effort with a warning. The notes cover this compatibility change since `v0.4.1`. Existing tags remain immutable, including the unpublished `v0.4.0` tag.
 
+Human-approved 2026-10-16, not yet a release: Herdr 0.9.0–0.9.5 are validated, with 0.9.0 still the minimum and Split, Rename, and Close available on all six versions. Newer or unknown versions keep the best-effort warning. No version, tag, workflow, or Herdr smoke-pin change is authorized yet; the `v0.4.2` workflow and its Herdr 0.9.1 pin below are unchanged.
+
 Downloadable GitHub Release archives are the primary installation path. A plain, manually dispatched GitHub Actions workflow builds candidates from an existing approved tag and exact commit, attaches only candidates that pass their gates to a draft release, and stops. It never creates a tag or publishes a release; a human reviews and publishes the draft.
 
 Candidate targets are Linux amd64, Linux arm64, macOS amd64, and macOS arm64. Each binary must be built and exercised on a native GitHub-hosted runner with `CGO_ENABLED=0`. A target is omitted if its native build, tests, packaged-binary checks, or real Herdr smoke check fails. Cross-compilation alone is not support evidence. Windows is later work: Herdr supports Windows, but Shepherdr's current Unix-specific storage and locking primitives do not compile there.

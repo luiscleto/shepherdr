@@ -4,6 +4,17 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+- Links in the full terminal ask before opening. The sheet shows the full address, and **Open** uses a new tab. Only web addresses open.
+- **Send keys** no longer offers Hyper, which recent Herdr versions do not send. Saved shortcuts that use Hyper are removed.
+- **Send keys** explains that Super / Command reaches only apps that turn on enhanced keyboard input.
+
+### Compatibility
+
+- Support Herdr 0.9.0–0.9.5, keeping the 0.9.0 minimum. Newer or unknown versions still run best effort with a warning.
+- Keep Split, Rename, and Close available on every supported Herdr version.
+
 ## [0.4.2] - 2026-09-17
 
 ### Compatibility

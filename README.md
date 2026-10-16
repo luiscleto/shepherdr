@@ -32,7 +32,7 @@
 
 ## Install
 
-Shepherdr needs [Herdr](https://github.com/herdrdev/herdr) 0.9.0 or later running locally, `herdr` on `PATH`, and the same OS account as Herdr. Herdr 0.9.0–0.9.1 are validated; newer or unknown versions run best effort with a warning.
+Shepherdr needs [Herdr](https://github.com/herdrdev/herdr) 0.9.0 or later running locally, `herdr` on `PATH`, and the same OS account as Herdr. Herdr 0.9.0–0.9.5 are validated; newer or unknown versions run best effort with a warning.
 
 Use matching Herdr CLI and server versions for terminal reads and control.
 
@@ -166,7 +166,7 @@ On a phone, Terminal opens in Reader for reading and selecting output. The termi
 
 Both views keep control until you release it or another controller takes over. Opening a terminal never takes control from someone else; taking over requires confirmation.
 
-**Send keys** lets you choose Esc, Tab, Enter, Backspace, arrows, F1–F12, or one printable character, with Ctrl, Alt / Option, Shift, Super / Command, and Hyper. Herdr interprets the combination for the terminal. While observing, use **Control** or confirmed **Take over** first. Keys act immediately, independently of your unsent message and files. If the result is unknown, check the terminal before deliberately sending again.
+**Send keys** lets you choose Esc, Tab, Enter, Backspace, arrows, F1–F12, or one printable character, with Ctrl, Alt / Option, Shift, and Super / Command. Herdr interprets the combination for the terminal. Super / Command reaches only apps that turn on enhanced keyboard input; an ordinary shell may receive nothing. While observing, use **Control** or confirmed **Take over** first. Keys act immediately, independently of your unsent message and files. If the result is unknown, check the terminal before deliberately sending again.
 
 Pin combinations without sending them, then edit, remove, reorder, or restore the shortcuts in this browser. Esc, Up, Down, Backspace, and Ctrl+C start pinned, in that order, with fixed Enter after the first shortcut. Saved choices stay unchanged; **Restore defaults** applies the new list. Tab remains in the picker and can be pinned. Enter, Send keys, control, and Message or Attach files remain available with their usual rules.
 
