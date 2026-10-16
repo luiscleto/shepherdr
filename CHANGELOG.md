@@ -4,6 +4,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-10-16
+
 ### Changed
 
 - Links in the full terminal ask before opening. The sheet shows the full address, and **Open** uses a new tab. Only web addresses open.
@@ -129,7 +131,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Works with Herdr 0.8.0 through 0.8.2. Older versions do not start; newer versions start with a warning that they have not been tested.
 - macOS downloads are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/luiscleto/shepherdr/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/luiscleto/shepherdr/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/luiscleto/shepherdr/compare/v0.3.1...v0.4.1
 [0.3.1]: https://github.com/luiscleto/shepherdr/compare/v0.3.0...v0.3.1
