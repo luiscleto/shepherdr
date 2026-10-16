@@ -124,6 +124,8 @@ export class KeysSheet {
     this.#pin.disabled = !key;
     this.#pin.textContent = this.#editIndex === undefined ? "Pin shortcut" : "Save shortcut";
     this.#dismiss.hidden = !this.#uncertain;
+    const superNote = this.#body.querySelector<HTMLElement>(".keys-super-note");
+    if (superNote) superNote.hidden = !this.#selection.super;
     const reason = this.#body.querySelector<HTMLElement>(".keys-availability");
     if (reason) { reason.textContent = this.#reason; reason.hidden = this.#available || !this.#reason; }
   }
@@ -151,7 +153,8 @@ export class KeysSheet {
       tab.setAttribute("aria-pressed", String(this.#category === category));
       categories.append(tab);
     }
-    this.#body.append(modifiers, categories);
+    const superNote = node("p", "Super / Command reaches only apps that turn on enhanced keyboard input. An ordinary shell may receive nothing.", "keys-help keys-super-note");
+    this.#body.append(modifiers, superNote, categories);
     if (this.#category === "Character") {
       const label = node("label", "Character", "keys-character");
       const input = node("input");

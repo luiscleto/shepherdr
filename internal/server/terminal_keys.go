@@ -21,7 +21,6 @@ type terminalKey struct {
 	Alt   bool   `json:"alt"`
 	Shift bool   `json:"shift"`
 	Super bool   `json:"super"`
-	Hyper bool   `json:"hyper"`
 }
 
 func (key terminalKey) canonical() (string, error) {
@@ -53,7 +52,7 @@ func (key terminalKey) canonical() (string, error) {
 		name    string
 		enabled bool
 	}{
-		{"ctrl", key.Ctrl}, {"alt", key.Alt}, {"shift", key.Shift}, {"super", key.Super}, {"hyper", key.Hyper},
+		{"ctrl", key.Ctrl}, {"alt", key.Alt}, {"shift", key.Shift}, {"super", key.Super},
 	} {
 		if modifier.enabled {
 			parts = append(parts, modifier.name)

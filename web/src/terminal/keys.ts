@@ -1,4 +1,4 @@
-export const keyModifiers = ["ctrl", "alt", "shift", "super", "hyper"] as const;
+export const keyModifiers = ["ctrl", "alt", "shift", "super"] as const;
 export type KeyModifier = typeof keyModifiers[number];
 export type KeySelection = { base: string } & Partial<Record<KeyModifier, boolean>>;
 export type KeyResult = "accepted" | "not_sent" | "unknown";
@@ -8,7 +8,7 @@ export const commonKeys = [
   ["up", "↑"], ["down", "↓"], ["left", "←"], ["right", "→"],
 ] as const;
 export const modifierLabels: Record<KeyModifier, string> = {
-  ctrl: "Ctrl", alt: "Alt / Option", shift: "Shift", super: "Super / Command", hyper: "Hyper",
+  ctrl: "Ctrl", alt: "Alt / Option", shift: "Shift", super: "Super / Command",
 };
 const aliases: Record<string, string> = {
   escape: "esc", return: "enter", bs: "backspace", space: " ", plus: "+", minus: "-", comma: ",",

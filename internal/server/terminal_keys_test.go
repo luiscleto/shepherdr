@@ -15,8 +15,8 @@ import (
 
 func TestTerminalKeyValidation(t *testing.T) {
 	for _, base := range []string{"enter", "esc", "tab", "backspace", "left", "up", "down", "right", "f1", "F12", "é", "界", "😀", "A", " ", "+", "minus"} {
-		for mask := 0; mask < 32; mask++ {
-			key := terminalKey{Base: base, Ctrl: mask&1 != 0, Alt: mask&2 != 0, Shift: mask&4 != 0, Super: mask&8 != 0, Hyper: mask&16 != 0}
+		for mask := 0; mask < 16; mask++ {
+			key := terminalKey{Base: base, Ctrl: mask&1 != 0, Alt: mask&2 != 0, Shift: mask&4 != 0, Super: mask&8 != 0}
 			canonical, err := key.canonical()
 			if err != nil || canonical == "" {
 				t.Fatalf("%+v: %q %v", key, canonical, err)
@@ -44,6 +44,8 @@ func TestTerminalKeyValidation(t *testing.T) {
 		`{"type":"terminal.send-key","request_id":1,"key":{"base":"f13"}}`,
 		`{"type":"terminal.send-key","request_id":1,"key":{"base":"a","ctrl":"true"}}`,
 		`{"type":"terminal.send-key","request_id":1,"key":{"base":"a","meta":true}}`,
+		`{"type":"terminal.send-key","request_id":1,"key":{"base":"a","hyper":true}}`,
+		`{"type":"terminal.send-key","request_id":1,"key":{"base":"a","hyper":false}}`,
 		`{"type":"terminal.send-key","request_id":1,"key":{"base":"a"},"pane":"other"}`,
 	} {
 		if _, err := validatedTerminalCommand([]byte(body)); err == nil {

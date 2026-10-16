@@ -47,7 +47,7 @@
 }
 .keys-modifiers { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.3rem; }
 .keys-modifiers button { grid-column: span 2; }
-.keys-modifiers button:nth-child(4) { grid-column: span 4; }
+.keys-modifiers button:nth-child(4) { grid-column: 1 / -1; }
 .keys-sheet-header h2:focus { outline: none; }
 .keys-categories { display: flex; margin-block: 0.5rem; border-bottom: 1px solid var(--line); }
 .keys-categories button { flex: 1; border: 0; background: transparent; border-radius: 0; }
