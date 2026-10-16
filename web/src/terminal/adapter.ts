@@ -75,6 +75,7 @@ export interface TerminalAdapterEvents {
   onData(data: string): void;
   onResize(dimensions: TerminalDimensions): void;
   onScroll?(scroll: TerminalScroll): boolean;
+  onLink?(uri: string): void;
 }
 
 export interface TerminalAdapter {

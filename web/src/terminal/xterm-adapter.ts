@@ -45,6 +45,9 @@ export class XTermAdapter implements TerminalAdapter {
       cursorBlink: true,
       fontFamily: '"IBM Plex Mono", "Cascadia Mono", monospace',
       fontSize: 14,
+      // Terminal output chooses link addresses. Never use xterm's default
+      // activation; the page asks before anything opens.
+      linkHandler: { allowNonHttpProtocols: false, activate: (_event, uri) => this.#events?.onLink?.(uri) },
       minimumContrastRatio: 4.5,
       screenReaderMode: true,
       scrollback: this.scrollback,

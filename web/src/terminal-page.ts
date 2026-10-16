@@ -1,6 +1,7 @@
 import { terminalSubmission } from "./terminal-input";
 import { keyLabel, type KeySelection } from "./terminal/keys";
 import { KeysSheet } from "./terminal/keys-sheet";
+import { LinkSheet } from "./terminal/link-sheet";
 import { settingsAction } from "./settings-action";
 import type { TerminalDimensions } from "./terminal/adapter";
 import { terminalReaderForDevice } from "./terminal/device";
@@ -54,6 +55,7 @@ export class TerminalPage {
   #message: HTMLButtonElement | undefined;
   #shortcuts: HTMLButtonElement[] = [];
   #keysSheet: KeysSheet | undefined;
+  #linkSheet: LinkSheet;
   #savedShortcuts = element("span", "terminal-saved-shortcuts");
   #mobile: boolean;
   #readerVisible: boolean;
@@ -118,6 +120,7 @@ export class TerminalPage {
     this.#surface.append(this.#terminalMount);
     host.className = `terminal-screen ${this.#mobile ? "terminal-reader-page terminal-shared-page" : "terminal-desktop-page"}`;
     host.replaceChildren(header, this.#surface);
+    this.#linkSheet = new LinkSheet(host);
     if (this.#mobile) this.#mountReader();
     else this.#readerInput = new ReaderInputQueue({
       onFailed: () => undefined, onForwarded: () => undefined, onLog: () => undefined,
@@ -154,6 +157,7 @@ export class TerminalPage {
     window.visualViewport?.removeEventListener("scroll", this.#viewportChanged);
     this.#reader?.destroy();
     this.#keysSheet?.destroy();
+    this.#linkSheet.destroy();
     this.#xterm.destroy();
     this.#host.replaceChildren();
     this.#host.style.height = "";
@@ -273,6 +277,7 @@ export class TerminalPage {
         if (!this.#hasConnected && this.#ready) void this.#connect("control");
       },
       onScroll: (scroll) => this.#canType() && this.#session?.scroll(scroll) === true,
+      onLink: (uri) => this.#linkSheet.open(uri),
     });
     if (this.#destroyed) { this.#xterm.destroy(); return; }
     this.#ready = true;
