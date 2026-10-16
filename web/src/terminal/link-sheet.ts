@@ -48,10 +48,14 @@ export class LinkSheet {
     const href = openableLink(uri);
     if (!href) return;
     this.#href = href;
-    this.#address.textContent = href;
+    // A fresh box always starts at the host; a reused one keeps the scroll
+    // position from an earlier link, however that sheet was closed.
+    const address = document.createElement("p");
+    address.className = "link-sheet-address";
+    address.textContent = href;
+    this.#address.replaceWith(address);
+    this.#address = address;
     if (!this.#dialog.open) this.#dialog.showModal();
-    // Start at the host, which a long address would otherwise push away.
-    this.#address.scrollTop = 0;
     this.#cancel.focus({ preventScroll: true });
   }
 

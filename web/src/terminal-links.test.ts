@@ -41,7 +41,11 @@ test("a terminal link opens only after confirmation, in a separate tab", t => {
   click("Cancel");
   assert.equal(dialog().open, false);
   assert.equal(opened.length, 0);
+  // Each link gets its own address box, so an earlier scroll cannot carry over.
+  const first = dialog().querySelector(".link-sheet-address");
   sheet.open("http://127.0.0.1:9/x");
+  assert.equal(dialog().querySelectorAll(".link-sheet-address").length, 1);
+  assert.equal(dialog().querySelector(".link-sheet-address") === first, false);
   click("Open");
   assert.equal(JSON.stringify(opened), JSON.stringify(["http://127.0.0.1:9/x _blank noopener,noreferrer"]));
   assert.equal(dialog().open, false);
