@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { Window } from "happy-dom";
 import { LinkSheet, openableLink } from "./terminal/link-sheet";
 
@@ -9,6 +10,13 @@ test("only web links can open", () => {
   for (const uri of ["javascript:alert(1)", "file:///etc/passwd", "data:text/html,x", "vbscript:x", "#terminal=w1:p1", "/settings", "not a url", ""]) {
     assert.equal(openableLink(uri), undefined, uri);
   }
+});
+
+test("a long address scrolls inside its own bounded box", () => {
+  const styles = readFileSync(new URL("./terminal-keys.css", import.meta.url), "utf8");
+  const rule = styles.slice(styles.indexOf(".link-sheet-address {"), styles.indexOf("}", styles.indexOf(".link-sheet-address {")));
+  assert.equal(rule.includes("max-height: 6.5rem;"), true);
+  assert.equal(rule.includes("overflow-y: auto;"), true);
 });
 
 test("a terminal link opens only after confirmation, in a separate tab", t => {

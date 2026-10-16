@@ -50,6 +50,8 @@ export class LinkSheet {
     this.#href = href;
     this.#address.textContent = href;
     if (!this.#dialog.open) this.#dialog.showModal();
+    // Start at the host, which a long address would otherwise push away.
+    this.#address.scrollTop = 0;
     this.#cancel.focus({ preventScroll: true });
   }
 

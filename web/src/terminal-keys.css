@@ -91,6 +91,9 @@
   font-family: "IBM Plex Mono", monospace;
   overflow-wrap: anywhere;
   user-select: text;
+  max-height: 6.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .link-sheet-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
 .link-sheet button {
