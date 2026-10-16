@@ -21,7 +21,7 @@ import (
 const (
 	requestTimeout          = 5 * time.Second
 	minimumSupportedVersion = "0.9.0"
-	maximumSupportedVersion = "0.9.1"
+	maximumSupportedVersion = "0.9.5"
 	protocol22              = 22
 )
 
@@ -137,7 +137,8 @@ func terminalManagementAvailable(version string) bool {
 		return false
 	}
 	stable := strings.TrimPrefix(semver.Canonical(parsed), "v")
-	return stable == "0.8.0" || stable == "0.8.2" || stable == "0.9.0" || stable == "0.9.1"
+	return stable == "0.8.0" || stable == "0.8.2" || stable == "0.9.0" || stable == "0.9.1" ||
+		stable == "0.9.2" || stable == "0.9.3" || stable == "0.9.4" || stable == "0.9.5"
 }
 
 func TerminalManagementAvailable(version string) bool { return terminalManagementAvailable(version) }

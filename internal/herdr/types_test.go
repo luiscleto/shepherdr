@@ -458,7 +458,7 @@ func findProjectedTerminal(home Home, paneID string) *Terminal {
 }
 
 func TestProjectTerminalActionsAcrossSupportedVersions(t *testing.T) {
-	for _, version := range []string{"0.9.0", "0.9.1", "0.9.1+build.1", "0.9.2", "0.9.1-rc.1", "unknown"} {
+	for _, version := range []string{"0.9.0", "0.9.1", "0.9.1+build.1", "0.9.2", "0.9.3", "0.9.4", "0.9.5", "0.9.5+build.1", "0.9.6", "0.9.5-rc.1", "unknown"} {
 		t.Run(version, func(t *testing.T) {
 			snapshot := Snapshot{
 				Version: version, Protocol: 22,
@@ -475,7 +475,7 @@ func TestProjectTerminalActionsAcrossSupportedVersions(t *testing.T) {
 				t.Fatal("terminal was not projected")
 			}
 			want := []TerminalAction{}
-			if version == "0.9.0" || version == "0.9.1" || version == "0.9.1+build.1" {
+			if version != "0.9.6" && version != "0.9.5-rc.1" && version != "unknown" {
 				want = []TerminalAction{TerminalActionSplit, TerminalActionRename, TerminalActionClose}
 			}
 			if !reflect.DeepEqual(terminal.Actions, want) {
