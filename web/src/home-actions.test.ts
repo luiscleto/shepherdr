@@ -414,6 +414,57 @@ test("close confirmation describes only current nonzero scope and agent facts", 
   }
 });
 
+test("delete confirmation states the agent total only when nonzero", async () => {
+  const cases = [{
+    agent_total: 0,
+    expectedCopy: "This deletes the checkout and closes this workspace. Its terminals will end, and unsaved work can be lost. The Git branch remains.",
+  }, {
+    agent_total: 1,
+    expectedCopy: "This deletes the checkout and closes this workspace and 1 agent. Its terminals will end, and unsaved work can be lost. The Git branch remains.",
+  }, {
+    agent_total: 3,
+    expectedCopy: "This deletes the checkout and closes this workspace and 3 agents. Its terminals will end, and unsaved work can be lost. The Git branch remains.",
+  }];
+
+  for (const deleteCase of cases) {
+    const window = new Window({ url: "http://localhost/" });
+    const { app } = makeView(window, {
+      prepare: async (request) => ({
+        outcome: "prepared",
+        action: "delete_checkout",
+        workspace_id: request.workspace_id,
+        expected: {
+          workspace_label: "Child <img>",
+          scope_workspace_ids: [request.workspace_id],
+          agent_total: deleteCase.agent_total,
+          interruption_counts: { working: 0, blocked: 0, unknown: 0 },
+          checkout_path: "/repo/child",
+        },
+      }),
+    });
+    const trigger = requiredMatchingElement<HTMLButtonElement>(
+      app,
+      ".workspace-menu-trigger",
+      (button) => button.getAttribute("aria-label") === "Actions for Child <img>",
+    );
+    trigger.click();
+    const deleteAction = requiredMatchingElement<HTMLButtonElement>(
+      app,
+      '[role="menuitem"]',
+      (button) => button.textContent === "Delete checkout",
+    );
+    deleteAction.click();
+    await settle();
+
+    const panel = requiredElement(app, ".home-action-panel");
+    const name = `${deleteCase.agent_total} agents`;
+    assert.equal(requiredElement(panel, ".home-action-copy").textContent, deleteCase.expectedCopy, name);
+    assert.equal(panel.querySelectorAll(".home-action-warning").length, 0, name);
+    assert.doesNotMatch(panel.textContent ?? "", /\b0 agents?\b/, name);
+    window.close();
+  }
+});
+
 test("delete confirmation and dirty refusal keep hostile path and detail inert", async () => {
   const window = new Window({ url: "http://localhost/" });
   const path = "/repo/<img src=x onerror=run>";

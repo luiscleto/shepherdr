@@ -1774,7 +1774,7 @@ export class HomeView {
         this.#document,
         "p",
         "home-action-copy",
-        `This deletes the checkout and closes this workspace and ${this.#agentTotal(facts.agent_total)}. Its terminals will end, and unsaved work can be lost. The Git branch remains.`,
+        this.#deleteConfirmationCopy(facts),
       ));
       const path = element(this.#document, "code", "checkout-path", facts.checkout_path ?? "");
       const pathLine = element(this.#document, "p", "checkout-path-line");
@@ -1811,6 +1811,11 @@ export class HomeView {
         : "Its terminals will end, and unsaved work can be lost. The folder and branch remain.",
     );
     return sentences.join(" ");
+  }
+
+  #deleteConfirmationCopy(facts: ConfirmationFacts): string {
+    const agents = facts.agent_total > 0 ? ` and ${this.#agentTotal(facts.agent_total)}` : "";
+    return `This deletes the checkout and closes this workspace${agents}. Its terminals will end, and unsaved work can be lost. The Git branch remains.`;
   }
 
   #agentTotal(total: number): string {

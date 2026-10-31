@@ -15,6 +15,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - `herdr` on `PATH` is needed only to open Herdr TUI terminals; Shepherdr starts without it.
 - The masthead names the Herdr it shows: **Herdr TUI 0.9.5** or **Herdr Core 0.1.15**.
 
+### Fixed
+
+- **Delete checkout** no longer says "and 0 agents" when a checkout has no agents.
+
 ### Compatibility
 
 - Support herdr-core 0.1.15 with the Herdr app. Newer versions run best effort with a warning. For Herdr Core, opening a terminal is not available yet, and there are no space or terminal actions.
