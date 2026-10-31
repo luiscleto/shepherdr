@@ -489,9 +489,10 @@ export class HomeView {
       desired.push(this.#loading);
     } else {
       const total = allTerminals(model.state.home).length;
-      if (live && total === 0 && allWorkspaceValues.length === 0) desired.push(this.#empty);
+      const empty = live && total === 0 && allWorkspaceValues.length === 0;
 
       if (model.mode !== "all") {
+        if (empty) desired.push(this.#empty);
         for (const workspace of allWorkspaceValues) {
           const section = this.#renderWorkspace(workspace, model.mode, model.actionsAvailable, false);
           if (section) desired.push(section);
@@ -511,6 +512,8 @@ export class HomeView {
           ...(managementAvailable && !core ? [this.#newSpaceAction] : []),
         ]);
         desired.push(this.#homeTools);
+        // The empty state takes the list's place, below the tools row.
+        if (empty) desired.push(this.#empty);
         if (sets.length > 0 && !filterActive) {
           const expand = sets.some((workspace) => !this.#expandedSets.get(workspace.id));
           setText(this.#expandAction, expand ? "Expand all" : "Collapse all");

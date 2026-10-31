@@ -337,6 +337,10 @@ test("zero-terminal workspaces render once without the global empty state", () =
     1,
   );
   assert.match(app.textContent ?? "", /Herdr is running, but nothing is open/);
+  const order = Array.from(app.children).map((child) => child.classList.contains("home-tools")
+    ? "tools"
+    : child.querySelector("strong")?.textContent === "No terminals" ? "empty" : "other");
+  assert.ok(order.indexOf("tools") >= 0 && order.indexOf("tools") < order.indexOf("empty"), order.join(","));
   window.close();
 });
 

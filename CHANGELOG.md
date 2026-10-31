@@ -18,6 +18,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 ### Fixed
 
 - **Delete checkout** no longer says "and 0 agents" when a checkout has no agents.
+- When nothing is open, **No terminals** now shows below the filter, where the list goes.
 
 ### Compatibility
 
