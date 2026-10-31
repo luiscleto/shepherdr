@@ -203,7 +203,9 @@ export function accessibleTerminalName(entry: TerminalEntry, tabsShown: boolean,
   const parts = [`Open ${entry.terminal.title}`, `${spaceWord(herdr)} ${entry.workspace.label}`];
   if (tabsShown) parts.push(`tab ${entry.tab.label}`);
   if (entry.terminal.agent) {
-    if (entry.terminal.agent.name !== entry.terminal.title) parts.push(entry.terminal.agent.name);
+    if (entry.terminal.agent.name !== "" && entry.terminal.agent.name !== entry.terminal.title) {
+      parts.push(entry.terminal.agent.name);
+    }
     parts.push(entry.terminal.agent.status);
   }
   return parts.join(", ");

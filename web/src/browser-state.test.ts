@@ -868,3 +868,23 @@ test("showing the other Herdr rebuilds rows that share ids and clears the filter
   assert.equal(filter.getAttribute("placeholder"), "Filter spaces and terminals");
   window.close();
 });
+
+test("an agent with an empty name adds no empty part to its row or accessible name", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window);
+  const home = coreHome();
+  const other = home.workspaces.find((workspace) => workspace.id === "other")!;
+  const terminal = other.tabs[0].terminals[0];
+  terminal.title = "Terminal";
+  terminal.agent = { kind: "", name: "", status: "idle" };
+  render(view, state(home), { herdr: "core" });
+  const row = requiredRow(view, terminal.pane_id);
+  const secondary = requiredElement(row, ".terminal-agent").textContent ?? "";
+  assert.equal(secondary.includes("·"), false, secondary);
+  assert.equal(secondary.trim(), secondary);
+  const name = row.getAttribute("aria-label") ?? "";
+  assert.equal(name.split(", ").some((part) => part.trim() === ""), false, name);
+  assert.equal(name, "Open Terminal, space Other terminals, idle");
+  assert.equal(app.querySelectorAll(".status-idle").length > 0, true);
+  window.close();
+});

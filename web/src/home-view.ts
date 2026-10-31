@@ -1407,7 +1407,8 @@ export class HomeView {
         ...(terminalCount(entry.workspace) > 1 || entry.terminal.title !== entry.workspace.label
           ? [entry.workspace.label]
           : []),
-        ...(entry.terminal.agent.name !== entry.terminal.title && entry.terminal.agent.name !== entry.workspace.label
+        ...(entry.terminal.agent.name !== "" && entry.terminal.agent.name !== entry.terminal.title &&
+          entry.terminal.agent.name !== entry.workspace.label
           ? [entry.terminal.agent.name]
           : []),
       ].join(" · ");
