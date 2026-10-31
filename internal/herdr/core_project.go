@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +25,9 @@ type appSpace struct {
 	Name    string
 	Folder  string
 	Machine bool
+	// Waiting marks a space the document doesn't have yet: the app adds it
+	// when its window next opens (rule 1b).
+	Waiting bool
 	Tabs    []appTab
 }
 
@@ -157,6 +161,8 @@ func ProjectCore(read CoreRead, homeFolder string) (Snapshot, Home, error) {
 		}
 	}
 
+	spaces = placeWaiting(spaces, live, placedIn)
+
 	// A worker the app doesn't place goes right after its top placed parent,
 	// as the app nests sub-agents. Everything else goes to Other terminals.
 	followers := make(map[string][]CoreTerminal)
@@ -178,13 +184,19 @@ func ProjectCore(read CoreRead, homeFolder string) (Snapshot, Home, error) {
 
 	snapshot := Snapshot{Version: read.Version, Workspaces: []WorkspaceInfo{}, Tabs: []TabInfo{}, Panes: []PaneInfo{}, Agents: []AgentInfo{}}
 	home := Home{Workspaces: []Workspace{}}
-	if read.AppWindowOpen {
+	// New space and New terminal work with the app window open or closed;
+	// Rename space only while it is open.
+	paired := read.AppWindow != AppWindowUnpaired
+	if paired {
 		home.Actions = []HomeAction{HomeActionCreateSpace}
+	}
+	if read.AppWindow == AppWindowClosed {
+		home.AppWindow = "closed"
 	}
 	addTerminal := func(workspace *Workspace, tab *Tab, terminal CoreTerminal, pane bool) {
 		projected := coreTerminal(read.CoreID, terminal)
-		// The app window splits only a terminal it shows in a pane.
-		if pane && read.AppWindowOpen {
+		// New terminal starts next to a terminal the app shows in a pane.
+		if pane && paired {
 			projected.Actions = []TerminalAction{TerminalActionSplit, TerminalActionClose}
 		}
 		tab.Terminals = append(tab.Terminals, projected)
@@ -205,7 +217,7 @@ func ProjectCore(read CoreRead, homeFolder string) (Snapshot, Home, error) {
 			Actions: []WorkspaceAction{WorkspaceActionCloseWorkspace}, ID: space.ID, Label: spaceLabel(space, live, homeFolder),
 			Number: uint(spaceIndex + 1), Tabs: []Tab{},
 		}
-		if read.AppWindowOpen {
+		if read.AppWindow == AppWindowOpen && !space.Waiting {
 			workspace.Actions = []WorkspaceAction{WorkspaceActionRenameSpace, WorkspaceActionCloseWorkspace}
 		}
 		if space.Name != "" {
@@ -274,6 +286,59 @@ func ProjectCore(read CoreRead, homeFolder string) (Snapshot, Home, error) {
 		home.ErrorCount += counts.Error
 	}
 	return snapshot, home, nil
+}
+
+// placeWaiting applies rule 1b. A live terminal the document doesn't place,
+// labelled with a herdr.space and a herdr.tab, is shown where the app puts it
+// when its window next opens: after its tab's placed terminals; in a tab with
+// that id at the end of its space; or in a space with that id after the
+// document's, unnamed, in its first terminal's folder. Waiting terminals go in
+// created_ms order and count as placed for their workers. A tab id that
+// belongs to another space, or the space id "other", leaves it under Other
+// terminals. The app keeps these labels when it adopts a terminal, and the
+// document always wins, so each read shows every terminal once.
+func placeWaiting(spaces []appSpace, live map[string]CoreTerminal, placedIn map[string]struct{}) []appSpace {
+	waiting := make([]CoreTerminal, 0)
+	for address, terminal := range live {
+		if _, placed := placedIn[address]; placed {
+			continue
+		}
+		spaceID, tabID := terminal.Labels["herdr.space"], terminal.Labels["herdr.tab"]
+		if spaceID != "" && tabID != "" && spaceID != OtherTerminalsID {
+			waiting = append(waiting, terminal)
+		}
+	}
+	sortByCreation(waiting)
+	spaceOf := make(map[string]int, len(spaces))
+	tabSpace := make(map[string]string)
+	for index, space := range spaces {
+		spaceOf[space.ID] = index
+		for _, tab := range space.Tabs {
+			tabSpace[tab.ID] = space.ID
+		}
+	}
+	for _, terminal := range waiting {
+		spaceID, tabID := terminal.Labels["herdr.space"], terminal.Labels["herdr.tab"]
+		if owner, known := tabSpace[tabID]; known && owner != spaceID {
+			continue
+		}
+		index, known := spaceOf[spaceID]
+		if !known {
+			spaces = append(spaces, appSpace{ID: spaceID, Folder: terminal.CWD, Waiting: true})
+			index = len(spaces) - 1
+			spaceOf[spaceID] = index
+		}
+		space := &spaces[index]
+		tabIndex := slices.IndexFunc(space.Tabs, func(tab appTab) bool { return tab.ID == tabID })
+		if tabIndex < 0 {
+			space.Tabs = append(space.Tabs, appTab{ID: tabID, Blocks: map[string]string{}})
+			tabIndex = len(space.Tabs) - 1
+			tabSpace[tabID] = spaceID
+		}
+		space.Tabs[tabIndex].Terminals = append(space.Tabs[tabIndex].Terminals, terminal.Address)
+		placedIn[terminal.Address] = struct{}{}
+	}
+	return spaces
 }
 
 func coreStatusValid(status Status) bool {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"reflect"
@@ -27,11 +28,14 @@ const (
 // fakeCore answers reads from the recorded app read and records kills. A kill
 // ends the terminal and the workers that die with it, as core does.
 type fakeCore struct {
-	mu      sync.Mutex
-	read    herdr.CoreRead
-	kills   []string
-	readErr error
-	kill    func(address string) (string, error)
+	mu       sync.Mutex
+	read     herdr.CoreRead
+	kills    []string
+	readErr  error
+	kill     func(address string) (string, error)
+	runs     []string
+	runErr   error
+	afterRun func()
 }
 
 func newFakeCore(t *testing.T) *fakeCore {
@@ -79,6 +83,34 @@ func (f *fakeCore) Kill(_ context.Context, address string) (string, error) {
 	}
 	f.end(address)
 	return "finished", nil
+}
+
+// Run records the run and starts a labelled terminal, as core does, then
+// calls afterRun.
+func (f *fakeCore) Run(_ context.Context, folder, space, tab string) (string, error) {
+	f.mu.Lock()
+	f.runs = append(f.runs, folder+" "+space+" "+tab)
+	if f.runErr != nil {
+		defer f.mu.Unlock()
+		return "", f.runErr
+	}
+	address := fmt.Sprintf("t%d", 30+len(f.runs))
+	f.read.Terminals = append(f.read.Terminals, herdr.CoreTerminal{
+		Address: address, CWD: folder, CreatedMS: uint64(2_000_000_000_000 + len(f.runs)),
+		Labels: map[string]string{"herdr.space": space, "herdr.tab": tab},
+	})
+	after := f.afterRun
+	f.mu.Unlock()
+	if after != nil {
+		after()
+	}
+	return address, nil
+}
+
+func (f *fakeCore) ran() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.runs)
 }
 
 func (f *fakeCore) end(address string) {

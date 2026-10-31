@@ -229,12 +229,22 @@ func TestProjectCoreDocumentEdges(t *testing.T) {
 		return home, err
 	}
 
-	// The app has never run: every terminal is Other terminals.
+	// No document: the app adds every labelled terminal when it opens (rule
+	// 1b), and the rest are Other terminals.
 	for _, document := range []string{"null", ""} {
 		home, err := project(document, nil)
-		if err != nil || len(home.Workspaces) != 1 || home.Workspaces[0].ID != OtherTerminalsID || len(home.Workspaces[0].Tabs[0].Terminals) != 7 {
-			t.Fatalf("document %q: %+v, %v", document, home, err)
+		if err != nil || len(home.Workspaces) != 4 || home.Workspaces[3].ID != OtherTerminalsID || len(homeRows(home)) != 7 {
+			t.Fatalf("document %q: %q, %v", document, homeRows(home), err)
 		}
+	}
+	unlabelled := func(candidate *CoreRead) {
+		for index, terminal := range candidate.Terminals {
+			candidate.Terminals[index].Labels = map[string]string{"where": terminal.Labels["where"]}
+		}
+	}
+	home, err := project("null", unlabelled)
+	if err != nil || len(home.Workspaces) != 1 || home.Workspaces[0].ID != OtherTerminalsID || len(home.Workspaces[0].Tabs[0].Terminals) != 7 {
+		t.Fatalf("unlabelled: %q, %v", homeRows(home), err)
 	}
 	for _, document := range []string{`[]`, `{}`, `{"spaces":{}}`, `{"spaces":[1]}`, `{"spaces":[{"tabs":[]}]}`, `{"spaces":[{"id":"sp1"}]}`, `{"spaces":[{"id":"sp1","tabs":[{"name":"x"}]}]}`} {
 		if _, err := project(document, nil); !errors.Is(err, ErrUnreadableAppLayout) {
@@ -242,12 +252,12 @@ func TestProjectCoreDocumentEdges(t *testing.T) {
 		}
 	}
 	// Unknown keys and node types are ignored; the terminal they hold still
-	// appears once, under Other terminals. A dead block and an empty tab or
-	// space are left out.
-	home, err := project(`{"spaces":[{"id":"sp1","name":"","folder":"/srv/api","extra":1,"tabs":[
+	// appears once, under Other terminals when it has no app labels. A dead
+	// block and an empty tab or space are left out.
+	home, err = project(`{"spaces":[{"id":"sp1","name":"","folder":"/srv/api","extra":1,"tabs":[
 		{"id":"tb1","name":"","root":{"type":"grid","children":[{"type":"block","content":{"terminal":"t3"}}]}},
 		{"id":"tb2","name":"","root":{"type":"column","children":[{"type":"block","content":{"terminal":"t99"}},{"type":"block","content":{"mod":"x"}},{"type":"stack","children":[{"type":"block","content":{"terminal":"t4"}}]}]}}]},
-		{"id":"sp2","name":"empty","tabs":[{"id":"tb3","name":"","root":{"type":"block","content":{"terminal":"t98"}}}]}]}`, nil)
+		{"id":"sp2","name":"empty","tabs":[{"id":"tb3","name":"","root":{"type":"block","content":{"terminal":"t98"}}}]}]}`, unlabelled)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,6 +279,7 @@ func TestProjectCoreDocumentEdges(t *testing.T) {
 	}
 	// Only this machine's terminals are shown.
 	home, err = project("null", func(candidate *CoreRead) {
+		unlabelled(candidate)
 		candidate.Terminals = append(candidate.Terminals, CoreTerminal{Address: "vps/t3", Title: "remote"})
 	})
 	if err != nil || len(home.Workspaces[0].Tabs[0].Terminals) != 7 {
@@ -364,7 +375,7 @@ func TestCoreEndsWithFollowsWorkersThatDieWithTheirParent(t *testing.T) {
 
 func TestProjectCoreOffersTheAppWindowActionsOnlyWhileItIsOpen(t *testing.T) {
 	read := loadCoreRead(t, "core-read-app.json")
-	read.AppWindowOpen = true
+	read.AppWindow = AppWindowOpen
 	_, home, err := ProjectCore(read, "/home/user")
 	if err != nil {
 		t.Fatal(err)
@@ -404,10 +415,25 @@ func TestProjectCoreOffersTheAppWindowActionsOnlyWhileItIsOpen(t *testing.T) {
 		t.Fatalf("actions:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 
-	read.AppWindowOpen = false
+	// Without the app, or before its window answers, there are no app actions.
+	read.AppWindow = AppWindowUnpaired
+	_, unpaired, err := ProjectCore(read, "/home/user")
+	if err != nil || unpaired.Actions != nil || unpaired.AppWindow != "" || !reflect.DeepEqual(unpaired.Workspaces[0].Actions, []WorkspaceAction{WorkspaceActionCloseWorkspace}) ||
+		!reflect.DeepEqual(unpaired.Workspaces[0].Tabs[0].Terminals[0].Actions, []TerminalAction{TerminalActionClose}) {
+		t.Fatalf("no app: %v %+v", err, unpaired)
+	}
+
+	// While the window is closed, New space and New terminal start in core;
+	// Rename space needs the window.
+	read.AppWindow = AppWindowClosed
 	_, closed, err := ProjectCore(read, "/home/user")
-	if err != nil || closed.Actions != nil || !reflect.DeepEqual(closed.Workspaces[0].Actions, []WorkspaceAction{WorkspaceActionCloseWorkspace}) {
-		t.Fatalf("closed window: %v %v %v", err, closed.Actions, closed.Workspaces[0].Actions)
+	if err != nil || !reflect.DeepEqual(closed.Actions, []HomeAction{HomeActionCreateSpace}) || closed.AppWindow != "closed" {
+		t.Fatalf("closed window: %v %v %q", err, closed.Actions, closed.AppWindow)
+	}
+	if !reflect.DeepEqual(closed.Workspaces[0].Actions, []WorkspaceAction{WorkspaceActionCloseWorkspace}) ||
+		!reflect.DeepEqual(closed.Workspaces[0].Tabs[0].Terminals[0].Actions, []TerminalAction{TerminalActionSplit, TerminalActionClose}) ||
+		!reflect.DeepEqual(closed.Workspaces[0].Tabs[0].Terminals[1].Actions, []TerminalAction{TerminalActionClose}) {
+		t.Fatalf("closed window actions: %+v", closed.Workspaces[0])
 	}
 }
 
@@ -425,5 +451,155 @@ func TestCorePaneBlockNamesTheAppPaneOfAPlacedTerminal(t *testing.T) {
 	}
 	if _, ok := CorePaneBlock(read, alpha, second, "t5"); !ok {
 		t.Fatal("t5 has no block in its own tab")
+	}
+}
+
+// loadCoreReads reads complete reads captured one per line, in the same shape
+// as loadCoreRead.
+func loadCoreReads(t *testing.T, name string) []CoreRead {
+	t.Helper()
+	data, err := os.ReadFile("testdata/" + name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reads := []CoreRead{}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var captured struct {
+			Hello struct {
+				Core    struct{ ID string } `json:"core"`
+				Version string              `json:"version"`
+			} `json:"hello"`
+			List struct {
+				Terminals []CoreTerminal `json:"terminals"`
+			} `json:"terminal.list"`
+			Document struct {
+				Value json.RawMessage `json:"value"`
+			} `json:"doc.get"`
+		}
+		if err := json.Unmarshal([]byte(line), &captured); err != nil {
+			t.Fatal(err)
+		}
+		reads = append(reads, CoreRead{CoreID: captured.Hello.Core.ID, Version: captured.Hello.Version, Terminals: captured.List.Terminals, Document: captured.Document.Value})
+	}
+	return reads
+}
+
+func spaceRows(home Home) []string {
+	rows := []string{}
+	for _, workspace := range home.Workspaces {
+		tabs := []string{}
+		for _, tab := range workspace.Tabs {
+			addresses := []string{}
+			for _, terminal := range tab.Terminals {
+				addresses = append(addresses, terminal.PaneID)
+			}
+			tabs = append(tabs, tab.Label+": "+strings.Join(addresses, " "))
+		}
+		rows = append(rows, workspace.Label+" | "+strings.Join(tabs, " | "))
+	}
+	return rows
+}
+
+// The reads are every distinct complete read from herdr-core 0.1.15 while the
+// Herdr app 0.1.10 window was closed and then opened: a New space in
+// repo/sub (t19), a New terminal in alpha / main (t1b), and a worker started
+// from t19 (t1c).
+func TestProjectCoreShowsWaitingTerminalsWhereTheAppPutsThem(t *testing.T) {
+	reads := loadCoreReads(t, "core-reads-closed-reopen.jsonl")
+	const newSpace = "sp98f4d85f85743896bd294723bd30de49"
+	before := []string{
+		"alpha | main: t1 t18 t2 t6 t17 | third: t14 | 3: t15",
+		"plain | 1: t4", "plain | 1: t10", "repo | 1: t8 t9", "plain | 1: t11", "plain | 1: t16",
+	}
+	// After the runs, while the window is closed: the new terminal ends its
+	// tab, and the new space comes last, named after its folder, with its
+	// worker. On open the app writes "where" first, so the name becomes the git
+	// top's once, and then it places both. Nothing else moves.
+	want := [][]string{
+		before,
+		{"alpha | main: t1 t18 t2 t6 t17 t1b | third: t14 | 3: t15", "plain | 1: t4", "plain | 1: t10", "repo | 1: t8 t9", "plain | 1: t11", "plain | 1: t16", "sub | 1: t19 t1c"},
+		{"alpha | main: t1 t18 t2 t6 t17 t1b | third: t14 | 3: t15", "plain | 1: t4", "plain | 1: t10", "repo | 1: t8 t9", "plain | 1: t11", "plain | 1: t16", "sub | 1: t19 t1c"},
+		{"alpha | main: t1 t18 t2 t6 t17 t1b | third: t14 | 3: t15", "plain | 1: t4", "plain | 1: t10", "repo | 1: t8 t9", "plain | 1: t11", "plain | 1: t16", "repo | 1: t19 t1c"},
+		{"alpha | main: t1 t18 t2 t6 t17 t1b | third: t14 | 3: t15", "plain | 1: t4", "plain | 1: t10", "repo | 1: t8 t9", "plain | 1: t11", "plain | 1: t16", "repo | 1: t19 t1c"},
+	}
+	for index, read := range reads {
+		read.AppWindow = AppWindowClosed
+		snapshot, home, err := ProjectCore(read, "/home/user")
+		if err != nil {
+			t.Fatalf("read %d: %v", index, err)
+		}
+		if got := spaceRows(home); !reflect.DeepEqual(got, want[index]) {
+			t.Fatalf("read %d:\n%s\nwant:\n%s", index, strings.Join(got, "\n"), strings.Join(want[index], "\n"))
+		}
+		// Every live terminal shows exactly once, in every read.
+		if len(homeRows(home)) != len(read.Terminals) {
+			t.Fatalf("read %d shows %d of %d terminals", index, len(homeRows(home)), len(read.Terminals))
+		}
+		if index == 0 {
+			continue
+		}
+		// The new space keeps its id through adoption, so Space opened fires once.
+		last := snapshot.Workspaces[len(snapshot.Workspaces)-1]
+		space := home.Workspaces[len(home.Workspaces)-1]
+		if last.WorkspaceID != newSpace || space.ID != newSpace {
+			t.Fatalf("read %d: new space %+v %q", index, last, space.ID)
+		}
+		alpha := home.Workspaces[0].Tabs[0].Terminals
+		newTerminal, newSpaceFirst := alpha[len(alpha)-1], space.Tabs[0].Terminals[0]
+		// While waiting, a terminal has no pane to start a terminal next to,
+		// and a waiting space can only be closed.
+		placed := index == 4
+		wantFirst := []TerminalAction{TerminalActionClose}
+		if placed {
+			wantFirst = []TerminalAction{TerminalActionSplit, TerminalActionClose}
+		}
+		wantNew := []TerminalAction{TerminalActionClose}
+		if index >= 3 {
+			wantNew = []TerminalAction{TerminalActionSplit, TerminalActionClose}
+		}
+		if newTerminal.PaneID != "t1b" || !reflect.DeepEqual(newTerminal.Actions, wantNew) || !reflect.DeepEqual(newSpaceFirst.Actions, wantFirst) ||
+			!reflect.DeepEqual(space.Actions, []WorkspaceAction{WorkspaceActionCloseWorkspace}) {
+			t.Fatalf("read %d: actions t1b %v, t19 %v, space %v", index, newTerminal.Actions, newSpaceFirst.Actions, space.Actions)
+		}
+		// With the window open, a waiting space still can't be renamed.
+		read.AppWindow = AppWindowOpen
+		_, open, _ := ProjectCore(read, "/home/user")
+		wantSpace := []WorkspaceAction{WorkspaceActionCloseWorkspace}
+		if placed {
+			wantSpace = []WorkspaceAction{WorkspaceActionRenameSpace, WorkspaceActionCloseWorkspace}
+		}
+		if got := open.Workspaces[len(open.Workspaces)-1].Actions; !reflect.DeepEqual(got, wantSpace) || open.AppWindow != "" {
+			t.Fatalf("read %d open: space actions %v, window %q", index, got, open.AppWindow)
+		}
+	}
+}
+
+func TestProjectCoreLeavesOddAppLabelsUnderOtherTerminals(t *testing.T) {
+	read := loadCoreReads(t, "core-reads-closed-reopen.jsonl")[0]
+	const alpha, third = "sp034c04caa6b61d2a58e5a07df15f9f97", "tbc2b3d86003d0cee53a0395d6272dea94"
+	labelled := func(address string, labels map[string]string) CoreTerminal {
+		return CoreTerminal{Address: address, CWD: "/tmp/w3/work/plain", CreatedMS: 1793483100000, Labels: labels, Title: address}
+	}
+	read.Terminals = append(read.Terminals,
+		// A tab id that belongs to another space, the id "other", or only one
+		// label: the app wouldn't place these where Home could say.
+		labelled("t30", map[string]string{"herdr.space": "spffff", "herdr.tab": third}),
+		labelled("t31", map[string]string{"herdr.space": OtherTerminalsID, "herdr.tab": "tbffff"}),
+		labelled("t32", map[string]string{"herdr.space": alpha}),
+		// An unknown tab in a known space goes at the end of that space.
+		labelled("t33", map[string]string{"herdr.space": alpha, "herdr.tab": "tbeeee"}),
+	)
+	_, home, err := ProjectCore(read, "/home/user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := spaceRows(home)
+	want := []string{
+		"alpha | main: t1 t18 t2 t6 t17 | third: t14 | 3: t15 | 4: t33",
+		"plain | 1: t4", "plain | 1: t10", "repo | 1: t8 t9", "plain | 1: t11", "plain | 1: t16",
+		"Other terminals | Other terminals: t30 t31 t32",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }

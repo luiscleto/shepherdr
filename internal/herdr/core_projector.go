@@ -14,20 +14,22 @@ type AppWindow interface {
 	WindowOpen(context.Context) bool
 }
 
-// SetAppWindow makes Home on herdr-core offer the app window's actions while
-// app says the window is open. Call it before Run.
+// SetAppWindow makes Home on herdr-core offer the app's actions: those the
+// window does while app says it is open, and New space and New terminal
+// through core while it is closed. Call it before Run.
 func (p *Projector) SetAppWindow(app AppWindow) {
 	p.app = app
 }
 
 // appWindowWatch asks the app window outside the core loop, so a slow or
 // hung window never holds up core reads, events or reconnects. The loop asks
-// through ask and takes the latest answer from answers; open is the answer
-// Home shows, and only the core loop uses it.
+// through ask and takes the latest answer from answers; state is the answer
+// Home shows, and only the core loop uses it. It stays AppWindowUnpaired until
+// the first answer.
 type appWindowWatch struct {
 	ask     chan struct{}
 	answers chan bool
-	open    bool
+	state   AppWindowState
 }
 
 // watchAppWindow asks the window every appWindowInterval and on each ask.
@@ -72,10 +74,14 @@ func (w *appWindowWatch) take() bool {
 }
 
 func (w *appWindowWatch) changed(open bool) bool {
-	if open == w.open {
+	state := AppWindowClosed
+	if open {
+		state = AppWindowOpen
+	}
+	if state == w.state {
 		return false
 	}
-	w.open = open
+	w.state = state
 	return true
 }
 
@@ -160,7 +166,7 @@ func (p *Projector) followCore(ctx context.Context, subscription *CoreSubscripti
 		if err != nil {
 			return true, err
 		}
-		read.AppWindowOpen = window.open
+		read.AppWindow = window.state
 		snapshot, home, err := ProjectCore(read, p.homeFolder)
 		if err != nil {
 			return true, err

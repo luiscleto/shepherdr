@@ -1524,11 +1524,117 @@ test("Herdr Core says when the app window is closed, a folder is missing, and a 
     await settle();
     readPanel();
   }
+  // Rename space has no Herdr Core route, so its copy says to open the window.
+  spaceRefusals.push("app_closed");
+  requiredMatchingElement<HTMLButtonElement>(
+    app, ".workspace-menu-trigger", (node) => node.getAttribute("aria-label") === "Actions for Core <img src=x>",
+  ).click();
+  requiredMatchingElement<HTMLButtonElement>(app, '[role="menuitem"]', (node) => node.textContent === "Rename space").click();
+  requiredElement<HTMLFormElement>(app, ".home-action-form")
+    .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await settle();
+  readPanel();
   assert.deepEqual(messages, [
-    "The Herdr app window is closed. Open it on the computer, then try again.",
+    "The Herdr app window is closed. Open the action again to start it in Herdr Core.",
     "This folder doesn't exist.",
-    "The Herdr app window is closed. Open it on the computer, then try again.",
+    "The Herdr app window is closed. Open the action again to start it in Herdr Core.",
     "This terminal is no longer here.",
+    "The Herdr app window is closed. Open it on the computer, then try again.",
   ]);
+  window.close();
+});
+
+// Home on Herdr Core while the Herdr app window is closed.
+function coreClosedHome(): Home {
+  const home = coreAppHome();
+  home.app_window = "closed";
+  home.workspaces[0].actions = ["close_workspace"];
+  return home;
+}
+
+test("Herdr Core starts New space in Herdr Core while the app window is closed, with a warning and no label", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  let request: RunWorkspaceActionRequest | undefined;
+  const { app } = makeView(window, {
+    herdr: "core",
+    run: async (value) => {
+      request = value;
+      return { outcome: "succeeded" };
+    },
+  }, coreClosedHome());
+  const trigger = requiredMatchingElement<HTMLButtonElement>(
+    app, ".workspace-menu-trigger", (node) => node.getAttribute("aria-label") === "Actions for Core <img src=x>",
+  );
+  trigger.click();
+  assert.deepEqual(Array.from(trigger.parentElement!.querySelectorAll('[role="menuitem"]'), (item) => item.textContent), ["Close space"]);
+  trigger.click();
+  requiredElement<HTMLButtonElement>(app, ".new-space-action").click();
+  const panel = requiredElement(app, ".home-action-panel");
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "New space");
+  assert.equal(requiredElement(panel, ".home-action-copy").textContent, "Add a space for an existing folder.");
+  assert.equal(
+    requiredElement(panel, ".home-action-warning").textContent,
+    "The Herdr app is closed. Shepherdr will start this space in Herdr Core, and the app will add it when it next opens. Its name and place in the list may change then.",
+  );
+  assert.equal(panel.querySelectorAll('input[name="label"]').length, 0);
+  assert.equal(requiredElement(panel, ".home-action-primary").textContent, "Create space");
+  requiredElement<HTMLInputElement>(panel, 'input[name="working_directory"]').value = "~/repo";
+  requiredElement<HTMLFormElement>(panel, ".home-action-form")
+    .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await settle();
+  assert.equal(JSON.stringify(request), '{"herdr":"core","action":"create_space","working_directory":"~/repo","best_effort":true}');
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "Space created");
+  assert.equal(requiredElement(panel, ".home-action-copy").textContent, "It's on Home now. The Herdr app will add it when it next opens.");
+  window.close();
+});
+
+test("Herdr Core starts New terminal in Herdr Core while the app window is closed, and opens it", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  const requests: RunTerminalActionRequest[] = [];
+  let opened: TerminalActionTarget | undefined;
+  const created = { workspace_id: "sp-core", tab_id: "tb-main", pane_id: "t20", terminal_id: "core:t20" };
+  const outcomes: RunTerminalActionResponse[] = [
+    { outcome: "succeeded", terminal: created },
+    { outcome: "unknown" },
+    { outcome: "refused", reason: "folder_missing" },
+  ];
+  const { app } = makeView(window, {
+    herdr: "core",
+    onOpenCreated: (target) => { opened = target; },
+    runTerminal: async (value) => {
+      requests.push(value);
+      return outcomes.shift()!;
+    },
+  }, coreClosedHome());
+  const results: string[] = [];
+  for (let index = 0; index < 3; index++) {
+    requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
+    const trigger = requiredMatchingElement<HTMLButtonElement>(
+      app, ".terminal-menu .workspace-menu-trigger", (button) => button.getAttribute("aria-label") === "Actions for Claude",
+    );
+    trigger.click();
+    requiredMatchingElement<HTMLButtonElement>(trigger.parentElement!, '[role="menuitem"]', (item) => item.textContent === "New terminal").click();
+    const panel = requiredElement(app, ".home-action-panel");
+    if (index === 0) {
+      assert.equal(requiredElement(panel, ".home-action-title").textContent, "New terminal");
+      assert.equal(requiredElement(panel, ".home-action-copy").textContent, "This starts a terminal next to Claude and opens it.");
+      assert.equal(
+        requiredElement(panel, ".home-action-warning").textContent,
+        "The Herdr app is closed. Shepherdr will start this terminal in Herdr Core, and the app will add it at the end of this tab when it next opens.",
+      );
+      assert.deepEqual(Array.from(panel.querySelectorAll(".home-action-buttons button"), (button) => button.textContent), ["New terminal", "Cancel"]);
+    }
+    requiredMatchingElement<HTMLButtonElement>(panel, ".home-action-buttons button", (button) => button.textContent === "New terminal").click();
+    await settle();
+    if (index > 0) {
+      results.push(requiredElement(panel, ".home-action-copy").textContent ?? "");
+      requiredMatchingElement<HTMLButtonElement>(panel, "button", (button) => button.textContent === "Done").click();
+    }
+  }
+  assert.equal(JSON.stringify(requests[0]), JSON.stringify({
+    herdr: "core", action: "split_terminal", workspace_id: "sp-core", tab_id: "tb-main", pane_id: "t3", terminal_id: "core:t3", best_effort: true,
+  }));
+  assert.deepEqual(opened, created);
+  assert.deepEqual(results, ["Check Home before starting another terminal.", "This folder doesn't exist."]);
   window.close();
 });

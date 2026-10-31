@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -250,4 +252,155 @@ func compactJSON(t *testing.T, raw json.RawMessage) string {
 		t.Fatal(err)
 	}
 	return string(mustMarshal(t, value))
+}
+
+func TestCoreNewSpaceWhileClosedStartsALabelledShellInCore(t *testing.T) {
+	core := newFakeCore(t)
+	app := &fakeApp{open: false}
+	refresh := &countingHomeRefresher{}
+	home := t.TempDir()
+	if err := os.Mkdir(filepath.Join(home, "work"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	coordinator := newCoreActionCoordinator(core, home, refresh)
+	coordinator.app = app
+	coordinator.homeDir = func() (string, error) { return home, nil }
+	handler := (&Server{coreActions: coordinator}).Handler()
+	run := func(body string) *httptest.ResponseRecorder {
+		return performSideActionRequest(t, handler, "/api/workspace-actions", `{"herdr":"core","action":"create_space",`+body+`}`)
+	}
+
+	assertOutcome(t, run(`"working_directory":"~/work","best_effort":true`), http.StatusOK, "succeeded", "")
+	assertOutcome(t, run(`"working_directory":"`+home+`","best_effort":true`), http.StatusOK, "succeeded", "")
+	runs := core.ran()
+	idShape := regexp.MustCompile(`^(\S+) sp[0-9a-f]{32} tb[0-9a-f]{32}$`)
+	if len(runs) != 2 || idShape.FindStringSubmatch(runs[0]) == nil || idShape.FindStringSubmatch(runs[0])[1] != home+"/work" ||
+		idShape.FindStringSubmatch(runs[1]) == nil || idShape.FindStringSubmatch(runs[1])[1] != home || runs[0][len(home)+6:] == runs[1][len(home)+1:] {
+		t.Fatalf("runs = %q", runs)
+	}
+	if len(app.sent()) != 0 || refresh.count.Load() != 2 {
+		t.Fatalf("app commands %q, refreshes %d", app.sent(), refresh.count.Load())
+	}
+
+	// A missing folder is refused before core uses up an address. There is
+	// no name while the window is closed, and only true confirms the sheet.
+	assertOutcome(t, run(`"working_directory":"~/gone","best_effort":true`), http.StatusUnprocessableEntity, "refused", "folder_missing")
+	for _, body := range []string{
+		`"working_directory":"~/work","best_effort":true,"label":"api"`,
+		`"working_directory":"~/work","best_effort":false`,
+		`"working_directory":"work","best_effort":true`,
+	} {
+		assertOutcome(t, run(body), http.StatusBadRequest, "refused", "invalid_request")
+	}
+	// Confirming the open window's sheet after it closed sends nothing.
+	assertOutcome(t, run(`"working_directory":"~/work"`), http.StatusServiceUnavailable, "refused", "app_closed")
+	if len(core.ran()) != 2 {
+		t.Fatalf("runs = %q", core.ran())
+	}
+
+	// Core's refusal, no answer, and no core.
+	for _, test := range []struct {
+		err             error
+		status          int
+		outcome, reason string
+	}{
+		{&herdr.APIError{Code: "spawn_failed", Message: "cannot start"}, http.StatusUnprocessableEntity, "refused", "herdr_refused"},
+		{&herdr.MutationError{Err: errors.New("read Herdr Core terminal.run response: EOF"), Submitted: true}, http.StatusBadGateway, "unknown", ""},
+		{&herdr.MutationError{Err: errors.New("connect to Herdr Core: no such file")}, http.StatusServiceUnavailable, "refused", "herdr_unavailable"},
+	} {
+		core.runErr = test.err
+		assertOutcome(t, run(`"working_directory":"~/work","best_effort":true`), test.status, test.outcome, test.reason)
+	}
+
+	// Without the app, nothing would add the space.
+	core.runErr = nil
+	coordinator.app = nil
+	assertOutcome(t, run(`"working_directory":"~/work","best_effort":true`), http.StatusBadRequest, "refused", "invalid_request")
+	if len(core.ran()) != 5 {
+		t.Fatalf("runs = %q", core.ran())
+	}
+}
+
+func TestCoreNewTerminalWhileClosedStartsInTheTerminalsFolderAndOpens(t *testing.T) {
+	core := newFakeCore(t)
+	published := &fakeHome{}
+	app := &fakeApp{open: false}
+	moved := filepath.Join(t.TempDir(), "sub")
+	if err := os.Mkdir(moved, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// t4's shell moved into a subfolder with cd.
+	core.change(func(read *herdr.CoreRead) {
+		for index := range read.Terminals {
+			if read.Terminals[index].Address == "t4" {
+				read.Terminals[index].Foreground = &herdr.CoreForeground{CWD: moved}
+			}
+		}
+	})
+	core.afterRun = func() { published.publish(t, core) }
+	handler := coreAppHandler(core, app, published, &countingHomeRefresher{})
+	run := func(target string, extra string) *httptest.ResponseRecorder {
+		return performSideActionRequest(t, handler, "/api/terminal-actions", `{"herdr":"core","action":"split_terminal",`+target+extra+`}`)
+	}
+
+	response := run(coreTarget(coreAlpha, coreAlphaTab, "t4"), `,"best_effort":true`)
+	assertOutcome(t, response, http.StatusOK, "succeeded", "")
+	var body struct {
+		Terminal terminalActionTarget `json:"terminal"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	// It opens in t4's tab, where Home shows it until the app adds it.
+	want := terminalActionTarget{WorkspaceID: coreAlpha, TabID: coreAlphaTab, PaneID: "t31", TerminalID: coreID + ":t31"}
+	if body.Terminal != want {
+		t.Fatalf("terminal = %+v, want %+v", body.Terminal, want)
+	}
+	if got := core.ran(); !reflect.DeepEqual(got, []string{moved + " " + coreAlpha + " " + coreAlphaTab}) || len(app.sent()) != 0 {
+		t.Fatalf("runs %q, app commands %q", got, app.sent())
+	}
+
+	// The new terminal has no pane yet; a worker has none; Other terminals has
+	// no layout; a stale target is gone; and a gone folder is refused before
+	// core uses up an address.
+	core.afterRun = nil
+	for _, test := range []struct {
+		target, reason string
+		status         int
+	}{
+		{coreTarget(coreAlpha, coreAlphaTab, "t31"), "not_applicable", http.StatusConflict},
+		{coreTarget(coreAlpha, coreAlphaTab, "t9"), "not_applicable", http.StatusConflict},
+		{coreTarget(herdr.OtherTerminalsID, herdr.OtherTerminalsID, "t8"), "not_applicable", http.StatusConflict},
+		{coreTarget(coreAlpha, coreSecond, "t4"), "not_found", http.StatusNotFound},
+	} {
+		assertOutcome(t, run(test.target, `,"best_effort":true`), test.status, "refused", test.reason)
+	}
+	if err := os.Remove(moved); err != nil {
+		t.Fatal(err)
+	}
+	assertOutcome(t, run(coreTarget(coreAlpha, coreAlphaTab, "t4"), `,"best_effort":true`), http.StatusUnprocessableEntity, "refused", "folder_missing")
+	// There is no Beside or Below while closed; the open sheet confirmed after
+	// the window closed sends nothing.
+	assertOutcome(t, run(coreTarget(coreAlpha, coreAlphaTab, "t3"), `,"best_effort":true,"direction":"right"`), http.StatusBadRequest, "refused", "invalid_request")
+	assertOutcome(t, run(coreTarget(coreAlpha, coreAlphaTab, "t3"), `,"direction":"right"`), http.StatusServiceUnavailable, "refused", "app_closed")
+	if len(core.ran()) != 1 || len(app.sent()) != 0 {
+		t.Fatalf("runs %q, app commands %q", core.ran(), app.sent())
+	}
+
+	// Without a foreground folder, t3's starting folder is used. Home that
+	// never shows the new terminal makes the result unknown.
+	start := t.TempDir()
+	core.change(func(read *herdr.CoreRead) {
+		for index := range read.Terminals {
+			if read.Terminals[index].Address == "t3" {
+				read.Terminals[index].CWD, read.Terminals[index].Foreground = start, nil
+			}
+		}
+	})
+	timeoutHandler := coreAppHandler(core, app, nil, &countingHomeRefresher{})
+	assertOutcome(t, performSideActionRequest(t, timeoutHandler, "/api/terminal-actions",
+		`{"herdr":"core","action":"split_terminal",`+coreTarget(coreAlpha, coreAlphaTab, "t3")+`,"best_effort":true}`), http.StatusBadGateway, "unknown", "")
+	if got := core.ran(); len(got) != 2 || got[1] != start+" "+coreAlpha+" "+coreAlphaTab {
+		t.Fatalf("runs %q", got)
+	}
 }

@@ -41,6 +41,9 @@ import {
 } from "./terminal-actions";
 
 const statusOrder = ["working", "blocked", "error", "idle", "done", "unknown"] as const;
+// New space and New terminal sheets confirmed while the Herdr app window was
+// open, sent after it closed: the closed window's sheet starts them in Herdr Core.
+const appClosedCreate = "The Herdr app window is closed. Open the action again to start it in Herdr Core.";
 
 interface HomeViewActions {
   isHomeActive: () => boolean;
@@ -1440,8 +1443,15 @@ export class HomeView {
   #openNewSpace(): void {
     if (this.#actionRunning || !this.#lastRender) return;
     const herdr = this.#shownHerdr();
+    const inCore = this.#appWindowClosed(herdr);
     this.#returnFocus = this.#newSpaceAction;
     const copy = element(this.#document, "p", "home-action-copy", `Add a ${spaceWord(herdr)} for an existing folder.`);
+    const warning = element(
+      this.#document,
+      "p",
+      "home-action-warning",
+      "The Herdr app is closed. Shepherdr will start this space in Herdr Core, and the app will add it when it next opens. Its name and place in the list may change then.",
+    );
     const form = element(this.#document, "form", "home-action-form");
     const directoryLabel = element(this.#document, "label", "home-action-field");
     directoryLabel.append(element(this.#document, "span", undefined, "Working directory"));
@@ -1485,19 +1495,23 @@ export class HomeView {
     labelField.append(label);
 
     const actions = this.#formActions("Create space", () => this.#closeActionLayer());
-    form.append(directoryLabel, suggestionRegion, labelField, actions.container);
+    // The app names a space it adds from Herdr Core after its folder, so there
+    // is no label while its window is closed.
+    form.append(directoryLabel, suggestionRegion, ...(inCore ? [] : [labelField]), actions.container);
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       if (!form.reportValidity()) return;
-      const request: RunWorkspaceActionRequest = {
-        herdr,
-        action: "create_space",
-        working_directory: directory.value,
-        ...(label.value.trim() === "" ? {} : { label: label.value }),
-      };
+      const request: RunWorkspaceActionRequest = inCore
+        ? { herdr, action: "create_space", working_directory: directory.value, best_effort: true }
+        : {
+          herdr,
+          action: "create_space",
+          working_directory: directory.value,
+          ...(label.value.trim() === "" ? {} : { label: label.value }),
+        };
       void this.#submitAction(request);
     });
-    this.#showActionLayer("New space", [copy, form], () => this.#closeActionLayer(), directory);
+    this.#showActionLayer("New space", inCore ? [copy, warning, form] : [copy, form], () => this.#closeActionLayer(), directory);
   }
 
   #openNewWorktree(workspace: Workspace, returnFocus: HTMLElement, herdr: Herdr): void {
@@ -1567,6 +1581,12 @@ export class HomeView {
     return this.#lastRender?.herdr ?? "tui";
   }
 
+  // While the Herdr app window is closed, New space and New terminal start in
+  // Herdr Core.
+  #appWindowClosed(herdr: Herdr): boolean {
+    return herdr === "core" && this.#lastRender?.state.home.app_window === "closed";
+  }
+
   #chooseTerminalAction(paneID: string, action: TerminalAction, returnFocus: HTMLElement): void {
     const entry = this.#entries.get(paneID);
     if (!entry || !entry.terminal.actions.includes(action) || this.#actionRunning) return;
@@ -1592,6 +1612,10 @@ export class HomeView {
   }
 
   #openSplitTerminal(entry: TerminalEntry, herdr: Herdr): void {
+    if (this.#appWindowClosed(herdr)) {
+      this.#openNewTerminalInCore(entry, herdr);
+      return;
+    }
     const copy = element(
       this.#document,
       "p",
@@ -1616,6 +1640,31 @@ export class HomeView {
     const cancel = this.#button("Cancel", () => this.#closeActionLayer());
     choices.append(beside, below, cancel);
     this.#showActionLayer("Split terminal", [copy, choices], () => this.#closeActionLayer(), beside);
+  }
+
+  #openNewTerminalInCore(entry: TerminalEntry, herdr: Herdr): void {
+    const copy = element(
+      this.#document,
+      "p",
+      "home-action-copy",
+      `This starts a terminal next to ${entry.terminal.title} and opens it.`,
+    );
+    const warning = element(
+      this.#document,
+      "p",
+      "home-action-warning",
+      "The Herdr app is closed. Shepherdr will start this terminal in Herdr Core, and the app will add it at the end of this tab when it next opens.",
+    );
+    const choices = element(this.#document, "div", "home-action-buttons");
+    const start = this.#button("New terminal", () => void this.#submitTerminalAction({
+      herdr,
+      action: "split_terminal",
+      ...this.#terminalTarget(entry),
+      best_effort: true,
+    }));
+    start.className = "home-action-primary";
+    choices.append(start, this.#button("Cancel", () => this.#closeActionLayer()));
+    this.#showActionLayer("New terminal", [copy, warning, choices], () => this.#closeActionLayer(), start);
   }
 
   #openRenameTerminal(entry: TerminalEntry, herdr: Herdr): void {
@@ -1707,8 +1756,9 @@ export class HomeView {
   async #submitTerminalAction(request: RunTerminalActionRequest): Promise<void> {
     if (this.#actionRunning) return;
     this.#actionRunning = true;
+    const inCore = request.action === "split_terminal" && "best_effort" in request;
     const headings: Record<RunTerminalActionRequest["action"], string> = {
-      split_terminal: "Splitting terminal",
+      split_terminal: inCore ? "New terminal" : "Splitting terminal",
       rename_terminal: "Renaming terminal",
       close_terminal: request.action === "close_terminal" && request.expected.workspace_expected
         ? `Closing ${spaceWord(request.herdr)}`
@@ -1728,14 +1778,20 @@ export class HomeView {
       // A confirmed Close terminal names the terminal; a confirmed Close space keeps the space's words.
       const terminalGone = request.herdr === "core" &&
         (request.action === "split_terminal" || request.action === "close_terminal" && !request.expected.workspace_expected);
-      this.#showRefusal(response, request.herdr, terminalGone ? "This terminal is no longer here." : undefined);
+      this.#showRefusal(
+        response,
+        request.herdr,
+        terminalGone ? "This terminal is no longer here." : undefined,
+        request.action === "split_terminal" ? appClosedCreate : undefined,
+      );
       return;
     }
+    const splitUnknown = inCore ? "Check Home before starting another terminal." : "Check Home before splitting this terminal again.";
     if (response.outcome === "unknown") {
       this.#showResult(
         "Result unknown",
         request.action === "split_terminal"
-          ? "Check Home before splitting this terminal again."
+          ? splitUnknown
           : request.action === "rename_terminal"
             ? "Check Home before renaming this terminal again."
             : "Check Home before trying to close this terminal again.",
@@ -1744,7 +1800,7 @@ export class HomeView {
     }
     if (request.action === "split_terminal") {
       if (!response.terminal) {
-        this.#showResult("Result unknown", "Check Home before splitting this terminal again.");
+        this.#showResult("Result unknown", splitUnknown);
         return;
       }
       this.#closeActionLayer();
@@ -1907,9 +1963,11 @@ export class HomeView {
     this.#actionRunning = false;
     this.#renderAgain();
     if (response.outcome === "refused") {
-      this.#showRefusal(response, request.herdr);
+      this.#showRefusal(response, request.herdr, undefined, request.action === "create_space" ? appClosedCreate : undefined);
     } else if (response.outcome === "unknown") {
       this.#showUnknown(request.action);
+    } else if (request.action === "create_space" && "best_effort" in request) {
+      this.#showResult("Space created", "It's on Home now. The Herdr app will add it when it next opens.");
     } else {
       this.#showSuccess(request.action, request.herdr);
     }
@@ -1950,7 +2008,12 @@ export class HomeView {
     this.#showResult("Result unknown", message);
   }
 
-  #showRefusal(refusal: RefusedWorkspaceAction, herdr: Herdr, notFound = `This ${spaceWord(herdr)} is no longer here.`): void {
+  #showRefusal(
+    refusal: RefusedWorkspaceAction,
+    herdr: Herdr,
+    notFound = `This ${spaceWord(herdr)} is no longer here.`,
+    appClosed = "The Herdr app window is closed. Open it on the computer, then try again.",
+  ): void {
     const word = spaceWord(herdr);
     if (refusal.reason === "checkout_has_changes") {
       this.#showResult(
@@ -1967,7 +2030,7 @@ export class HomeView {
       stale: `This ${word} changed. Open the action again to check the latest details.`,
       herdr_unavailable: "Herdr is not available. Try again when it is running.",
       herdr_refused: "Herdr refused this action.",
-      app_closed: "The Herdr app window is closed. Open it on the computer, then try again.",
+      app_closed: appClosed,
       folder_missing: "This folder doesn't exist.",
     };
     this.#showResult("Action not completed", messages[refusal.reason], refusal.detail);

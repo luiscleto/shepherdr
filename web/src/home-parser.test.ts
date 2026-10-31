@@ -193,3 +193,18 @@ test("parses the Herdr app window's New space and a space's own name, and nothin
   home.workspaces[0].manual_name = 7;
   assert.equal(parseCompleteHomeState(frame), undefined);
 });
+
+test("parses a closed Herdr app window, and nothing else", () => {
+  const frame = completeFrame();
+  const core = completeSide();
+  const home = core.home as Record<string, unknown>;
+  home.actions = ["create_space"];
+  home.app_window = "closed";
+  frame.core = core;
+  assert.equal(parseCompleteHomeState(frame)?.core.home.app_window, "closed");
+  assert.equal(parseCompleteHomeState(completeFrame())?.core.home.app_window, undefined);
+  for (const value of ["open", "", null, true]) {
+    home.app_window = value;
+    assert.equal(parseCompleteHomeState(frame), undefined);
+  }
+});

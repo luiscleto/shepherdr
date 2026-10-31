@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"os"
@@ -32,7 +33,7 @@ func newTestCore(t *testing.T) (*testCore, string) {
 		hello: map[string]any{
 			"core": map[string]any{"id": read.CoreID, "name": "host"}, "features": []string{"framed", "attach", "events", "status", "shell"},
 			"framed": false, "generation": 1, "version": "0.1.15",
-			"methods": []string{"hello", "server.status", "terminal.list", "terminal.attach", "terminal.keys", "terminal.kill", "doc.get", "doc.set", "events.subscribe"},
+			"methods": []string{"hello", "server.status", "terminal.list", "terminal.attach", "terminal.keys", "terminal.kill", "terminal.run", "doc.get", "doc.set", "events.subscribe"},
 		},
 		read:   read,
 		events: make(chan string, 16),
@@ -83,6 +84,18 @@ func (core *testCore) serve(conn net.Conn) {
 			result = map[string]any{"value": read.Document, "version": 7}
 		case "events.subscribe":
 			result = map[string]any{"channel": nil, "seq": 3, "terminals": []any{}}
+		case "terminal.run":
+			// Core's own replies (herdr-core 0.1.15): a missing folder is
+			// refused; otherwise the new terminal's record.
+			var params struct {
+				CWD string `json:"cwd"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			if strings.HasSuffix(params.CWD, "/gone") {
+				_, _ = conn.Write([]byte(`{"error":{"code":-32000,"data":{"hint":"check the program name and cwd","kind":"spawn_failed"},"message":"cannot start \"/bin/bash\": No such file or directory (os error 2)"},"id":` + fmt.Sprint(request.ID) + `,"jsonrpc":"2.0"}` + "\n"))
+				continue
+			}
+			result = json.RawMessage(`{"address":"t6","argv":["/bin/bash"],"cols":200,"created_ms":1793482795436,"cwd":"/tmp/w3/work/repo/sub","die_with_parent":false,"exit_code":null,"finished_ms":null,"identity":"ghostty","keep":true,"labels":{"herdr.space":"sp034c04caa6b61d2a58e5a07df15f9f97","herdr.tab":"tb17a00994450ff571460d347ac9acf657"},"name":null,"notify":true,"parent":null,"pid":786933,"reason":null,"reported":false,"rm":false,"rows":120,"screen":"exact","signal":null,"state":"live","status":null,"status_ms":null,"template":null,"title":"","turn":0}`)
 		case "terminal.kill":
 			var params struct {
 				Terminal string `json:"terminal"`
@@ -323,15 +336,18 @@ func TestCoreProjectorKeepsHomeLiveWhileTheAppWindowHangs(t *testing.T) {
 		t.Fatalf("a core change behind a hung window took %s, actions %v", elapsed, renamed.Home.Actions)
 	}
 
-	// The hung check ends as closed: the actions go. A later answer brings
-	// them back.
+	// The hung check ends as closed: Home says so, and Rename space goes. A
+	// later answer brings it back.
 	window.answers <- false
-	waitForState(t, updates, func(state State) bool { return !appActions(state) })
+	closed := waitForState(t, updates, func(state State) bool { return state.Home.AppWindow == "closed" })
+	if !appActions(closed) || len(closed.Home.Workspaces[0].Actions) != 1 {
+		t.Fatalf("closed = %+v", closed.Home)
+	}
 	projector.RequestRefresh()
 	<-window.asked
 	window.answers <- true
-	back := waitForState(t, updates, appActions)
-	if back.Connection != ConnectionLive || back.Home.Workspaces[0].Label != "beta" {
+	back := waitForState(t, updates, func(state State) bool { return state.Home.AppWindow == "" })
+	if back.Connection != ConnectionLive || back.Home.Workspaces[0].Label != "beta" || len(back.Home.Workspaces[0].Actions) != 2 {
 		t.Fatalf("back = %+v", back)
 	}
 }
@@ -416,6 +432,33 @@ func TestCoreClientKillsOneExactAddress(t *testing.T) {
 
 	// No core: nothing was sent.
 	_, err = NewCoreClient(path+".missing", discardLogger()).Kill(context.Background(), "t4")
+	if err == nil || MutationMayHaveRun(err) {
+		t.Fatalf("missing core: %v", err)
+	}
+}
+
+func TestCoreClientRunsOneLabelledShell(t *testing.T) {
+	core, path := newTestCore(t)
+	client := NewCoreClient(path, discardLogger())
+	address, err := client.Run(context.Background(), "/tmp/w3/work/repo/sub", "sp034c04caa6b61d2a58e5a07df15f9f97", "tb17a00994450ff571460d347ac9acf657")
+	if err != nil || address != "t6" {
+		t.Fatalf("run = %q, %v", address, err)
+	}
+	// Core's own shell, kept like every app terminal: no argv, name, env or parent.
+	want := []string{`hello {"generation":1}`, `terminal.run {"cwd":"/tmp/w3/work/repo/sub","keep":true,"labels":{"herdr.space":"sp034c04caa6b61d2a58e5a07df15f9f97","herdr.tab":"tb17a00994450ff571460d347ac9acf657"}}`}
+	if got := core.methods(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("requests = %q", got)
+	}
+
+	// Core's refusal is a refusal, with its message.
+	_, err = client.Run(context.Background(), "/tmp/w3/gone", "sp1", "tb1")
+	var apiError *APIError
+	if !errors.As(err, &apiError) || apiError.Code != "spawn_failed" || !strings.Contains(apiError.Message, "No such file") || MutationMayHaveRun(err) {
+		t.Fatalf("missing folder: %v", err)
+	}
+
+	// No core: nothing was sent.
+	_, err = NewCoreClient(path+".missing", discardLogger()).Run(context.Background(), "/tmp", "sp1", "tb1")
 	if err == nil || MutationMayHaveRun(err) {
 		t.Fatalf("missing core: %v", err)
 	}

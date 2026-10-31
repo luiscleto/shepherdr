@@ -16,11 +16,12 @@ export interface PrepareTerminalCloseRequest extends TerminalActionTarget {
   action: "close_terminal";
 }
 
-export interface SplitTerminalRequest extends TerminalActionTarget {
+// While the Herdr app window is closed, New terminal starts in Herdr Core at
+// the end of the tab: best_effort says the person confirmed that sheet.
+export type SplitTerminalRequest = TerminalActionTarget & {
   herdr: Herdr;
   action: "split_terminal";
-  direction: SplitDirection;
-}
+} & ({ direction: SplitDirection } | { best_effort: true });
 
 export interface RenameTerminalRequest extends TerminalActionTarget {
   herdr: Herdr;
@@ -78,7 +79,7 @@ type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respons
 const statuses = new Set<AgentStatus>(["working", "blocked", "error", "idle", "done", "unknown"]);
 const refusalReasons = new Set<RefusalReason>([
   "invalid_request", "not_found", "not_applicable", "busy", "stale", "herdr_unavailable", "herdr_refused", "app_closed",
-  "checkout_has_changes",
+  "checkout_has_changes", "folder_missing",
 ]);
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -221,8 +222,8 @@ function validStatus(status: number, response: PreparedTerminalActionResponse | 
     herdr_refused: [422],
     herdr_unavailable: [503],
     app_closed: [503],
-    // Only New space checks a folder.
-    folder_missing: [],
+    // New terminal checks its folder while the Herdr app window is closed.
+    folder_missing: [422],
   };
   return statuses[response.reason].includes(status);
 }

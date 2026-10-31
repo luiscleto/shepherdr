@@ -65,12 +65,13 @@ export interface PrepareWorkspaceActionRequest {
   workspace_id: string;
 }
 
-export interface CreateSpaceRequest {
+// While the Herdr app window is closed, New space starts in Herdr Core, with
+// no label: best_effort says the person confirmed that sheet.
+export type CreateSpaceRequest = {
   herdr: Herdr;
   action: "create_space";
   working_directory: string;
-  label?: string;
-}
+} & ({ label?: string } | { best_effort: true });
 
 export interface CreateWorktreeRequest {
   herdr: Herdr;

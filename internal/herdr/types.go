@@ -195,18 +195,21 @@ type AgentCounts struct {
 	Unknown int `json:"unknown,omitempty"`
 }
 
-// HomeAction is an action for Home as a whole. Only the Herdr app window
-// offers one: New space.
+// HomeAction is an action for Home as a whole. Only Herdr Core with the Herdr
+// app offers one: New space.
 type HomeAction string
 
 const HomeActionCreateSpace HomeAction = "create_space"
 
 type Home struct {
-	Actions      []HomeAction `json:"actions,omitempty"`
-	BlockedCount int          `json:"blocked_count"`
-	ErrorCount   int          `json:"error_count"`
-	WorkingCount int          `json:"working_count"`
-	Workspaces   []Workspace  `json:"workspaces"`
+	Actions []HomeAction `json:"actions,omitempty"`
+	// AppWindow is "closed" while Herdr Core's app window is closed, so New
+	// space and New terminal start in core; it is omitted otherwise.
+	AppWindow    string      `json:"app_window,omitempty"`
+	BlockedCount int         `json:"blocked_count"`
+	ErrorCount   int         `json:"error_count"`
+	WorkingCount int         `json:"working_count"`
+	Workspaces   []Workspace `json:"workspaces"`
 }
 
 func Project(snapshot Snapshot) (Home, error) {

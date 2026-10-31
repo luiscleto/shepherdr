@@ -164,12 +164,13 @@ function parseWorkspace(value: unknown, topLevel: boolean): Workspace | undefine
 
 function parseHome(value: unknown): Home | undefined {
   const home = record(value);
-  if (!home || !exactKeys(home, ["blocked_count", "error_count", "working_count", "workspaces"], ["actions"]) ||
+  if (!home || !exactKeys(home, ["blocked_count", "error_count", "working_count", "workspaces"], ["actions", "app_window"]) ||
     !nonnegativeInteger(home.blocked_count) || !nonnegativeInteger(home.error_count) || !nonnegativeInteger(home.working_count) ||
     !Array.isArray(home.workspaces)) return undefined;
   if (Object.hasOwn(home, "actions") && (!Array.isArray(home.actions) || home.actions.length !== 1 || home.actions[0] !== "create_space")) {
     return undefined;
   }
+  if (Object.hasOwn(home, "app_window") && home.app_window !== "closed") return undefined;
   const workspaces: Workspace[] = [];
   for (const value of home.workspaces) {
     const workspace = parseWorkspace(value, true);
@@ -178,6 +179,7 @@ function parseHome(value: unknown): Home | undefined {
   }
   return {
     ...(Object.hasOwn(home, "actions") ? { actions: ["create_space"] as HomeAction[] } : {}),
+    ...(Object.hasOwn(home, "app_window") ? { app_window: "closed" as const } : {}),
     blocked_count: home.blocked_count,
     error_count: home.error_count,
     working_count: home.working_count,

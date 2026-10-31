@@ -27,7 +27,7 @@ const (
 
 var (
 	coreRequiredFeatures = []string{"events", "framed", "attach"}
-	coreRequiredMethods  = []string{"hello", "events.subscribe", "terminal.list", "doc.get", "terminal.attach", "terminal.keys", "terminal.kill"}
+	coreRequiredMethods  = []string{"hello", "events.subscribe", "terminal.list", "doc.get", "terminal.attach", "terminal.keys", "terminal.kill", "terminal.run"}
 )
 
 // CoreClient reads Home from herdr-core, the runtime behind the Herdr app.
@@ -52,21 +52,49 @@ type CoreRead struct {
 	Version   string
 	Terminals []CoreTerminal
 	Document  json.RawMessage
-	// AppWindowOpen says the Herdr app window answered just before this read,
-	// so Home offers the actions the window does. Read leaves it false.
-	AppWindowOpen bool
+	// AppWindow is the Herdr app window's state just before this read, which
+	// picks the actions Home offers. Read leaves it AppWindowUnpaired.
+	AppWindow AppWindowState
 }
+
+// AppWindowState is what Shepherdr knows about the Herdr app window.
+type AppWindowState int
+
+const (
+	// AppWindowUnpaired: there is no app client, or the window hasn't been
+	// asked yet. Home offers no app actions.
+	AppWindowUnpaired AppWindowState = iota
+	AppWindowOpen
+	// AppWindowClosed: New space and New terminal start in core, and the app
+	// adds them when its window next opens.
+	AppWindowClosed
+)
 
 type CoreTerminal struct {
 	Address       string            `json:"address"`
 	CreatedMS     uint64            `json:"created_ms"`
 	CWD           string            `json:"cwd"`
 	DieWithParent bool              `json:"die_with_parent"`
+	Foreground    *CoreForeground   `json:"foreground"`
 	Labels        map[string]string `json:"labels"`
 	Name          *string           `json:"name"`
 	Parent        *string           `json:"parent"`
 	Status        *CoreStatus       `json:"status"`
 	Title         string            `json:"title"`
+}
+
+// CoreForeground is the program in front. Its cwd is the terminal's current
+// folder; CoreTerminal.CWD is only the folder it started in.
+type CoreForeground struct {
+	CWD string `json:"cwd"`
+}
+
+// Folder is the terminal's current folder, else the one it started in.
+func (t CoreTerminal) Folder() string {
+	if t.Foreground != nil && t.Foreground.CWD != "" {
+		return t.Foreground.CWD
+	}
+	return t.CWD
 }
 
 type CoreStatus struct {
@@ -254,6 +282,34 @@ func (c *CoreClient) Kill(ctx context.Context, address string) (string, error) {
 		return "", &MutationError{Err: fmt.Errorf("Herdr Core answered the kill for %q", result.Address), Submitted: true}
 	}
 	return result.State, nil
+}
+
+// Run starts core's own shell in folder, labelled with the Herdr app's space
+// and tab ids, and returns its address. The app adds a terminal so labelled
+// when its window next opens. It is used only for New space and New terminal
+// while the window is closed, with ids from a fresh read: the app adopts a
+// closed space's or tab's ids by bringing it back.
+func (c *CoreClient) Run(ctx context.Context, folder, space, tab string) (string, error) {
+	connection, _, err := c.open(ctx)
+	if err != nil {
+		return "", &MutationError{Err: err}
+	}
+	defer connection.conn.Close()
+	var result struct {
+		Address string `json:"address"`
+	}
+	params := map[string]any{"cwd": folder, "labels": map[string]string{"herdr.space": space, "herdr.tab": tab}, "keep": true}
+	if err := connection.call("terminal.run", params, &result); err != nil {
+		var apiError *APIError
+		if errors.As(err, &apiError) {
+			return "", apiError
+		}
+		return "", &MutationError{Err: err, Submitted: true}
+	}
+	if result.Address == "" || strings.Contains(result.Address, "/") {
+		return "", &MutationError{Err: fmt.Errorf("Herdr Core answered the run with %q", result.Address), Submitted: true}
+	}
+	return result.Address, nil
 }
 
 type CoreSubscription struct {
