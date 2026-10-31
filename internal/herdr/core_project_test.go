@@ -122,7 +122,7 @@ func TestProjectCoreKeepsHostileNamesAsData(t *testing.T) {
 	}
 	// A worker started while the app was closed has no "where" label and
 	// still follows its parent; status from a program's own report shows.
-	if got := homeRows(Home{Workspaces: home.Workspaces[:1]})[:2]; got[0] != "<img src=x onerror=alert(1)> | main | t3 "+read.CoreID+":t3 | user@host:/tmp/w1/work/repo 1 | demo-agent user@host:/tmp/w1/work/repo working" ||
+	if got := homeRows(Home{Workspaces: home.Workspaces[:1]})[:2]; got[0] != "<img src=x onerror=alert(1)> | main | t3 "+read.CoreID+":t3 | demo-agent | demo-agent demo-agent working" ||
 		!strings.HasPrefix(got[1], "<img src=x onerror=alert(1)> | main | t11 ") {
 		t.Fatalf("rows = %q", got)
 	}
@@ -187,7 +187,7 @@ func TestProjectCoreCountsBlockedAndErrorAgents(t *testing.T) {
 	}
 	rows := homeRows(home)
 	if rows[1] != "alpha | main | t9 "+read.CoreID+":t9 | demo-agent | demo-agent demo-agent error" ||
-		rows[2] != "alpha | main | t4 "+read.CoreID+":t4 | Greeting question | claude-code Greeting question blocked" {
+		rows[2] != "alpha | main | t4 "+read.CoreID+":t4 | claude-code | claude-code claude-code blocked" {
 		t.Fatalf("rows = %q", rows)
 	}
 	if len(snapshot.Agents) != 2 || snapshot.Agents[0].AgentStatus != StatusError || snapshot.Agents[0].WorkspaceID != home.Workspaces[0].ID {
@@ -320,7 +320,8 @@ func TestCoreTerminalNamesFollowTheAgentThenTheTerminal(t *testing.T) {
 		agentName string
 		title     string
 	}{
-		{label: "agent title", source: CoreTerminal{Name: name("build"), Title: "Agent", Status: &CoreStatus{App: "claude", State: "idle"}}, agentName: "Agent", title: "Agent"},
+		// The live title changes while the agent works; the name doesn't.
+		{label: "agent title", source: CoreTerminal{Name: name("build"), Title: "⠹ Run shell commands", Status: &CoreStatus{App: "claude", State: "idle"}}, agentName: "claude", title: "claude"},
 		{label: "agent app", source: CoreTerminal{Name: name("build"), Status: &CoreStatus{App: "claude", State: "idle"}}, agentName: "claude", title: "claude"},
 		{label: "agent without a name", source: CoreTerminal{Name: name("build"), Status: &CoreStatus{State: "idle"}}, agentName: "", title: "build"},
 		{label: "core name", source: CoreTerminal{Name: name("build"), Title: "zsh"}, title: "build"},

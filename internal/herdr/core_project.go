@@ -289,12 +289,10 @@ func coreStatusValid(status Status) bool {
 // terminals; a space can be closed, but Other terminals can't.
 func coreTerminal(coreID string, source CoreTerminal) Terminal {
 	terminal := Terminal{Actions: []TerminalAction{TerminalActionClose}, PaneID: source.Address, TerminalID: coreID + ":" + source.Address}
+	// The agent name is the app core reports, never the live title, so a row
+	// keeps its name while the agent works.
 	if source.Status != nil {
-		name := source.Title
-		if name == "" {
-			name = source.Status.App
-		}
-		terminal.Agent = &Agent{Kind: source.Status.App, Name: name, Status: Status(source.Status.State)}
+		terminal.Agent = &Agent{Kind: source.Status.App, Name: source.Status.App, Status: Status(source.Status.State)}
 	}
 	switch {
 	case terminal.Agent != nil && terminal.Agent.Name != "":

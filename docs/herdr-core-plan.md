@@ -170,7 +170,7 @@ The core read becomes the existing internal `Snapshot` / `Home` contract, so Hom
 | Terminal order in a tab | depth-first over `root`, `block` nodes with `content.terminal` |
 | Terminal `pane_id` | core address, e.g. `t7` |
 | Terminal `terminal_id` | `<core.id>:<address>` (core.id from `hello`) |
-| Terminal `agent` | present only while `status` is non-null: `{kind: status.app, name: title if not empty else status.app, status: status.state}` |
+| Terminal `agent` | present only while `status` is non-null: `{kind: status.app, name: status.app, status: status.state}`. The name is `status.app` exactly as reported ("claude-code", "codex", …), never the live title, so it stays stable while the agent works. |
 | Terminal `title` | the agent name, else the core `name`, else the terminal `title`, else **Terminal**. Today's single-terminal and duplicate-numbering rules still apply. |
 | Terminal `manual_name` | never set (core has no rename) |
 | Terminal and space `actions` | as section 3.5 |
