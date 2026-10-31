@@ -130,3 +130,12 @@ func TestFirstPaintFindsAMarkerSplitAcrossFrames(t *testing.T) {
 }
 
 func tail(value []byte) []byte { return value[max(0, len(value)-60):] }
+
+func TestReaderTextDropsCharacterSetChoices(t *testing.T) {
+	// Claude Code's paint ends a line with ESC ( B, which Reader would show
+	// as a stray B.
+	got := string(CoreReaderANSI([]byte("Esc to cancel\x1b[0m\x1b[11;2H\x1b(B\x1b[0m")))
+	if got != "Esc to cancel\x1b[0m\x1b[11;2H\x1b[0m" {
+		t.Fatalf("Reader text = %q", got)
+	}
+}
