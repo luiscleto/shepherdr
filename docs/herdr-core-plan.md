@@ -226,7 +226,7 @@ The browser keeps its WebSocket protocol, and the server holds the core channel.
 | **Send keys** | `terminal.keys {terminal, keys:[name]}`, only while controlling. Core waits up to ~3 s after the last typing ("quiet rule"); note this as a known limitation. |
 | Resize while controlling | A RESIZE frame (u16 cols, u16 rows) on the active channel. Never while observing. |
 | Files (Reader Send, full-terminal Insert) | Unchanged local staging, with core records kept in their own file (`uploads-core.json`), apart from the Herdr TUI's. **Other terminals** keeps its files while the group is listed. Paths are sent as Message chunks. **Add files** shows only while the terminal has a non-null status. `terminal.put` is not used. |
-| Program ends, or `lost` | Core CLOSE `{reason, …}` → the existing `terminal.closed` with that reason. The page's existing reconnect then attaches to the restarted shell after about a second, in its last mode: a page that was controlling controls the new shell, and one that was observing observes it. (Decided 2026-10-31.) |
+| Program ends, or `lost` | Core CLOSE `{reason, …}` → a `terminal.status` with that reason, then the stream ends. The page's existing reconnect then attaches to the restarted shell once core has it: a phone page retries about every second in its last mode, and a desktop page reconnects observing. (Decided 2026-10-31.) |
 | Exact target | Valid while Home is live and not last-known, and the latest Home still contains `pane=address` with the same `terminal_id=core.id:address`. There is no layout-rectangle check in core mode. |
 
 The phone and the app window can both type. Size follows whichever typed last. There is no note about this (decision 4).
@@ -325,7 +325,7 @@ The human also approved a matching one-line note in `docs/north-star.md` ("Uses 
 - **The app document is private to the app** and has no format version. A format change shows **Cannot use this Herdr** (if the shape breaks) or moves terminals into **Other terminals** (if node types change). Either way it's visible, never a silent loss.
 - **Core releases daily.** Validate each version before claiming it; newer versions run best effort.
 - **`where` flicker on app start:** an unnamed space's name briefly shows its folder, then the git top.
-- **First paint not delimited:** Reader's older-output read depends on the first paint arriving as one DATA frame. Wave 2 must confirm this before building it.
+- **First paint end marker:** core does not delimit the first paint, so Reader cuts at the paint's own end marker (see the First paint amendment in section 4). It relies on core 0.1.15's paint layout and must be re-checked for each new core version.
 - **No acknowledgement for raw input:** a Message is "accepted" once written to the core socket. The TUI's acknowledgement is not stronger in substance, but the wording must stay "sent to the terminal".
 - **Keys can wait up to ~3 s** under core's quiet rule while someone is typing in the app.
 - **Shared input:** the phone and the app window can type into the same terminal at once (approved, no note).
@@ -487,7 +487,7 @@ Wave 2 starts from the approved integrated wave 1b commit. With both Herdrs foll
   2. **Control**: Message sends text and Enter into Claude Code. Send keys sends Esc, Ctrl+C, the arrows, F5, Tab, an uppercase letter (as Shift) and a Super combination. Unsupported characters are not offered. The size follows the phone while it types and returns when the app window is used.
   3. **Release** goes back to observing, and the size is no longer the phone's once the app types. No **Take over** appears anywhere.
   4. Files: exact bytes are staged and their paths inserted, for a terminal with status. **Add files** is absent for a shell and for an agent on its trust prompt.
-  5. A `restarted` terminal ends the open stream honestly, and reopening shows the new shell. A closed space makes Terminal unavailable, with no fallback.
+  5. A `restarted` terminal ends the open stream honestly, and the page's existing reconnect then shows the new shell. A closed space makes Terminal unavailable, with no fallback.
   6. Reconnect, suspend, and a core restart recover with no input replay.
   7. TUI Terminal acceptance is unchanged.
 
