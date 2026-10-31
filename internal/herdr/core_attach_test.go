@@ -1,11 +1,16 @@
 package herdr
 
 import (
+	"bufio"
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"io"
+	"net"
 	"os"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -192,5 +197,62 @@ func TestReaderTextDropsCharacterSetChoices(t *testing.T) {
 	got := string(CoreReaderANSI([]byte("Esc to cancel\x1b[0m\x1b[11;2H\x1b(B\x1b[0m")))
 	if got != "Esc to cancel\x1b[0m\x1b[11;2H\x1b[0m" {
 		t.Fatalf("Reader text = %q", got)
+	}
+}
+
+// Core answers a program's colour queries from the viewer in use. Only a
+// controlling attach reports the browser's colours; an observer never does.
+func TestControlAttachReportsTheBrowserColours(t *testing.T) {
+	core, _ := newTestCore(t)
+	path := shortSocketPath(t)
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { listener.Close() })
+	attached := make(chan json.RawMessage, 2)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			reader := bufio.NewReader(conn)
+			if _, err := reader.ReadBytes('\n'); err != nil {
+				conn.Close()
+				continue
+			}
+			_ = json.NewEncoder(conn).Encode(map[string]any{"jsonrpc": "2.0", "id": 0, "result": core.hello})
+			frame, err := readCoreFrame(reader)
+			var call struct {
+				ID     uint64          `json:"id"`
+				Params json.RawMessage `json:"params"`
+			}
+			if err == nil && json.Unmarshal(frame.payload, &call) == nil {
+				attached <- call.Params
+				refused, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": call.ID, "error": map[string]any{"code": -32000, "message": "not_found", "data": map[string]any{"kind": "not_found"}}})
+				_, _ = conn.Write(encodeCoreFrame(0, coreFrameData, refused))
+			}
+			conn.Close()
+		}
+	}()
+	client := NewCoreClient(path, nil)
+	for _, observe := range []bool{false, true} {
+		if _, err := client.Attach(context.Background(), "t1", 80, 24, observe, false, 0); err == nil {
+			t.Fatal("attach succeeded against a refusing core")
+		}
+		var params struct {
+			Display map[string]string `json:"display"`
+		}
+		if err := json.Unmarshal(<-attached, &params); err != nil {
+			t.Fatal(err)
+		}
+		want := map[string]string{"bg": "#101715", "fg": "#e5e7df", "cursor": "#e89b73"}
+		if observe {
+			want = nil
+		}
+		if !reflect.DeepEqual(params.Display, want) {
+			t.Fatalf("observe %v: display = %v, want %v", observe, params.Display, want)
+		}
 	}
 }

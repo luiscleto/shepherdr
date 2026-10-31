@@ -37,6 +37,12 @@ const (
 // This relies on core 0.1.15 behaviour and is validated per version.
 var corePaintEndMarkers = [][]byte{[]byte("\x1b[?9001h"), []byte("\x1b[?9001l")}
 
+// coreBrowserDisplay is the browser terminal's own default colours
+// (web/src/terminal/xterm-adapter.ts). Core answers a program's colour
+// queries from the viewer that's in use, so a program asking while Shepherdr
+// controls learns the colours it is really drawn on.
+var coreBrowserDisplay = map[string]string{"bg": "#101715", "fg": "#e5e7df", "cursor": "#e89b73"}
+
 // CorePaintEnd returns the length of the first paint at the start of a fresh
 // attach stream, or -1 while the stream doesn't hold all of it yet.
 func CorePaintEnd(stream []byte) int {
@@ -170,6 +176,9 @@ func (a *CoreAttachment) open(c *CoreClient, address string, cols, rows int, obs
 		} `json:"terminal"`
 	}
 	params := map[string]any{"terminal": address, "cols": cols, "rows": rows, "observe": observe, "history": history}
+	if !observe {
+		params["display"] = coreBrowserDisplay
+	}
 	if err := a.setupCall("terminal.attach", params, &attached); err != nil {
 		return err
 	}

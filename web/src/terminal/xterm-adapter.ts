@@ -51,6 +51,8 @@ export class XTermAdapter implements TerminalAdapter {
       minimumContrastRatio: 4.5,
       screenReaderMode: true,
       scrollback: this.scrollback,
+      // A controlling Herdr Core attach reports this background, foreground
+      // and cursor (internal/herdr/core_attach.go); keep them the same.
       theme: {
         background: "#101715",
         foreground: "#e5e7df",
