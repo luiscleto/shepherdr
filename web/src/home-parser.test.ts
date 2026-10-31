@@ -6,6 +6,7 @@ import { parseCompleteHomeState } from "./home-parser.ts";
 function completeFrame(): Record<string, unknown> {
   return {
     core: {
+      can_open_terminals: false,
       connection: "not_running",
       gap: 0,
       has_home: false,
@@ -20,6 +21,7 @@ function completeFrame(): Record<string, unknown> {
 
 function completeSide(): Record<string, unknown> {
   return {
+    can_open_terminals: true,
     connection: "live",
     gap: 0,
     has_home: true,
@@ -155,4 +157,16 @@ test("requires exactly epoch, tui and core, each a complete state", () => {
   const brokenCore = completeFrame();
   (brokenCore.core as Record<string, unknown>).connection = "sleeping";
   assert.equal(parseCompleteHomeState(brokenCore), undefined);
+});
+
+test("reads whether each Herdr's terminals can open, and requires it", () => {
+  const parsed = parseCompleteHomeState(completeFrame());
+  assert.equal(parsed?.tui.can_open_terminals, true);
+  assert.equal(parsed?.core.can_open_terminals, false);
+  const missing = completeFrame();
+  delete tuiOf(missing).can_open_terminals;
+  assert.equal(parseCompleteHomeState(missing), undefined);
+  const wrongType = completeFrame();
+  (wrongType.core as Record<string, unknown>).can_open_terminals = "false";
+  assert.equal(parseCompleteHomeState(wrongType), undefined);
 });

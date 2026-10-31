@@ -577,12 +577,13 @@ function renderTerminal(route: TerminalRoute): void {
     renderTerminalUnavailable();
     return;
   }
-  if (route.herdr === "core") {
-    // Terminal on Herdr Core is not available yet.
+  const herdr = route.herdr;
+  // Shepherdr says in every Home message whether it can open this Herdr's
+  // terminals; until the first one arrives, the page waits as usual.
+  if (publishedStateSignature !== "" && !sides[herdr].can_open_terminals) {
     renderTerminalUnavailable(false);
     return;
   }
-  const herdr = route.herdr;
   const { paneID, terminalID: expectedTerminalID } = route;
   const current = findTerminal(sides[herdr].home, paneID);
   const selected = selectedTerminal?.terminal.pane_id === paneID && selectedTerminalHerdr === herdr ? selectedTerminal : undefined;

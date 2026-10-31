@@ -138,7 +138,7 @@ func TestTrialRetainedUploadStagesAndRollsBackOrRetainsUnknown(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(manager.Close)
-			application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, nil, bridge, false)
+			application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
 			application.ConfigureSignInOff()
 			application.SetFileUploads(manager, uploads.Limit{DecodedBytes: 32})
 			application.fileUploadState = bridge.targets
@@ -291,7 +291,7 @@ func TestTerminalFileRouteStagesOpaqueBytesAndSendsOneServerDerivedBatch(t *test
 		return terminalHelperCommand(ctx, append(arguments, "--record="+record)...)
 	}
 	manager := testUploadManager(t)
-	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, nil, bridge, false)
+	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
 	application.ConfigureSignInOff()
 	application.SetFileUploads(manager, uploads.Limit{DecodedBytes: 32})
 	application.fileUploadState = source
@@ -381,7 +381,7 @@ func TestTerminalFileRouteRevalidatesAgentAfterControlAndRollsBack(t *testing.T)
 		t.Fatal(err)
 	}
 	t.Cleanup(manager.Close)
-	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, nil, bridge, false)
+	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
 	application.ConfigureSignInOff()
 	application.SetFileUploads(manager, uploads.Limit{DecodedBytes: 32})
 	application.fileUploadState = source
@@ -464,7 +464,7 @@ func TestTerminalFileRouteRequiresRecognizedAgentAndExactJSONInSignInOff(t *test
 	source.publish(state)
 	bridge := testTerminalBridge(source)
 	defer bridge.Close()
-	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, nil, bridge, false)
+	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
 	application.ConfigureSignInOff()
 	application.SetFileUploads(testUploadManager(t), uploads.Limit{DecodedBytes: 32})
 	application.fileUploadState = source

@@ -48,11 +48,8 @@ func (s *Server) SetNotifications(manager *notifications.Manager) {
 
 // New serves Home from both Herdrs. projector follows the Herdr TUI and serves
 // everything else, which is Herdr TUI only; coreProjector follows herdr-core,
-// and nil means herdr-core is not followed.
+// or is herdr.NewNotFollowedProjector when herdr-core is not followed.
 func New(assets fs.FS, projector, coreProjector *herdr.Projector, terminal *TerminalBridge, terminalLabEnabled bool, actionClients ...*herdr.Client) *Server {
-	if coreProjector == nil {
-		coreProjector = herdr.NewNotFollowedProjector()
-	}
 	server := &Server{
 		assets:             assets,
 		epoch:              newServerEpoch(),
@@ -275,7 +272,12 @@ func (s *Server) homeSocket(writer http.ResponseWriter, request *http.Request) {
 	defer unsubscribeTUI()
 	coreUpdates, unsubscribeCore := s.coreProjector.Subscribe()
 	defer unsubscribeCore()
-	message := homeMessage{Epoch: s.epoch, TUI: <-tuiUpdates, Core: <-coreUpdates}
+	// Only Herdr TUI terminals can open, and only with a terminal bridge.
+	message := homeMessage{
+		Epoch: s.epoch,
+		TUI:   homeSide{State: <-tuiUpdates, CanOpenTerminals: s.terminal != nil},
+		Core:  homeSide{State: <-coreUpdates},
+	}
 	writeHome := func() error {
 		return withCommitAuthority(request, func() error { return writeJSON(connection, message) })
 	}
@@ -300,7 +302,7 @@ func (s *Server) homeSocket(writer http.ResponseWriter, request *http.Request) {
 			if !ok {
 				return
 			}
-			message.TUI = state
+			message.TUI.State = state
 			if err := writeHome(); err != nil {
 				return
 			}
@@ -308,7 +310,7 @@ func (s *Server) homeSocket(writer http.ResponseWriter, request *http.Request) {
 			if !ok {
 				return
 			}
-			message.Core = state
+			message.Core.State = state
 			if err := writeHome(); err != nil {
 				return
 			}
@@ -329,9 +331,16 @@ func (s *Server) homeSocket(writer http.ResponseWriter, request *http.Request) {
 }
 
 type homeMessage struct {
-	Epoch string      `json:"epoch"`
-	TUI   herdr.State `json:"tui"`
-	Core  herdr.State `json:"core"`
+	Epoch string   `json:"epoch"`
+	TUI   homeSide `json:"tui"`
+	Core  homeSide `json:"core"`
+}
+
+// homeSide is one Herdr's state and whether the Terminal page can open its
+// terminals.
+type homeSide struct {
+	herdr.State
+	CanOpenTerminals bool `json:"can_open_terminals"`
 }
 
 func sessionDone(lease *access.SessionLease) <-chan struct{} {

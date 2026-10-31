@@ -143,6 +143,7 @@ function groupedHome(): Home {
 
 function state(value = flatHome(), connection: HomeState["connection"] = "live"): HomeState {
   return {
+    can_open_terminals: true,
     connection,
     gap: 2,
     has_home: true,
@@ -261,6 +262,7 @@ test("Home shows one real initial or unavailable state with the transport-owned 
   const window = new Window({ url: "http://localhost/" });
   const { app, view } = makeView(window);
   const loading: HomeState = {
+    can_open_terminals: false,
     connection: "reconnecting",
     gap: 0,
     has_home: false,

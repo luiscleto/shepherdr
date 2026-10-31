@@ -68,14 +68,15 @@ Terms used below: **side** means one Herdr: `tui` (the Herdr TUI) or `core` (her
 
 ```json
 {"epoch": "…",
- "tui":  {"connection": "live", "gap": 3, "has_home": true, "herdr_version": "0.9.5",
+ "tui":  {"can_open_terminals": true, "connection": "live", "gap": 3, "has_home": true, "herdr_version": "0.9.5",
           "home": { …existing Home… }, "last_known": false},
- "core": {"connection": "not_running", "gap": 0, "has_home": false, "herdr_version": "",
+ "core": {"can_open_terminals": false, "connection": "not_running", "gap": 0, "has_home": false, "herdr_version": "",
           "home": {"workspaces": [], "working_count": 0, "blocked_count": 0, "error_count": 0},
           "last_known": false}}
 ```
 
 - Each side object is today's `State` without the wave 1 `herdr` field, which goes away because the key names the side. `detail` stays optional.
+- `can_open_terminals` (required) says whether that side's terminals can open. The Herdr TUI's is true when the TUI terminal bridge exists, and false when `herdr` isn't on `PATH`. Herdr Core's is false until wave 2 (10.2). When it is false, the Terminal page shows the existing **Terminal unavailable** at once, without "This terminal is no longer here.". This is the one rule for both sides; the Terminal page reads no HTTP status. (Added after the wave 1b review, open question 1.)
 - The parser requires exactly `epoch`, `tui` and `core`, and parses each side with today's exact-key rules.
 - **Why both Homes and not just the selected one:** the browser needs the other side to decide presence and the switch, to open a notification for the other side (the Terminal route checks that side's Home), and to switch with no Loading flash. A server-side selection would need a client-to-server message and per-connection state, which is the machinery AGENTS.md says to avoid. The cost is about double the Home bytes per update, which is small next to terminal traffic.
 - `gap` and `last_known` are per side and mean what they mean today.
@@ -435,7 +436,7 @@ Wave 2 later removes "Opening a terminal is not available yet".
   - `/api/terminal`, `/api/terminal/read` and `/api/terminal/files` take a required `herdr` parameter. The server routes to the TUI bridge or the new core bridge, each checking targets against its own projector.
   - Terminal routes are registered when either bridge exists. The core bridge needs no `herdr` binary.
   - The second upload manager (`uploads-core.json`), wired only to the core projector, with the **Other terminals** rule (D5). File-send agent presence for core = a non-null status, as plan 4 already says. `Status.Valid()` currently rejects `error`; the review note stands.
-  - Delete the 1b `core` route → **Terminal unavailable** branch.
+  - Core's `can_open_terminals` (section 2) becomes true when the core bridge exists, as the TUI's already is with its bridge.
   - README and CHANGELOG drop "not available yet".
 - **Added acceptance:**
   - With both running, a TUI terminal and a core terminal are open in two tabs at once, each controlling its own. Notification taps from each side open the right one.

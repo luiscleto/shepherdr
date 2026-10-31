@@ -59,6 +59,9 @@ export interface Home {
 
 // HomeState is one Herdr's state. Each Home message carries both.
 export interface HomeState {
+  // can_open_terminals says whether the Terminal page can open this Herdr's
+  // terminals.
+  can_open_terminals: boolean;
   connection: Connection;
   detail?: string;
   gap: number;
@@ -81,6 +84,7 @@ export const herdrNames: Readonly<Record<Herdr, string>> = { tui: "Herdr TUI", c
 
 export function emptyHomeState(): HomeState {
   return {
+    can_open_terminals: false,
     connection: "reconnecting",
     gap: 0,
     has_home: false,

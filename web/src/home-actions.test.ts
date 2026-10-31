@@ -121,7 +121,7 @@ function terminalHome(): Home {
 }
 
 function state(home = actionHome()): HomeState {
-  return { connection: "live", gap: 0, has_home: true, herdr_version: "0.8.0", home, last_known: false };
+  return { can_open_terminals: true, connection: "live", gap: 0, has_home: true, herdr_version: "0.8.0", home, last_known: false };
 }
 
 interface ViewOverrides {

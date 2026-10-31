@@ -178,15 +178,16 @@ function parseHomeState(value: unknown): HomeState | undefined {
   const state = record(value);
   if (!state || !exactKeys(
     state,
-    ["connection", "gap", "has_home", "herdr_version", "home", "last_known"],
+    ["can_open_terminals", "connection", "gap", "has_home", "herdr_version", "home", "last_known"],
     ["detail"],
-  ) || typeof state.connection !== "string" || !connections.has(state.connection as HomeState["connection"]) ||
+  ) || typeof state.can_open_terminals !== "boolean" || typeof state.connection !== "string" || !connections.has(state.connection as HomeState["connection"]) ||
     !nonnegativeInteger(state.gap) || typeof state.has_home !== "boolean" ||
     typeof state.herdr_version !== "string" || typeof state.last_known !== "boolean" ||
     (Object.hasOwn(state, "detail") && typeof state.detail !== "string")) return undefined;
   const home = parseHome(state.home);
   if (!home) return undefined;
   return {
+    can_open_terminals: state.can_open_terminals,
     connection: state.connection as HomeState["connection"],
     gap: state.gap,
     has_home: state.has_home,

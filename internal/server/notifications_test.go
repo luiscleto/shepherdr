@@ -9,6 +9,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/luiscleto/shepherdr/internal/herdr"
 	"github.com/luiscleto/shepherdr/internal/notifications"
 )
 
@@ -18,7 +19,7 @@ func TestNotificationRoutesRequireStrictSameOriginJSONAndExposeNoSecrets(t *test
 		t.Fatal(err)
 	}
 	manager := notifications.NewManager(store, nil)
-	application := New(nil, nil, nil, nil, false)
+	application := New(nil, nil, herdr.NewNotFollowedProjector(), nil, false)
 	application.SetNotifications(manager)
 	handler := application.Handler()
 
@@ -76,7 +77,7 @@ func TestNotificationSettingsReadDefaultsAndRemoveOnlyExactBrowser(t *testing.T)
 		t.Fatal(err)
 	}
 	manager := notifications.NewManager(store, nil)
-	application := New(nil, nil, nil, nil, false)
+	application := New(nil, nil, herdr.NewNotFollowedProjector(), nil, false)
 	application.SetNotifications(manager)
 	handler := application.Handler()
 
@@ -110,7 +111,7 @@ func TestNotificationSettingsReadDefaultsAndRemoveOnlyExactBrowser(t *testing.T)
 func TestWebManifestUsesItsStandardsMediaType(t *testing.T) {
 	application := New(fstest.MapFS{
 		"manifest.webmanifest": {Data: []byte(`{"name":"Shepherdr"}`)},
-	}, nil, nil, nil, false)
+	}, nil, herdr.NewNotFollowedProjector(), nil, false)
 	request := httptest.NewRequest(http.MethodGet, "http://localhost/manifest.webmanifest", nil)
 	response := httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
