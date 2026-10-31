@@ -161,15 +161,15 @@ The existing two-step flow is reused: **prepare** (a fresh complete core read, t
 
 **Close terminal: target and facts.**
 - Target: `{workspace_id: space id, tab_id, pane_id: address, terminal_id: core.id:address}`. It must resolve exactly in a fresh core projection: same space, same tab, address live, `terminal_id` equal.
-- `closes_tab`: no other terminal Home shows in that tab would remain. This counts the target's workers that end with it (`die_with_parent: true` down the chain).
+- `closes_tab`: no other terminal Home shows in that tab would remain. "Remain" means what Home would show after the kill: the target's workers that end with it (`die_with_parent: true` down the chain) go, and a worker that outlives its placed parent moves to **Other terminals**, so it keeps nothing alive.
 - If none would remain in the **space**, the facts carry the space's close facts, and the confirmation is the Close space one. This is the TUI's last-pane rule.
 - Workers that end with it are counted (see the copy in 4.4).
 
 **Close terminal: mutation.** One `terminal.kill {terminal: address}`. The address only, never a name.
 
 **Close space: mutation.**
-- Kill every live terminal that Home shows in the space, workers included (one `terminal.kill` each, one after another). Workers go first, deepest first across the space, so each ends before the terminal that started it; otherwise the order is Home order. Only terminals Home shows in this space are killed: a sub-agent the app placed in another space, or one under **Other terminals**, is left running.
-- A child that has already ended with its parent is skipped when the next fresh check finds it finished. Kill returns finished records anyway, so this is harmless.
+- Kill every live terminal that Home shows in the space, workers included (one `terminal.kill` each, one after another). Workers go first, deepest first across the space, so each ends before the terminal that started it; otherwise the order is Home order. Only terminals Home shows in this space are killed: a sub-agent the app placed in another space, or one under **Other terminals**, is left running unless it ends with its parent (`die_with_parent`), which core decides.
+- A terminal that has already ended, on its own or with its parent, is skipped when the next fresh check finds it finished. Kill returns finished records anyway, so this is harmless.
 
 **Close space: confirmation.** It reuses the workspace confirmation facts: `workspace_label`, `scope_workspace_ids: [space id]`, `agent_total`, `interruption_counts`. In core mode the counts add `error`; the Herdr TUI always sends 0 for it.
 
@@ -251,7 +251,7 @@ There is no retry, and Shepherdr never sends `confirmed` for anything except `sp
 | Close terminal copy | "Closing this terminal stops what is running there. {Agent} is {status}. The {tab} tab will also close." | the same, plus **"N terminals it started will also close."** when workers end with it (new sentence, needs approval) |
 | Working headings | Checking workspace / Closing workspace | **Checking space / Closing space** |
 | Results | Workspace closed: "Its folder and branch remain. Home will update when it is ready." (via Close terminal: "Its terminals are closed. The folder and branch remain.") | **Space closed**: "Its folder and branch remain. Home will update when it is ready." in both cases, because a Close space through the app finishes its kills after the reply |
-| Refusals | "This workspace is no longer here." / "This workspace changed. Open the action again to check the latest details." / "Another workspace action is running. Try again when it finishes." | **space** in place of workspace |
+| Refusals | "This workspace is no longer here." / "This workspace changed. Open the action again to check the latest details." / "Another workspace action is running. Try again when it finishes." | **space** in place of workspace; a Close terminal whose terminal is gone says "This terminal is no longer here." |
 | New refusal (3b) | — | `app_closed`: **"The Herdr app window is closed. Open it on the computer, then try again."** |
 | New space sheet | "Add a workspace for an existing folder." / Working directory / Label (optional) / Create space; suggestions from repository checkouts | "Add a **space** for an existing folder." The fields and button are unchanged. **No suggestions**: core has no checkout paths. |
 | New space result | Space created: "Home will update when the new space is ready." | unchanged |
@@ -322,7 +322,7 @@ Section 3.5, replaced:
 ### 3.5 Actions in core mode
 
 Shown, through core, whenever core Home is live (the app window open or closed):
-- **Close terminal**: `terminal.kill` on the exact address. The confirmation is the TUI's, plus "N terminals it started will also close." when workers end with it. If it is the space's last terminal, the confirmation is Close space's.
+- **Close terminal**: `terminal.kill` on the exact address. The confirmation is the TUI's, plus "N terminals it started will also close." when workers end with it. If nothing else Home shows would remain in the space, the confirmation is Close space's, and confirming closes everything shown in the space, as the TUI does for a last pane.
 - **Close space**: `terminal.kill` on every live terminal Home shows in the space, workers included. The confirmation is the TUI's Close workspace one in space words, never naming linked workspaces, with `error` in the interruption warning. **Other terminals** has no space actions.
 
 Shown only while the Herdr app window is open (wave 3b; `herdr-app do`, see section 4b):
