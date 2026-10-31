@@ -261,7 +261,7 @@ These are hidden in core mode, because core has no key for them:
 
 The Character field only accepts the characters in the table. Any other input gets the inline note "Herdr can't send this key." and Send stays unavailable.
 
-The existing Super note stays: it reaches only programs that turned on enhanced keyboard input. Core refuses a combination it can't encode with `invalid_params` → **not sent** (existing result).
+The existing Super note stays: it reaches only programs that turned on enhanced keyboard input. Core refuses a combination it can't encode for the program's current keyboard mode with `invalid_params`; Shepherdr shows "This program can't receive that key combination right now." (see section 5).
 
 ---
 
