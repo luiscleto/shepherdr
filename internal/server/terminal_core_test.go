@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/luiscleto/shepherdr/internal/herdr"
 )
@@ -102,5 +103,44 @@ func TestCoreFileTargetsNeedAStatusAndAListedGroup(t *testing.T) {
 	state.LastKnown = true
 	if _, ok := resolveCoreUploadTarget(state, "sp1", "t1", "c:t1"); ok {
 		t.Fatal("a last-known Home must not accept files")
+	}
+}
+
+func TestCoreTargetStaysCurrentWhenTheAppMovesTheTerminal(t *testing.T) {
+	home := func(lastKnown bool, workspace, tab, terminal string) herdr.State {
+		return herdr.State{Connection: herdr.ConnectionLive, LastKnown: lastKnown, Snapshot: herdr.Snapshot{
+			Panes: []herdr.PaneInfo{{WorkspaceID: workspace, TabID: tab, PaneID: "t1", TerminalID: terminal}},
+		}}
+	}
+	source := newFakeTerminalStateSource(home(false, "sp1", "tb1", "c:t1"))
+	lease, ok := acquireTerminalTarget(t.Context(), source, coreTerminalTargetFromState, "t1", "c:t1")
+	if !ok {
+		t.Fatal("a listed core terminal must be a target")
+	}
+	defer lease.Close()
+	results := []string{}
+	for _, state := range []herdr.State{
+		home(false, "sp1", "tb2", "c:t1"),                                                                // another tab
+		home(false, "sp2", "tb3", "c:t1"),                                                                // another space
+		home(false, herdr.OtherTerminalsID, herdr.OtherTerminalsID, "c:t1"),                              // out of every space
+		home(false, "sp1", "tb1", "c:t1"),                                                                // placed in a space again
+		home(true, "sp1", "tb1", "c:t1"),                                                                 // last-known Home
+		home(false, "sp1", "tb1", "c:other"),                                                             // another terminal at the address
+		{Connection: herdr.ConnectionReconnecting, Snapshot: home(false, "sp1", "tb1", "c:t1").Snapshot}, // Home not live
+	} {
+		results = append(results, map[bool]string{true: "current", false: "-"}[lease.target.matches(state, coreTerminalTargetFromState)])
+	}
+	if got, want := strings.Join(results, ","), "current,current,current,current,-,-,-"; got != want {
+		t.Fatalf("after each Home: %s, want %s", got, want)
+	}
+	source.publish(home(false, "sp2", "tb3", "c:t1"))
+	if !lease.Valid() {
+		t.Fatal("moving the terminal to another space must not end its stream")
+	}
+	source.publish(home(false, "sp2", "tb3", "c:other"))
+	select {
+	case <-lease.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a replaced terminal must end the stream")
 	}
 }

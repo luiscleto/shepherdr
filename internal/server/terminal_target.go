@@ -69,16 +69,15 @@ func terminalTargetFromState(state herdr.State, pane, terminal string) (terminal
 
 // coreTerminalTargetFromState is the Herdr Core target rule: Home is live and
 // current, and still holds this address with the same terminal identity.
-// Core has no layout rectangles to check.
+// Core has no layout rectangles to check, and the target has no space or
+// tab, so a terminal the app moves to another tab or space stays current.
 func coreTerminalTargetFromState(state herdr.State, pane, terminal string) (terminalTarget, bool) {
 	if state.Connection != herdr.ConnectionLive || state.LastKnown {
 		return terminalTarget{}, false
 	}
 	for _, candidate := range state.Snapshot.Panes {
 		if candidate.PaneID == pane && candidate.TerminalID == terminal {
-			return terminalTarget{
-				workspace: candidate.WorkspaceID, tab: candidate.TabID, generation: state.Gap, pane: pane, terminal: terminal,
-			}, true
+			return terminalTarget{generation: state.Gap, pane: pane, terminal: terminal}, true
 		}
 	}
 	return terminalTarget{}, false
