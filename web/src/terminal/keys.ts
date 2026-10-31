@@ -1,7 +1,8 @@
 export const keyModifiers = ["ctrl", "alt", "shift", "super"] as const;
 export type KeyModifier = typeof keyModifiers[number];
 export type KeySelection = { base: string } & Partial<Record<KeyModifier, boolean>>;
-export type KeyResult = "accepted" | "not_sent" | "unknown";
+// refused: Herdr Core turned the key down for the program's keyboard mode.
+export type KeyResult = "accepted" | "not_sent" | "refused" | "unknown";
 
 export const commonKeys = [
   ["esc", "Esc"], ["tab", "Tab"], ["enter", "Enter"], ["backspace", "Backspace"],

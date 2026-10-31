@@ -7,10 +7,10 @@ import type { TerminalAdapterEvents } from "./terminal/adapter";
 // Bundle the real page and adapter as the browser does: xterm's published UMD
 // package cannot be loaded as named Node ESM imports. Only geometry is stubbed.
 const bundle = await build({
-  stdin: { contents: 'export { TerminalPage } from "./terminal-page"; export { XTermAdapter } from "./terminal/xterm-adapter";', resolveDir: `${process.cwd()}/src` },
+  stdin: { contents: 'export { closeTerminalWhileCached, TerminalPage } from "./terminal-page"; export { XTermAdapter } from "./terminal/xterm-adapter";', resolveDir: `${process.cwd()}/src` },
   bundle: true, format: "esm", write: false,
 });
-const { TerminalPage, XTermAdapter } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString("base64")}`);
+const { closeTerminalWhileCached, TerminalPage, XTermAdapter } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString("base64")}`);
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
@@ -219,6 +219,44 @@ test("a Herdr Core terminal opens controlling, releases to observing without Tak
   sockets[1].frame();
   assert.equal(control.textContent, "Control");
   assert.equal(host.textContent?.includes("Take over"), false);
+});
+
+test("a key combination Herdr Core refuses says the program can't receive it, and other not-sent keys still say Check control", async t => {
+  const { host, sockets } = pageBrowser(t, true, undefined, "core");
+  await tick(); sockets[0].frame();
+  Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === "Send keys")!.click();
+  const sheet = host.querySelector<HTMLDialogElement>(".keys-sheet")!;
+  const pick = (text: string) => Array.from(sheet.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === text)!;
+  pick("Ctrl").click(); pick("Backspace").click();
+  pick("Send Ctrl + Backspace").click();
+  sockets[0].message({ type: "terminal.key-result", request_id: 1, result: "refused" });
+  assert.equal(sheet.open, true);
+  assert.equal(sheet.querySelector(".keys-feedback")!.textContent, "This program can't receive that key combination right now.");
+  assert.equal(pick("Send Ctrl + Backspace").disabled, false);
+  pick("Send Ctrl + Backspace").click();
+  sockets[0].message({ type: "terminal.key-result", request_id: 2, result: "not_sent" });
+  assert.equal(sheet.querySelector(".keys-feedback")!.textContent, "Key not sent. Check control and try again.");
+  assert.equal(sockets.length, 1);
+});
+
+test("a page kept for Back releases control and closes its terminal, and reopens it on return", async t => {
+  const { host, browser, sockets, page } = pageBrowser(t, true);
+  await tick(); sockets[0].frame();
+  let reopened = 0;
+  closeTerminalWhileCached(browser, () => page.destroy(), () => reopened++);
+  const transition = (type: string, persisted: boolean) => {
+    const event = new browser.Event(type);
+    Object.defineProperty(event, "persisted", { value: persisted });
+    browser.dispatchEvent(event);
+  };
+  transition("pagehide", false);
+  transition("pageshow", false);
+  assert.equal(`${sockets[0].readyState} ${sockets[0].commands.length} ${reopened}`, "1 0 0");
+  transition("pagehide", true);
+  assert.equal(`${sockets[0].readyState} ${JSON.stringify(sockets[0].commands)}`, '3 [{"type":"terminal.release"}]');
+  assert.equal(host.childElementCount, 0);
+  transition("pageshow", true);
+  assert.equal(`${reopened} ${sockets.length}`, "1 1");
 });
 
 test("Reader history banner opens the same Terminal view and remembers it without stream commands", async t => {

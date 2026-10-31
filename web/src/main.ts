@@ -34,7 +34,7 @@ import {
   type TerminalEntry,
 } from "./home-model";
 import { parseCompleteHomeState } from "./home-parser";
-import { TerminalPage } from "./terminal-page";
+import { closeTerminalWhileCached, TerminalPage } from "./terminal-page";
 import { parseTerminalRoute, returningToHome, terminalHash, terminalRouteOutcome, type TerminalRoute } from "./terminal-route";
 import { WorkspaceActionsClient } from "./workspace-actions";
 import { TerminalActionsClient, type TerminalActionTarget } from "./terminal-actions";
@@ -675,6 +675,12 @@ window.addEventListener("offline", () => homeResumeTracker.markNonForeground());
 window.addEventListener("online", resumeHome);
 window.addEventListener("pagehide", () => homeResumeTracker.markNonForeground());
 window.addEventListener("pageshow", resumeHome);
+closeTerminalWhileCached(window, () => {
+  terminalPage?.destroy();
+  terminalPage = undefined;
+}, () => {
+  if (terminalPaneFromHash()) render();
+});
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible") {
     homeResumeTracker.markNonForeground();

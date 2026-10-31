@@ -1,6 +1,8 @@
 package server
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +12,24 @@ import (
 
 	"github.com/luiscleto/shepherdr/internal/herdr"
 )
+
+func TestCoreKeyRefusalIsOnlyCoreTurningTheKeyDown(t *testing.T) {
+	for _, test := range []struct {
+		err  error
+		want bool
+	}{
+		{&herdr.APIError{Code: "invalid_params", Message: `unknown key "ctrl+super+c"`}, true},
+		{fmt.Errorf("send: %w", &herdr.APIError{Code: "invalid_params"}), true},
+		{&herdr.APIError{Code: "not_found"}, false},
+		{herdr.ErrCoreKeysUnconfirmed, false},
+		{errors.New("terminal unavailable"), false},
+		{nil, false},
+	} {
+		if got := coreKeyRefused(test.err); got != test.want {
+			t.Errorf("coreKeyRefused(%v) = %v; want %v", test.err, got, test.want)
+		}
+	}
+}
 
 func TestCoreKeyNamesFollowTheCoreTable(t *testing.T) {
 	for _, test := range []struct {

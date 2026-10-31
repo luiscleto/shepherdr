@@ -287,6 +287,9 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 				if result.outcome == terminalBatchUnknown {
 					outcome = "unknown"
 				}
+				if coreKeyRefused(result.err) {
+					outcome = "refused"
+				}
 				if err := withCommitAuthority(request, func() error {
 					return writeJSON(connection, map[string]any{"type": "terminal.key-result", "request_id": result.command.requestID, "result": outcome})
 				}); err != nil {
@@ -402,6 +405,13 @@ func (bridge *CoreTerminalBridge) sendKey(request *http.Request, session *coreLi
 		return terminalBatchNotSent, err
 	}
 	return terminalBatchUnknown, err
+}
+
+// coreKeyRefused reports core turning a key down as invalid for the
+// program's current keyboard mode, such as ctrl+super+c in an ordinary shell.
+func coreKeyRefused(err error) bool {
+	var apiError *herdr.APIError
+	return errors.As(err, &apiError) && apiError.Code == "invalid_params"
 }
 
 // coreCommandBytes turns a validated browser command into the raw bytes to

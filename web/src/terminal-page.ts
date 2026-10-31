@@ -42,6 +42,13 @@ function action(text: string, run: () => void, className?: string): HTMLButtonEl
   return node;
 }
 
+// A page the browser keeps for Back must not hold its terminal open. Leaving
+// closes the terminal page as any leave does, and returning opens it again.
+export function closeTerminalWhileCached(target: Window, close: () => void, reopen: () => void): void {
+  target.addEventListener("pagehide", event => { if ((event as PageTransitionEvent).persisted) close(); });
+  target.addEventListener("pageshow", event => { if ((event as PageTransitionEvent).persisted) reopen(); });
+}
+
 export class TerminalPage {
   readonly paneID: string;
   readonly terminalID: string;

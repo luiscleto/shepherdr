@@ -20,6 +20,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ### Fixed
 
+- Leaving a terminal page for another page no longer keeps control of the terminal, or its size, while the browser holds the page for **Back**. Going back opens the terminal again as usual. As with any other leave, unsent text and files in **Message** are not kept.
 - **Delete checkout** no longer says "and 0 agents" when a checkout has no agents.
 - When nothing is open, **No terminals** now shows below the filter, where the list goes.
 

@@ -301,6 +301,8 @@ TUI mode copy is unchanged. In core mode:
 | Observing hint | "Use Control first." / "Use Take over first." | "Use Control first." only |
 | Send keys, unsupported character | (n/a) | "Herdr can't send this key." |
 | Send keys, Character help line | "Type one character, including a space or +." | "Type one character, including a space." |
+| Send keys, a combination core refuses for the program's keyboard mode (`invalid_params` from `terminal.keys`, such as Ctrl + Super + c in an ordinary shell) | (n/a) | "This program can't receive that key combination right now." The combinations stay offered: they work once a program turns on enhanced keyboard input. |
+| Send keys, any other key not sent | "Key not sent. Check control and try again." | unchanged |
 | Connection badge | Live, Reconnecting, Offline, Herdr is not running, Cannot use this Herdr | unchanged |
 | Empty Home | No terminals / Herdr is running, but nothing is open. | unchanged |
 

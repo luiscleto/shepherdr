@@ -110,7 +110,7 @@ function parseNonFrameMessage(value: unknown): TerminalServerMessage {
   if (!value || typeof value !== "object") throw new Error("terminal message is not an object");
   const message = value as Record<string, unknown>;
   if (message.type === "terminal.key-result" && exactKeys(message, ["type", "request_id", "result"]) &&
-    positiveSafeInteger(message.request_id) && typeof message.result === "string" && ["accepted", "not_sent", "unknown"].includes(message.result)) return message as unknown as TerminalKeyResult;
+    positiveSafeInteger(message.request_id) && typeof message.result === "string" && ["accepted", "not_sent", "refused", "unknown"].includes(message.result)) return message as unknown as TerminalKeyResult;
   if (message.type === "terminal.controller" && exactKeys(message, ["type", "handle"]) &&
     typeof message.handle === "string" && /^[a-f0-9]{64}$/.test(message.handle)) return message as unknown as TerminalController;
   if (message.type === "terminal.heartbeat" && exactKeys(message, ["type"])) {

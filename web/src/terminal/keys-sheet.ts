@@ -100,7 +100,10 @@ export class KeysSheet {
 
   result(result: KeyResult): void {
     this.#uncertain = result === "unknown";
-    this.#feedback.textContent = result === "accepted" ? "" : result === "not_sent" ? "Key not sent. Check control and try again." : "Could not confirm the key. Check the terminal before sending again.";
+    this.#feedback.textContent = result === "accepted" ? ""
+      : result === "not_sent" ? "Key not sent. Check control and try again."
+      : result === "refused" ? "This program can't receive that key combination right now."
+      : "Could not confirm the key. Check the terminal before sending again.";
     if (result !== "accepted") {
       if (this.#editing) { this.#editing = false; this.#render(); }
       this.open();
