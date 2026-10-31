@@ -2,7 +2,12 @@ export function returningToHome(previousPane: string | undefined, nextPane: stri
   return previousPane !== undefined && nextPane === undefined;
 }
 
+import type { Herdr } from "./home-model";
+
 export interface TerminalRoute {
+  // herdr names the Herdr that holds the terminal. A link without it is from
+  // the Herdr TUI; any other value names no Herdr.
+  herdr: Herdr | "unknown";
   paneID: string;
   terminalID?: string;
 }
@@ -13,7 +18,14 @@ export function parseTerminalRoute(hash: string): TerminalRoute | undefined {
   const paneID = parameters.get("terminal");
   const terminalID = parameters.get("terminal_id");
   if (!paneID) return undefined;
-  return { paneID, ...(terminalID ? { terminalID } : {}) };
+  const named = parameters.get("herdr") ?? "tui";
+  const herdr = named === "tui" || named === "core" ? named : "unknown";
+  return { herdr, paneID, ...(terminalID ? { terminalID } : {}) };
+}
+
+export function terminalHash(herdr: Herdr, paneID: string, terminalID?: string): string {
+  const terminal = terminalID === undefined ? "" : `&terminal_id=${encodeURIComponent(terminalID)}`;
+  return `terminal=${encodeURIComponent(paneID)}${terminal}&herdr=${herdr}`;
 }
 
 export type TerminalRouteOutcome = "current" | "selected" | "unavailable" | "waiting";

@@ -17,17 +17,25 @@ import {
 import {
   allTerminals,
   automaticAllTerminalsPlace,
+  chooseHerdr,
+  emptyHomeState,
   findTerminal,
+  herdrPresent,
+  herdrSwitchShown,
+  readRememberedHerdr,
+  rememberHerdr,
   terminalCount,
   viewCount,
+  type Herdr,
   type HomeMode,
   type HomePlace,
+  type HomeSides,
   type HomeState,
   type TerminalEntry,
 } from "./home-model";
 import { parseCompleteHomeState } from "./home-parser";
 import { TerminalPage } from "./terminal-page";
-import { parseTerminalRoute, returningToHome, terminalRouteOutcome } from "./terminal-route";
+import { parseTerminalRoute, returningToHome, terminalHash, terminalRouteOutcome, type TerminalRoute } from "./terminal-route";
 import { WorkspaceActionsClient } from "./workspace-actions";
 import { TerminalActionsClient, type TerminalActionTarget } from "./terminal-actions";
 import { NotificationsController } from "./notifications";
@@ -57,20 +65,19 @@ if (!accessNode) throw new Error("Access root is missing");
 const workspaceActions = new WorkspaceActionsClient();
 const terminalActions = new TerminalActionsClient();
 
-let state: HomeState = {
-  connection: "reconnecting",
-  gap: 0,
-  has_home: false,
-  herdr: "tui",
-  herdr_version: "",
-  home: { blocked_count: 0, error_count: 0, working_count: 0, workspaces: [] },
-  last_known: false,
-};
+// Each Home message carries both Herdrs. Home shows one of them; the other is
+// kept for the switch, notification settings and terminal links.
+let sides: HomeSides = { core: emptyHomeState(), tui: emptyHomeState() };
+// shownHerdr stays undefined until both Herdrs are settled (Loading terminals).
+let shownHerdr: Herdr | undefined;
+let rememberedHerdr = readRememberedHerdr(() => window.localStorage);
+const loadingState = emptyHomeState();
 const homeConnections = new HomeConnectionOwner<WebSocket>();
 const homeResumeTracker = new HomeResumeTracker();
 let homeTimer: number | undefined;
 let lastValidHomeFrameAt = performance.now();
 let selectedTerminal: TerminalEntry | undefined;
+let selectedTerminalHerdr: Herdr | undefined;
 let homeScroll = 0;
 let homeFocusPane: string | undefined;
 let homeFocusWorkspace: string | undefined;
@@ -85,6 +92,7 @@ let homeMode: HomeMode = "all";
 let restoreHomePlace = false;
 let publishedStateSignature = "";
 let renderedTerminalPane: string | undefined;
+let renderedTerminalHerdr: TerminalRoute["herdr"] | undefined;
 let terminalPage: TerminalPage | undefined;
 type AppAccessMode = HomeAccessMode;
 let trustRoute = hasInvitationFragment(window.location.hash);
@@ -121,6 +129,7 @@ const homeView = new HomeView(app, {
   onShowAll: showAllTerminals,
   onShowBlocked: () => showStatusTerminals("blocked"),
   onShowError: () => showStatusTerminals("error"),
+  onShowHerdr: switchHerdr,
   prepareWorkspaceAction: (request) => workspaceActions.prepare(request),
   runWorkspaceAction: (request) => workspaceActions.run(request),
   prepareTerminalAction: (request) => terminalActions.prepare(request),
@@ -178,13 +187,12 @@ function activateHomeSocket(socket: WebSocket): void {
       if (!completeState) throw new Error("invalid Home frame");
       homeConnections.recordValidFrame(socket);
       lastValidHomeFrameAt = now;
-      const next = completeState;
-      const changed = raw !== publishedStateSignature ||
-        state.connection !== next.connection || state.last_known !== next.last_known;
-      state = next;
+      const changed = raw !== publishedStateSignature;
+      sides = { core: completeState.core, tui: completeState.tui };
       publishedStateSignature = raw;
-      notifications.setHerdr(state.herdr);
-      if (changed || !wasCurrent) render();
+      notifications.setPresent({ core: herdrPresent(sides.core), tui: herdrPresent(sides.tui) });
+      const shownChanged = settleShownHerdr();
+      if (changed || shownChanged || !wasCurrent) render();
       scheduleHomeCheck();
     } catch {
       socket.close();
@@ -233,8 +241,50 @@ function cancelAccessProbe(): void {
   accessProbePending = false;
 }
 
-function liveActionsAvailable(): boolean {
+function shownState(): HomeState {
+  return shownHerdr === undefined ? loadingState : sides[shownHerdr];
+}
+
+function liveActionsAvailable(herdr: Herdr | undefined = shownHerdr): boolean {
+  if (herdr === undefined) return false;
+  const state = sides[herdr];
   return (accessMode === "active" || accessMode === "sign-in-off") && state.has_home && homeEvidenceCurrent() && state.connection === "live" && !state.last_known;
+}
+
+// settleShownHerdr picks the Herdr Home shows once both are settled, and again
+// only if the shown one is no longer present. It reports a change.
+function settleShownHerdr(): boolean {
+  if (shownHerdr !== undefined && herdrPresent(sides[shownHerdr])) return false;
+  const next = chooseHerdr(sides, rememberedHerdr);
+  if (next === shownHerdr) return false;
+  showHerdr(next);
+  return true;
+}
+
+// showHerdr changes the shown Herdr. The two are different lists, so Home
+// returns to all terminals and forgets places kept for the other one.
+function showHerdr(herdr: Herdr | undefined): void {
+  shownHerdr = herdr;
+  homeMode = "all";
+  allTerminalsScroll = 0;
+  allTerminalsFocusPane = undefined;
+  allTerminalsFocusWorkspace = undefined;
+  lastFocusedHomePane = undefined;
+  lastFocusedHomeWorkspace = undefined;
+}
+
+function switchHerdr(herdr: Herdr): void {
+  if (herdr === shownHerdr) return;
+  rememberedHerdr = herdr;
+  rememberHerdr(() => window.localStorage, herdr);
+  showHerdr(herdr);
+  homeScroll = 0;
+  homeFocusPane = undefined;
+  homeFocusWorkspace = undefined;
+  homeAnchorTop = undefined;
+  homeHadListFocus = false;
+  restoreHomePlace = true;
+  renderHome();
 }
 
 function homeReachability(): HomeReachability {
@@ -305,10 +355,23 @@ function render(): void {
   }
   const route = parseTerminalRoute(window.location.hash);
   const paneID = route?.paneID;
-  if (returningToHome(renderedTerminalPane, paneID)) restoreHomePlace = true;
+  if (returningToHome(renderedTerminalPane, paneID)) {
+    restoreHomePlace = true;
+    // Home from a terminal shows that terminal's Herdr for this visit.
+    const from = renderedTerminalHerdr;
+    if (from !== undefined && from !== "unknown" && from !== shownHerdr && shownHerdr !== undefined && herdrPresent(sides[from])) {
+      showHerdr(from);
+      homeScroll = 0;
+      homeFocusPane = renderedTerminalPane;
+      homeFocusWorkspace = undefined;
+      homeAnchorTop = undefined;
+      homeHadListFocus = true;
+    }
+  }
   renderedTerminalPane = paneID;
-  if (paneID) {
-    renderTerminal(paneID, route.terminalID);
+  renderedTerminalHerdr = route?.herdr;
+  if (route) {
+    renderTerminal(route);
   } else {
     renderHome();
   }
@@ -317,6 +380,7 @@ function render(): void {
 function renderHome(): void {
   terminalPage?.destroy();
   terminalPage = undefined;
+  const state = shownState();
   const automaticPlace = automaticAllTerminalsPlace(homeMode, viewCount(homeMode, state.home), {
     focusPane: allTerminalsFocusPane,
     focusWorkspace: allTerminalsFocusWorkspace,
@@ -326,6 +390,8 @@ function renderHome(): void {
   document.body.classList.remove("terminal-active");
   homeView.render({
     actionsAvailable: liveActionsAvailable(),
+    herdr: shownHerdr ?? "tui",
+    herdrSwitch: shownHerdr !== undefined && herdrSwitchShown(sides),
     mode: homeMode,
     reachability: homeReachability(),
     signInOff: accessMode === "sign-in-off",
@@ -412,17 +478,11 @@ function accessSignedOut(): void {
   window.clearTimeout(homeTimer);
   homeTimer = undefined;
   homeAuthorityReady = false;
-  state = {
-    connection: "reconnecting",
-    gap: 0,
-    has_home: false,
-    herdr: "tui",
-    herdr_version: "",
-    home: { blocked_count: 0, error_count: 0, working_count: 0, workspaces: [] },
-    last_known: false,
-  };
+  sides = { core: emptyHomeState(), tui: emptyHomeState() };
+  showHerdr(undefined);
   publishedStateSignature = "";
   selectedTerminal = undefined;
+  selectedTerminalHerdr = undefined;
   notifications.setDeviceSettingsAvailable(false);
   notificationsNode!.replaceChildren();
   accessMode = "signed-out";
@@ -457,7 +517,7 @@ function showStatusTerminals(status: "blocked" | "error"): void {
   allTerminalsScroll = window.scrollY;
   allTerminalsFocusPane = currentFocusedPane() ?? lastFocusedHomePane;
   allTerminalsFocusWorkspace = currentFocusedWorkspace() ?? lastFocusedHomeWorkspace;
-  const firstBlocked = allTerminals(state.home).find(({ terminal }) => terminal.agent?.status === status);
+  const firstBlocked = allTerminals(shownState().home).find(({ terminal }) => terminal.agent?.status === status);
   homeMode = status;
   homeScroll = 0;
   homeFocusPane = firstBlocked && terminalCount(firstBlocked.workspace) === 1
@@ -488,14 +548,15 @@ function restoreAllTerminalsPlace(place: HomePlace): void {
 }
 
 function openTerminal(entry: TerminalEntry): void {
-  if (!liveActionsAvailable()) return;
+  if (shownHerdr === undefined || !liveActionsAvailable()) return;
   homeScroll = window.scrollY;
   homeFocusPane = entry.terminal.pane_id;
   homeFocusWorkspace = undefined;
   homeAnchorTop = homeView.row(entry.terminal.pane_id)?.getBoundingClientRect().top;
   homeHadListFocus = currentFocusedPane() === entry.terminal.pane_id;
   selectedTerminal = entry;
-  window.location.hash = `terminal=${encodeURIComponent(entry.terminal.pane_id)}`;
+  selectedTerminalHerdr = shownHerdr;
+  window.location.hash = terminalHash(shownHerdr, entry.terminal.pane_id);
 }
 
 function openCreatedTerminal(target: TerminalActionTarget): void {
@@ -505,23 +566,28 @@ function openCreatedTerminal(target: TerminalActionTarget): void {
   homeAnchorTop = homeView.row(target.pane_id)?.getBoundingClientRect().top;
   homeHadListFocus = false;
   selectedTerminal = undefined;
-  const pane = encodeURIComponent(target.pane_id);
-  const terminal = encodeURIComponent(target.terminal_id);
-  window.location.hash = `terminal=${pane}&terminal_id=${terminal}`;
+  // Terminal actions exist only for the Herdr TUI.
+  window.location.hash = terminalHash("tui", target.pane_id, target.terminal_id);
 }
 
-function renderTerminal(paneID: string, expectedTerminalID?: string): void {
+function renderTerminal(route: TerminalRoute): void {
   document.body.classList.add("terminal-active");
   window.scrollTo(0, 0);
-  if (state.herdr === "core") {
-    // Terminal on the Herdr app's core is not available yet.
+  if (route.herdr === "unknown") {
+    renderTerminalUnavailable();
+    return;
+  }
+  if (route.herdr === "core") {
+    // Terminal on Herdr Core is not available yet.
     renderTerminalUnavailable(false);
     return;
   }
-  const current = findTerminal(state.home, paneID);
-  const selected = selectedTerminal?.terminal.pane_id === paneID ? selectedTerminal : undefined;
+  const herdr = route.herdr;
+  const { paneID, terminalID: expectedTerminalID } = route;
+  const current = findTerminal(sides[herdr].home, paneID);
+  const selected = selectedTerminal?.terminal.pane_id === paneID && selectedTerminalHerdr === herdr ? selectedTerminal : undefined;
   const outcome = terminalRouteOutcome({
-    currentStateAvailable: liveActionsAvailable(),
+    currentStateAvailable: liveActionsAvailable(herdr),
     currentTerminalID: current?.terminal.terminal_id,
     expectedTerminalID,
     selectedTerminalID: selected?.terminal.terminal_id,
@@ -540,6 +606,7 @@ function renderTerminal(paneID: string, expectedTerminalID?: string): void {
     return;
   }
   selectedTerminal = entry;
+  selectedTerminalHerdr = herdr;
   if (terminalPage?.paneID === paneID && terminalPage.terminalID === entry.terminal.terminal_id) {
     terminalPage.updateTarget(entry.terminal.title, entry.terminal.agent?.status);
     return;
@@ -586,6 +653,7 @@ function leaveTerminal(): void {
   terminalPage?.destroy();
   terminalPage = undefined;
   selectedTerminal = undefined;
+  selectedTerminalHerdr = undefined;
   restoreHomePlace = true;
   window.location.hash = "";
 }

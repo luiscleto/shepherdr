@@ -340,7 +340,7 @@ func TestProductionObserverClosesBeforeReplacementOutput(t *testing.T) {
 	source := newFakeTerminalStateSource(liveTerminalState("pane-1", "term-1", 1))
 	bridge := testTerminalBridge(source)
 	defer bridge.Close()
-	server := httptest.NewServer(New(fstest.MapFS{}, nil, bridge, false).Handler())
+	server := httptest.NewServer(New(fstest.MapFS{}, nil, nil, bridge, false).Handler())
 	defer server.Close()
 
 	endpoint, _ := url.Parse(server.URL)
@@ -440,7 +440,7 @@ func TestTerminalLabRoutesStayOffWithoutFlag(t *testing.T) {
 		"index.html":        {Data: []byte("home")},
 		"terminal-lab.html": {Data: []byte("lab")},
 	}
-	application := New(assets, nil, &TerminalBridge{}, false).Handler()
+	application := New(assets, nil, nil, &TerminalBridge{}, false).Handler()
 	for _, path := range []string{"/terminal-lab", "/terminal-lab.js", "/api/terminal-lab", "/api/terminal-lab/read"} {
 		response := httptest.NewRecorder()
 		application.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))

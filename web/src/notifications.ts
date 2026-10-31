@@ -172,7 +172,7 @@ export class NotificationsController {
   #dialogOpen = false;
   #dismissedForVisit = false;
   #events = { ...defaultNotificationEvents };
-  #herdr: "tui" | "core" = "tui";
+  #present: PresentHerdrs = { tui: false, core: false };
   #devicesAvailable = false;
   #devicesExpanded = false;
   #notificationsExpanded = false;
@@ -193,11 +193,11 @@ export class NotificationsController {
     this.#platform = platform;
   }
 
-  // setHerdr picks the Herdr app's words (space, error) when Shepherdr is
-  // started for the Herdr app.
-  setHerdr(herdr: "tui" | "core"): void {
-    if (this.#herdr === herdr) return;
-    this.#herdr = herdr;
+  // setPresent words the settings for the Herdrs this browser can see. One set
+  // of settings covers both, so the words name each Herdr that is present.
+  setPresent(present: PresentHerdrs): void {
+    if (this.#present.tui === present.tui && this.#present.core === present.core) return;
+    this.#present = { ...present };
     if (!this.#busy) this.#render();
   }
 
@@ -332,7 +332,7 @@ export class NotificationsController {
 
   async #save(form: HTMLFormElement): Promise<void> {
     if (!this.#subscription || this.#busy) return;
-    const next = eventsFromForm(form, this.#events, this.#herdr);
+    const next = eventsFromForm(form, this.#events, this.#present);
     this.#busy = true;
     this.#renderSettings("Saving notification settings…");
     try {
@@ -389,7 +389,7 @@ export class NotificationsController {
     const copy = element(this.#document, "div");
     copy.append(
       element(this.#document, "strong", undefined, "Stay close to the work"),
-      element(this.#document, "p", undefined, `Get an alert when a ${this.#herdr === "core" ? "space" : "workspace"} needs attention or finishes.`),
+      element(this.#document, "p", undefined, `Get an alert when a ${placeWord(this.#present)} needs attention or finishes.`),
     );
     const actions = element(this.#document, "div", "notification-invitation-actions");
     actions.append(
@@ -483,7 +483,7 @@ export class NotificationsController {
         const form = element(this.#document, "form", "notification-form");
         const fields = element(this.#document, "fieldset");
         fields.append(element(this.#document, "legend", undefined, "Notify me when"));
-        for (const [name, label] of shownEventChoices(this.#herdr)) {
+        for (const [name, label] of shownEventChoices(this.#present)) {
           fields.append(eventCheckbox(this.#document, name, label, this.#events[name]));
         }
         const buttons = element(this.#document, "div", "notification-form-actions");
@@ -572,13 +572,25 @@ const eventChoices: ReadonlyArray<[keyof NotificationEvents, string]> = [
   ["trusted_sign_in_removed", "Trusted sign-in removed"],
 ];
 
-// The Herdr TUI never reports error, so its choice shows only with the Herdr
-// app, which also says space instead of workspace.
-function shownEventChoices(herdr: "tui" | "core"): ReadonlyArray<[keyof NotificationEvents, string]> {
-  if (herdr !== "core") return eventChoices.filter(([name]) => name !== "error");
+export interface PresentHerdrs {
+  core: boolean;
+  tui: boolean;
+}
+
+// The Herdr TUI says workspace and Herdr Core says space, as the Herdr app does.
+function placeWord(present: PresentHerdrs): string {
+  if (!present.core) return "workspace";
+  return present.tui ? "workspace or space" : "space";
+}
+
+// The Herdr TUI never reports error, so its choice shows only when Herdr Core
+// is present.
+function shownEventChoices(present: PresentHerdrs): ReadonlyArray<[keyof NotificationEvents, string]> {
+  if (!present.core) return eventChoices.filter(([name]) => name !== "error");
+  const Place = present.tui ? "Workspace or space" : "Space";
   return eventChoices.map(([name, label]): [keyof NotificationEvents, string] => {
-    if (name === "workspace_opened") return [name, "Space opened"];
-    if (name === "workspace_closed") return [name, "Space closed"];
+    if (name === "workspace_opened") return [name, `${Place} opened`];
+    if (name === "workspace_closed") return [name, `${Place} closed`];
     return [name, label];
   });
 }
@@ -598,12 +610,12 @@ function eventCheckbox(
   return field;
 }
 
-function eventsFromForm(form: HTMLFormElement, previous: NotificationEvents, herdr: "tui" | "core"): NotificationEvents {
+function eventsFromForm(form: HTMLFormElement, previous: NotificationEvents, present: PresentHerdrs): NotificationEvents {
   const data = new FormData(form);
   return {
     blocked: data.has("blocked"),
     done: data.has("done"),
-    error: herdr === "core" ? data.has("error") : previous.error,
+    error: present.core ? data.has("error") : previous.error,
     idle: data.has("idle"),
     trusted_sign_in_added: data.has("trusted_sign_in_added"),
     trusted_sign_in_removed: data.has("trusted_sign_in_removed"),

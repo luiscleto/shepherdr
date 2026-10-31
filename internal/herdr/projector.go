@@ -19,8 +19,8 @@ const (
 	ConnectionIncompatible Connection = "incompatible"
 )
 
-// Backend names which Herdr serves Home: the Herdr TUI or herdr-core, the
-// runtime behind the Herdr app. It is chosen at start and never changes.
+// Backend names one of the two Herdrs Shepherdr follows: the Herdr TUI or
+// herdr-core, the runtime behind the Herdr app.
 type Backend string
 
 const (
@@ -33,7 +33,6 @@ type State struct {
 	Detail       string     `json:"detail,omitempty"`
 	Gap          uint64     `json:"gap"`
 	HasHome      bool       `json:"has_home"`
-	Herdr        Backend    `json:"herdr"`
 	HerdrVersion string     `json:"herdr_version"`
 	Home         Home       `json:"home"`
 	LastKnown    bool       `json:"last_known"`
@@ -74,24 +73,29 @@ func (p *Projector) SetPublishedSnapshotObserver(observer PublishedSnapshotObser
 }
 
 func NewProjector(client *Client) *Projector {
-	return newProjector(BackendTUI, client, nil, "")
+	return newProjector(client, nil, "", ConnectionReconnecting)
 }
 
 // NewCoreProjector serves Home from herdr-core. homeFolder is shown as "~",
 // as the Herdr app does.
 func NewCoreProjector(core *CoreClient, homeFolder string) *Projector {
-	return newProjector(BackendCore, nil, core, homeFolder)
+	return newProjector(nil, core, homeFolder, ConnectionReconnecting)
 }
 
-func newProjector(backend Backend, client *Client, core *CoreClient, homeFolder string) *Projector {
+// NewNotFollowedProjector stands for a Herdr that Shepherdr does not follow:
+// it is not running, never has a Home, and Run returns at once.
+func NewNotFollowedProjector() *Projector {
+	return newProjector(nil, nil, "", ConnectionNotRunning)
+}
+
+func newProjector(client *Client, core *CoreClient, homeFolder string, connection Connection) *Projector {
 	return &Projector{
 		client:     client,
 		core:       core,
 		homeFolder: homeFolder,
 		refresh:    make(chan struct{}, 1),
 		state: State{
-			Connection: ConnectionReconnecting,
-			Herdr:      backend,
+			Connection: connection,
 			Home:       Home{Workspaces: []Workspace{}},
 		},
 		listeners: make(map[chan State]struct{}),
@@ -130,6 +134,9 @@ func (p *Projector) Subscribe() (<-chan State, func()) {
 }
 
 func (p *Projector) Run(ctx context.Context) {
+	if p.client == nil && p.core == nil {
+		return
+	}
 	if p.core != nil {
 		p.runCore(ctx)
 		return
@@ -395,7 +402,6 @@ func (p *Projector) publishLocked(state State) {
 func samePublishedState(left, right State) bool {
 	return left.Connection == right.Connection &&
 		left.Detail == right.Detail &&
-		left.Herdr == right.Herdr &&
 		left.Gap == right.Gap &&
 		left.HasHome == right.HasHome &&
 		left.HerdrVersion == right.HerdrVersion &&

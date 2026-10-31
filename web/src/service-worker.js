@@ -38,8 +38,9 @@ function notificationFor(value) {
   }
   const destination = safeDestination(value.destination);
   const workspaceName = usableWorkspaceName(value.workspace_name);
-  // Started for the Herdr app, Shepherdr says space, as the app does.
-  const core = value.herdr === "core";
+  // For Herdr Core, Shepherdr says space, as the Herdr app does.
+  const herdr = value.herdr === "core" ? "core" : "tui";
+  const core = herdr === "core";
   const space = core ? "space" : "workspace";
   const Space = core ? "Space" : "Workspace";
   if (value.kind === "trusted_sign_in_added" || value.kind === "trusted_sign_in_removed") {
@@ -65,7 +66,7 @@ function notificationFor(value) {
   if (value.kind !== "status" || !validOpaqueID(value.pane_id) || !validOpaqueID(value.terminal_id)) {
     return fallbackNotice();
   }
-  if (!statusDestinationMatches(destination, value.pane_id, value.terminal_id)) return fallbackNotice();
+  if (!statusDestinationMatches(destination, value.pane_id, value.terminal_id, herdr)) return fallbackNotice();
   // A Herdr app terminal under Other terminals is in no space.
   const place = core && value.other_terminals === true ? "terminal" : space;
   const bodies = {
@@ -110,12 +111,13 @@ function validOpaqueID(value) {
   return typeof value === "string" && value.length > 0 && value.length <= 512;
 }
 
-function statusDestinationMatches(destination, paneID, terminalID) {
+// A link or payload without herdr is from the Herdr TUI.
+function statusDestinationMatches(destination, paneID, terminalID, herdr) {
   try {
     const parsed = new URL(destination, self.location.origin);
     const parameters = new URLSearchParams(parsed.hash.slice(1));
     return parsed.pathname === "/" && parameters.get("terminal") === paneID &&
-      parameters.get("terminal_id") === terminalID;
+      parameters.get("terminal_id") === terminalID && (parameters.get("herdr") ?? "tui") === herdr;
   } catch {
     return false;
   }

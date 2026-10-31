@@ -3,6 +3,7 @@ import type {
   AgentCounts,
   AgentStatus,
   Home,
+  HomeFrame,
   HomeState,
   Tab,
   Terminal,
@@ -13,7 +14,6 @@ import type { WorkspaceAction } from "./workspace-actions";
 
 const connections = new Set(["reconnecting", "live", "not_running", "incompatible"] as const);
 const agentStatuses = new Set<AgentStatus>(["working", "blocked", "error", "idle", "done", "unknown"]);
-const herdrs = new Set(["tui", "core"] as const);
 const workspaceActions = new Set<WorkspaceAction>([
   "create_worktree",
   "close_workspace",
@@ -174,28 +174,36 @@ function parseHome(value: unknown): Home | undefined {
 
 const serverEpochPattern = /^[0-9a-f]{32}$/;
 
-export function parseCompleteHomeState(value: unknown): HomeState | undefined {
+function parseHomeState(value: unknown): HomeState | undefined {
   const state = record(value);
   if (!state || !exactKeys(
     state,
-    ["connection", "epoch", "gap", "has_home", "herdr", "herdr_version", "home", "last_known"],
+    ["connection", "gap", "has_home", "herdr_version", "home", "last_known"],
     ["detail"],
   ) || typeof state.connection !== "string" || !connections.has(state.connection as HomeState["connection"]) ||
-    typeof state.epoch !== "string" || !serverEpochPattern.test(state.epoch) || !nonnegativeInteger(state.gap) ||
-    typeof state.has_home !== "boolean" || typeof state.herdr !== "string" || !herdrs.has(state.herdr as HomeState["herdr"]) ||
+    !nonnegativeInteger(state.gap) || typeof state.has_home !== "boolean" ||
     typeof state.herdr_version !== "string" || typeof state.last_known !== "boolean" ||
     (Object.hasOwn(state, "detail") && typeof state.detail !== "string")) return undefined;
   const home = parseHome(state.home);
   if (!home) return undefined;
   return {
     connection: state.connection as HomeState["connection"],
-    epoch: state.epoch,
     gap: state.gap,
     has_home: state.has_home,
-    herdr: state.herdr as HomeState["herdr"],
     herdr_version: state.herdr_version,
     home,
     last_known: state.last_known,
     ...(typeof state.detail === "string" ? { detail: state.detail } : {}),
   };
+}
+
+// parseCompleteHomeState reads one Home message: both Herdrs' complete states.
+export function parseCompleteHomeState(value: unknown): HomeFrame | undefined {
+  const frame = record(value);
+  if (!frame || !exactKeys(frame, ["core", "epoch", "tui"]) ||
+    typeof frame.epoch !== "string" || !serverEpochPattern.test(frame.epoch)) return undefined;
+  const tui = parseHomeState(frame.tui);
+  const core = parseHomeState(frame.core);
+  if (!tui || !core) return undefined;
+  return { core, epoch: frame.epoch, tui };
 }

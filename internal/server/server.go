@@ -29,6 +29,7 @@ type Server struct {
 	assets             fs.FS
 	epoch              string
 	projector          *herdr.Projector
+	coreProjector      *herdr.Projector
 	workspaceActions   *workspaceActionCoordinator
 	terminal           *TerminalBridge
 	fileUploads        *uploads.Manager
@@ -45,11 +46,18 @@ func (s *Server) SetNotifications(manager *notifications.Manager) {
 	s.notifications = manager
 }
 
-func New(assets fs.FS, projector *herdr.Projector, terminal *TerminalBridge, terminalLabEnabled bool, actionClients ...*herdr.Client) *Server {
+// New serves Home from both Herdrs. projector follows the Herdr TUI and serves
+// everything else, which is Herdr TUI only; coreProjector follows herdr-core,
+// and nil means herdr-core is not followed.
+func New(assets fs.FS, projector, coreProjector *herdr.Projector, terminal *TerminalBridge, terminalLabEnabled bool, actionClients ...*herdr.Client) *Server {
+	if coreProjector == nil {
+		coreProjector = herdr.NewNotFollowedProjector()
+	}
 	server := &Server{
 		assets:             assets,
 		epoch:              newServerEpoch(),
 		projector:          projector,
+		coreProjector:      coreProjector,
 		terminal:           terminal,
 		terminalLabEnabled: terminalLabEnabled,
 		upgrader: websocket.Upgrader{
@@ -261,8 +269,19 @@ func (s *Server) homeSocket(writer http.ResponseWriter, request *http.Request) {
 	defer connection.Close()
 	connection.SetReadLimit(1024)
 
-	updates, unsubscribe := s.projector.Subscribe()
-	defer unsubscribe()
+	// Each message carries both Herdrs' complete states, so a missed message
+	// never needs replaying: the next one is complete.
+	tuiUpdates, unsubscribeTUI := s.projector.Subscribe()
+	defer unsubscribeTUI()
+	coreUpdates, unsubscribeCore := s.coreProjector.Subscribe()
+	defer unsubscribeCore()
+	message := homeMessage{Epoch: s.epoch, TUI: <-tuiUpdates, Core: <-coreUpdates}
+	writeHome := func() error {
+		return withCommitAuthority(request, func() error { return writeJSON(connection, message) })
+	}
+	if err := writeHome(); err != nil {
+		return
+	}
 	closed := make(chan struct{})
 	go func() {
 		defer close(closed)
@@ -277,16 +296,20 @@ func (s *Server) homeSocket(writer http.ResponseWriter, request *http.Request) {
 	defer heartbeat.Stop()
 	for {
 		select {
-		case state, ok := <-updates:
+		case state, ok := <-tuiUpdates:
 			if !ok {
 				return
 			}
-			if err := withCommitAuthority(request, func() error {
-				return writeJSON(connection, struct {
-					herdr.State
-					Epoch string `json:"epoch"`
-				}{State: state, Epoch: s.epoch})
-			}); err != nil {
+			message.TUI = state
+			if err := writeHome(); err != nil {
+				return
+			}
+		case state, ok := <-coreUpdates:
+			if !ok {
+				return
+			}
+			message.Core = state
+			if err := writeHome(); err != nil {
 				return
 			}
 		case <-heartbeat.C:
@@ -303,6 +326,12 @@ func (s *Server) homeSocket(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 	}
+}
+
+type homeMessage struct {
+	Epoch string      `json:"epoch"`
+	TUI   herdr.State `json:"tui"`
+	Core  herdr.State `json:"core"`
 }
 
 func sessionDone(lease *access.SessionLease) <-chan struct{} {

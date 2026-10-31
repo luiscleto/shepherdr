@@ -25,15 +25,16 @@ func TestRealProductionHome(t *testing.T) {
 	_ = homeSocket.SetReadDeadline(time.Now().Add(8 * time.Second))
 
 	var homeMessage struct {
-		herdr.State
-		Epoch string `json:"epoch"`
+		Epoch string      `json:"epoch"`
+		TUI   herdr.State `json:"tui"`
+		Core  herdr.State `json:"core"`
 	}
-	state := homeMessage.State
+	state := homeMessage.TUI
 	for state.Connection != herdr.ConnectionLive {
 		if err := homeSocket.ReadJSON(&homeMessage); err != nil {
 			t.Fatal(err)
 		}
-		state = homeMessage.State
+		state = homeMessage.TUI
 	}
 	if homeMessage.Epoch == "" {
 		t.Fatal("Home publication did not identify its server epoch")
@@ -51,7 +52,8 @@ func TestRealProductionHome(t *testing.T) {
 	for _, workspace := range state.Home.Workspaces {
 		countWorkspace(workspace)
 	}
-	t.Logf("Home is live: %d workspaces, %d terminals, %d working, %d blocked", len(state.Home.Workspaces), terminalCount, state.Home.WorkingCount, state.Home.BlockedCount)
+	t.Logf("Herdr Core side: %s, has Home %t, version %q", homeMessage.Core.Connection, homeMessage.Core.HasHome, homeMessage.Core.HerdrVersion)
+	t.Logf("Herdr TUI Home is live: %d workspaces, %d terminals, %d working, %d blocked", len(state.Home.Workspaces), terminalCount, state.Home.WorkingCount, state.Home.BlockedCount)
 }
 
 func websocketTestURL(t *testing.T, base, endpoint string) *url.URL {

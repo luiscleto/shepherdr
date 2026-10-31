@@ -433,6 +433,7 @@ test("Home keeps one Settings action and no separate Devices header action", () 
   });
   const model = {
     actionsAvailable: true,
+    herdr: "tui" as const,
     mode: "all" as const,
     reachability: "current" as const,
     state: {

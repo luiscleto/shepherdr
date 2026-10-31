@@ -11,7 +11,7 @@ import (
 )
 
 func TestSnapshotEvaluatorUsesOnlyContiguousCompleteDifferences(t *testing.T) {
-	evaluator := snapshotEvaluator{}
+	evaluator := snapshotEvaluator{herdr: herdr.BackendTUI}
 	initial := notificationSnapshot("working", "w1")
 	if events := evaluator.Observe(initial, true); len(events) != 0 {
 		t.Fatalf("initial baseline produced %+v", events)
@@ -26,7 +26,7 @@ func TestSnapshotEvaluatorUsesOnlyContiguousCompleteDifferences(t *testing.T) {
 	if status.Kind != EventStatus || status.Status != herdr.StatusBlocked || status.WorkspaceName != "Workspace w1" || status.PaneID != "w1:p1" || status.TerminalID != "term-1" {
 		t.Fatalf("status event = %+v", status)
 	}
-	if status.Destination != "/#terminal=w1%3Ap1\u0026terminal_id=term-1" {
+	if status.Destination != "/#terminal=w1%3Ap1\u0026terminal_id=term-1\u0026herdr=tui" {
 		t.Fatalf("status destination = %q", status.Destination)
 	}
 	if events[1] != (Event{Kind: EventWorkspaceOpened, Destination: "/"}) {
@@ -44,7 +44,7 @@ func TestSnapshotEvaluatorUsesOnlyContiguousCompleteDifferences(t *testing.T) {
 }
 
 func TestSnapshotEvaluatorEmitsOneNamedWorkspaceLifecyclePairAcrossSilentBaselines(t *testing.T) {
-	evaluator := snapshotEvaluator{}
+	evaluator := snapshotEvaluator{herdr: herdr.BackendTUI}
 	initial := notificationSnapshot("working", "w1")
 	if events := evaluator.Observe(initial, true); len(events) != 0 {
 		t.Fatalf("initial baseline produced %+v", events)
@@ -80,7 +80,7 @@ func TestSnapshotEvaluatorEmitsOneNamedWorkspaceLifecyclePairAcrossSilentBaselin
 }
 
 func TestSnapshotEvaluatorDoesNotTreatNewAgentAsTransition(t *testing.T) {
-	evaluator := snapshotEvaluator{}
+	evaluator := snapshotEvaluator{herdr: herdr.BackendTUI}
 	evaluator.Observe(herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "w1"}}}, true)
 	current := notificationSnapshot("blocked", "w1")
 	events := evaluator.Observe(current, false)
@@ -138,7 +138,7 @@ func TestErrorFromTheHerdrAppStartsOnAndIsItsOwnChoice(t *testing.T) {
 		t.Fatal("error notices do not follow the error choice")
 	}
 
-	evaluator := snapshotEvaluator{}
+	evaluator := snapshotEvaluator{herdr: herdr.BackendTUI}
 	evaluator.Observe(notificationSnapshot("working", "w1"), true)
 	events := evaluator.Observe(notificationSnapshot("error", "w1"), false)
 	if len(events) != 1 || events[0].Status != herdr.StatusError || events[0].WorkspaceName != "Workspace w1" {
@@ -146,11 +146,11 @@ func TestErrorFromTheHerdrAppStartsOnAndIsItsOwnChoice(t *testing.T) {
 	}
 }
 
-func TestManagerMarksNoticesWithTheHerdrApp(t *testing.T) {
+func TestManagerMarksNoticesWithTheirHerdr(t *testing.T) {
 	manager := NewManager(UnavailableStore(errors.New("not needed")), nil)
-	manager.SetHerdr(herdr.BackendCore)
-	manager.ObserveSnapshot(notificationSnapshot("working", "w1"), true)
-	manager.ObserveSnapshot(notificationSnapshot("blocked", "w1", "w2"), false)
+	core := manager.Observer(herdr.BackendCore)
+	core.ObserveSnapshot(notificationSnapshot("working", "w1"), true)
+	core.ObserveSnapshot(notificationSnapshot("blocked", "w1", "w2"), false)
 	for range 2 {
 		event := <-manager.events
 		if event.Herdr != herdr.BackendCore {
@@ -160,6 +160,55 @@ func TestManagerMarksNoticesWithTheHerdrApp(t *testing.T) {
 	payload, err := eventPayload(Event{Kind: EventWorkspaceOpened, Herdr: herdr.BackendCore, WorkspaceName: "alpha", Destination: "/"})
 	if err != nil || string(payload) != `{"destination":"/","herdr":"core","kind":"workspace_opened","workspace_name":"alpha"}` {
 		t.Fatalf("payload = %s, %v", payload, err)
+	}
+}
+
+// Each Herdr's reads are compared only with that Herdr's previous read. A
+// shared comparison would see the other Herdr's workspaces and agents appear
+// and disappear on every read and raise false notices.
+func TestEachHerdrIsComparedOnlyWithItself(t *testing.T) {
+	tuiSnapshot := func(status string) herdr.Snapshot {
+		return herdr.Snapshot{
+			Agents: []herdr.AgentInfo{{
+				AgentStatus: herdr.Status(status), PaneID: "w1:p1", TabID: "w1:t1", TerminalID: "term-1", WorkspaceID: "w1",
+			}},
+			Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "w1", Label: "api"}},
+		}
+	}
+	coreSnapshot := func(status string) herdr.Snapshot {
+		return herdr.Snapshot{
+			Agents: []herdr.AgentInfo{{
+				AgentStatus: herdr.Status(status), PaneID: "t3", TabID: "tb1", TerminalID: "core-1:t3", WorkspaceID: "sp1",
+			}},
+			Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "sp1", Label: "alpha"}},
+		}
+	}
+	manager := NewManager(UnavailableStore(errors.New("not needed")), nil)
+	tui := manager.Observer(herdr.BackendTUI)
+	core := manager.Observer(herdr.BackendCore)
+	tui.ObserveSnapshot(tuiSnapshot("working"), true)
+	core.ObserveSnapshot(coreSnapshot("working"), true)
+	for range 3 {
+		tui.ObserveSnapshot(tuiSnapshot("working"), false)
+		core.ObserveSnapshot(coreSnapshot("working"), false)
+	}
+	if got := len(manager.events); got != 0 {
+		t.Fatalf("unchanged reads from both Herdrs raised %d notices: %+v", got, <-manager.events)
+	}
+
+	tui.ObserveSnapshot(tuiSnapshot("blocked"), false)
+	core.ObserveSnapshot(coreSnapshot("error"), false)
+	if got := len(manager.events); got != 2 {
+		t.Fatalf("one change on each Herdr raised %d notices, want 2", got)
+	}
+	for _, want := range []string{
+		`{"destination":"/#terminal=w1%3Ap1\u0026terminal_id=term-1\u0026herdr=tui","herdr":"tui","kind":"status","workspace_name":"api","pane_id":"w1:p1","status":"blocked","terminal_id":"term-1"}`,
+		`{"destination":"/#terminal=t3\u0026terminal_id=core-1%3At3\u0026herdr=core","herdr":"core","kind":"status","workspace_name":"alpha","pane_id":"t3","status":"error","terminal_id":"core-1:t3"}`,
+	} {
+		payload, err := eventPayload(<-manager.events)
+		if err != nil || string(payload) != want {
+			t.Fatalf("payload = %s, %v; want %s", payload, err, want)
+		}
 	}
 }
 
@@ -174,14 +223,14 @@ func TestStatusNoticesMarkHerdrAppTerminalsInNoSpace(t *testing.T) {
 		backend herdr.Backend
 		want    string
 	}{
-		{name: "Herdr app", backend: herdr.BackendCore, want: `{"destination":"/#terminal=w1%3Ap1\u0026terminal_id=term-1","herdr":"core","kind":"status","other_terminals":true,"pane_id":"w1:p1","status":"blocked","terminal_id":"term-1"}`},
-		{name: "Herdr TUI", want: `{"destination":"/#terminal=w1%3Ap1\u0026terminal_id=term-1","kind":"status","pane_id":"w1:p1","status":"blocked","terminal_id":"term-1"}`},
+		{name: "Herdr app", backend: herdr.BackendCore, want: `{"destination":"/#terminal=w1%3Ap1\u0026terminal_id=term-1\u0026herdr=core","herdr":"core","kind":"status","other_terminals":true,"pane_id":"w1:p1","status":"blocked","terminal_id":"term-1"}`},
+		{name: "Herdr TUI", backend: herdr.BackendTUI, want: `{"destination":"/#terminal=w1%3Ap1\u0026terminal_id=term-1\u0026herdr=tui","herdr":"tui","kind":"status","pane_id":"w1:p1","status":"blocked","terminal_id":"term-1"}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			manager := NewManager(UnavailableStore(errors.New("not needed")), nil)
-			manager.SetHerdr(test.backend)
-			manager.ObserveSnapshot(inOther("working"), true)
-			manager.ObserveSnapshot(inOther("blocked"), false)
+			observer := manager.Observer(test.backend)
+			observer.ObserveSnapshot(inOther("working"), true)
+			observer.ObserveSnapshot(inOther("blocked"), false)
 			payload, err := eventPayload(<-manager.events)
 			if err != nil || string(payload) != test.want {
 				t.Fatalf("payload = %s, %v; want %s", payload, err, test.want)
@@ -190,9 +239,9 @@ func TestStatusNoticesMarkHerdrAppTerminalsInNoSpace(t *testing.T) {
 	}
 
 	manager := NewManager(UnavailableStore(errors.New("not needed")), nil)
-	manager.SetHerdr(herdr.BackendCore)
-	manager.ObserveSnapshot(notificationSnapshot("working", "w1"), true)
-	manager.ObserveSnapshot(notificationSnapshot("blocked", "w1"), false)
+	core := manager.Observer(herdr.BackendCore)
+	core.ObserveSnapshot(notificationSnapshot("working", "w1"), true)
+	core.ObserveSnapshot(notificationSnapshot("blocked", "w1"), false)
 	if event := <-manager.events; event.OtherTerminals || event.WorkspaceName != "Workspace w1" {
 		t.Fatalf("space notice = %+v", event)
 	}

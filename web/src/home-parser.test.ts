@@ -5,11 +5,24 @@ import { parseCompleteHomeState } from "./home-parser.ts";
 
 function completeFrame(): Record<string, unknown> {
   return {
-    connection: "live",
+    core: {
+      connection: "not_running",
+      gap: 0,
+      has_home: false,
+      herdr_version: "",
+      home: { blocked_count: 0, error_count: 0, working_count: 0, workspaces: [] },
+      last_known: false,
+    },
     epoch: "0123456789abcdef0123456789abcdef",
+    tui: completeSide(),
+  };
+}
+
+function completeSide(): Record<string, unknown> {
+  return {
+    connection: "live",
     gap: 0,
     has_home: true,
-    herdr: "tui",
     herdr_version: "0.8.0<script>",
     home: {
       blocked_count: 0,
@@ -51,7 +64,7 @@ function completeFrame(): Record<string, unknown> {
 }
 
 test("strictly parses documented Home actions and top-level checkout paths", () => {
-  const parsed = parseCompleteHomeState(completeFrame());
+  const parsed = parseCompleteHomeState(completeFrame())?.tui;
 
   assert.equal(parsed?.home.workspaces[0].actions.join(","), "create_worktree,close_group");
   assert.equal(parsed?.home.workspaces[0].checkout_path, "/work/<b>one</b>");
@@ -65,43 +78,48 @@ test("strictly parses documented Home actions and top-level checkout paths", () 
 
 test("rejects missing, duplicate, unknown, misplaced, or extra additive Home fields", () => {
   const missing = completeFrame();
-  delete ((missing.home as { workspaces: Array<Record<string, unknown>> }).workspaces[0]).actions;
+  delete ((tuiOf(missing).home as { workspaces: Array<Record<string, unknown>> }).workspaces[0]).actions;
   assert.equal(parseCompleteHomeState(missing), undefined);
 
   const duplicate = completeFrame();
-  (duplicate.home as { workspaces: Array<Record<string, unknown>> }).workspaces[0].actions = ["close_group", "close_group"];
+  (tuiOf(duplicate).home as { workspaces: Array<Record<string, unknown>> }).workspaces[0].actions = ["close_group", "close_group"];
   assert.equal(parseCompleteHomeState(duplicate), undefined);
 
   const unknown = completeFrame();
-  (unknown.home as { workspaces: Array<Record<string, unknown>> }).workspaces[0].actions = ["remove_forcefully"];
+  (tuiOf(unknown).home as { workspaces: Array<Record<string, unknown>> }).workspaces[0].actions = ["remove_forcefully"];
   assert.equal(parseCompleteHomeState(unknown), undefined);
 
   const unknownTerminal = completeFrame();
-  (unknownTerminal.home as { workspaces: Array<{ tabs: Array<{ terminals: Array<Record<string, unknown>> }> }> })
+  (tuiOf(unknownTerminal).home as { workspaces: Array<{ tabs: Array<{ terminals: Array<Record<string, unknown>> }> }> })
     .workspaces[0].tabs[0].terminals[0].actions = ["split_terminal", "invent_terminal"];
   assert.equal(parseCompleteHomeState(unknownTerminal), undefined);
 
   const childGroupCounts = completeFrame();
-  const childWithCounts = (childGroupCounts.home as { workspaces: Array<{ worktrees: Array<Record<string, unknown>> }> })
+  const childWithCounts = (tuiOf(childGroupCounts).home as { workspaces: Array<{ worktrees: Array<Record<string, unknown>> }> })
     .workspaces[0].worktrees[0];
   childWithCounts.group_agent_counts = { working: 1 };
   assert.equal(parseCompleteHomeState(childGroupCounts), undefined);
 
   const childPath = completeFrame();
-  const child = (childPath.home as { workspaces: Array<{ worktrees: Array<Record<string, unknown>> }> }).workspaces[0]
+  const child = (tuiOf(childPath).home as { workspaces: Array<{ worktrees: Array<Record<string, unknown>> }> }).workspaces[0]
     .worktrees[0];
   child.checkout_path = "/must/not/be/a/suggestion";
   assert.equal(parseCompleteHomeState(childPath), undefined);
 
   const extra = completeFrame();
-  (extra.home as Record<string, unknown>).patch = [];
+  (tuiOf(extra).home as Record<string, unknown>).patch = [];
   assert.equal(parseCompleteHomeState(extra), undefined);
 });
 
-test("parses the Herdr app's mode, error status, and error counts", () => {
+function tuiOf(frame: Record<string, unknown>): Record<string, unknown> {
+  return frame.tui as Record<string, unknown>;
+}
+
+test("parses both Herdrs, with Herdr Core's error status and error counts", () => {
   const frame = completeFrame();
-  frame.herdr = "core";
-  const home = frame.home as Record<string, unknown>;
+  const core = completeSide();
+  frame.core = core;
+  const home = core.home as Record<string, unknown>;
   home.error_count = 1;
   const workspace = (home.workspaces as Array<Record<string, unknown>>)[0];
   workspace.agent_counts = { error: 1 };
@@ -109,18 +127,32 @@ test("parses the Herdr app's mode, error status, and error counts", () => {
   (tab.terminals as Array<Record<string, unknown>>)[0].agent = { kind: "claude-code", name: "Claude Code", status: "error" };
 
   const parsed = parseCompleteHomeState(frame);
-  assert.equal(parsed?.herdr, "core");
-  assert.equal(parsed?.home.error_count, 1);
-  assert.equal(parsed?.home.workspaces[0].agent_counts?.error, 1);
-  assert.equal(parsed?.home.workspaces[0].tabs[0].terminals[0].agent?.status, "error");
+  assert.equal(parsed?.epoch, "0123456789abcdef0123456789abcdef");
+  assert.equal(parsed?.tui.home.error_count, 0);
+  assert.equal(parsed?.core.home.error_count, 1);
+  assert.equal(parsed?.core.home.workspaces[0].agent_counts?.error, 1);
+  assert.equal(parsed?.core.home.workspaces[0].tabs[0].terminals[0].agent?.status, "error");
 
-  for (const herdr of [undefined, "", "app", 1]) {
-    const invalid = completeFrame();
-    if (herdr === undefined) delete invalid.herdr;
-    else invalid.herdr = herdr;
-    assert.equal(parseCompleteHomeState(invalid), undefined, String(herdr));
-  }
   const missingErrorCount = completeFrame();
-  delete (missingErrorCount.home as Record<string, unknown>).error_count;
+  delete (tuiOf(missingErrorCount).home as Record<string, unknown>).error_count;
   assert.equal(parseCompleteHomeState(missingErrorCount), undefined);
+});
+
+test("requires exactly epoch, tui and core, each a complete state", () => {
+  for (const key of ["epoch", "tui", "core"]) {
+    const missing = completeFrame();
+    delete missing[key];
+    assert.equal(parseCompleteHomeState(missing), undefined, `without ${key}`);
+  }
+  const extra = completeFrame();
+  extra.herdr = "tui";
+  assert.equal(parseCompleteHomeState(extra), undefined);
+  const named = completeFrame();
+  tuiOf(named).herdr = "tui";
+  assert.equal(parseCompleteHomeState(named), undefined);
+  const single = { ...completeSide(), epoch: "0123456789abcdef0123456789abcdef" };
+  assert.equal(parseCompleteHomeState(single), undefined);
+  const brokenCore = completeFrame();
+  (brokenCore.core as Record<string, unknown>).connection = "sleeping";
+  assert.equal(parseCompleteHomeState(brokenCore), undefined);
 });

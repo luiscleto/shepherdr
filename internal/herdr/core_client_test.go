@@ -135,16 +135,16 @@ func TestCoreClientGate(t *testing.T) {
 	}{
 		{name: "missing method", change: func(hello map[string]any) {
 			hello["methods"] = []string{"hello", "terminal.list", "events.subscribe"}
-		}, detail: "This Herdr core can't serve Shepherdr: it doesn't offer doc.get."},
+		}, detail: "This Herdr Core can't serve Shepherdr: it doesn't offer doc.get."},
 		{name: "missing feature", change: func(hello map[string]any) {
 			hello["features"] = []string{"framed", "attach"}
-		}, detail: "This Herdr core can't serve Shepherdr: it doesn't offer events."},
+		}, detail: "This Herdr Core can't serve Shepherdr: it doesn't offer events."},
 		{name: "other generation", change: func(hello map[string]any) {
 			hello["generation"] = 2
-		}, detail: "This Herdr core can't serve Shepherdr: it doesn't offer protocol generation 1."},
+		}, detail: "This Herdr Core can't serve Shepherdr: it doesn't offer protocol generation 1."},
 		{name: "older", change: func(hello map[string]any) {
 			hello["version"] = "0.1.14"
-		}, detail: "Herdr core 0.1.14 is older than the supported range; Shepherdr supports Herdr core 0.1.15 through 0.1.15."},
+		}, detail: "Herdr Core 0.1.14 is older than the supported range; Shepherdr supports Herdr Core 0.1.15 through 0.1.15."},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			core, path := newTestCore(t)
@@ -227,7 +227,7 @@ func TestCoreProjectorPublishesLiveHomeAndRereadsAfterAnEvent(t *testing.T) {
 	projector := NewCoreProjector(NewCoreClient(path, discardLogger()), "/home/user")
 	updates, unsubscribe := projector.Subscribe()
 	defer unsubscribe()
-	if initial := <-updates; initial.Herdr != BackendCore || initial.Connection != ConnectionReconnecting {
+	if initial := <-updates; initial.Connection != ConnectionReconnecting {
 		t.Fatalf("initial = %+v", initial)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -235,7 +235,7 @@ func TestCoreProjectorPublishesLiveHomeAndRereadsAfterAnEvent(t *testing.T) {
 	go projector.Run(ctx)
 
 	live := waitForState(t, updates, func(state State) bool { return state.Connection == ConnectionLive })
-	if live.Herdr != BackendCore || live.HerdrVersion != "0.1.15" || len(live.Home.Workspaces) != 4 || live.Home.Workspaces[0].Label != "alpha" {
+	if live.HerdrVersion != "0.1.15" || len(live.Home.Workspaces) != 4 || live.Home.Workspaces[0].Label != "alpha" {
 		t.Fatalf("live = %+v", live)
 	}
 	core.set(func(core *testCore) {

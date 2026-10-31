@@ -148,7 +148,7 @@ function makeView(window: Window, overrides: ViewOverrides = {}, home = actionHo
     runWorkspaceAction: overrides.run ?? (async () => ({ outcome: "succeeded" })),
     runTerminalAction: overrides.runTerminal ?? (async () => ({ outcome: "succeeded" })),
   });
-  view.render({ actionsAvailable: true, mode: "all", reachability: "current", state: state(home) });
+  view.render({ actionsAvailable: true, herdr: "tui", mode: "all", reachability: "current", state: state(home) });
   return { app, view };
 }
 
@@ -877,7 +877,7 @@ test("successful terminal closes keep picker focus contained and restore the rem
   afterFirst.workspaces[0].agent_counts = { idle: 1, unknown: 1 };
   afterFirst.workspaces[0].tabs[0].terminals = [];
   afterFirst.workspaces[0].tabs[1].terminals.push({ ...thirdTerminal, actions: [...thirdTerminal.actions] });
-  view.render({ actionsAvailable: true, mode: "all", reachability: "current", state: state(afterFirst) });
+  view.render({ actionsAvailable: true, herdr: "tui", mode: "all", reachability: "current", state: state(afterFirst) });
   requiredElement<HTMLButtonElement>(app, ".home-action-panel button").click();
   assert.equal((window.document.activeElement as HTMLElement | null)?.className, "terminal-picker-close");
   assert.equal(requiredElement(app, ".terminal-picker-layer").hidden, false);
@@ -894,7 +894,7 @@ test("successful terminal closes keep picker focus contained and restore the rem
     ...afterSecond.workspaces[0].tabs[1],
     terminals: [{ ...thirdTerminal, actions: [...thirdTerminal.actions] }],
   }];
-  view.render({ actionsAvailable: true, mode: "all", reachability: "current", state: state(afterSecond) });
+  view.render({ actionsAvailable: true, herdr: "tui", mode: "all", reachability: "current", state: state(afterSecond) });
   assert.equal(requiredElement(app, ".terminal-picker-layer").hidden, true);
   assert.equal(window.scrollY, 0);
   requiredElement<HTMLButtonElement>(app, ".home-action-panel button").click();
@@ -944,13 +944,13 @@ test("literal Herdr 0.8.1 remains openable while Home infers no management actio
   });
   const unverified = state(home);
   unverified.herdr_version = "0.8.1";
-  view.render({ actionsAvailable: true, mode: "all", reachability: "current", state: unverified });
+  view.render({ actionsAvailable: true, herdr: "tui", mode: "all", reachability: "current", state: unverified });
 
   assert.equal(app.querySelectorAll(".workspace-menu-trigger").length, 0);
   assert.equal(app.querySelectorAll(".new-space-action").length, 1);
   requiredElement<HTMLButtonElement>(app, '[data-pane-key="parent-pane"]').click();
   assert.equal(opened, 1);
-  assert.equal(app.querySelector(".herdr-version")?.textContent, "Herdr 0.8.1");
+  assert.equal(app.querySelector(".herdr-version")?.textContent, "Herdr TUI 0.8.1");
   window.close();
 });
 

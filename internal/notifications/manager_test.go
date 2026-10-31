@@ -296,9 +296,10 @@ func TestNotificationLifecycleDiagnosticsRespectLogLevel(t *testing.T) {
 			options := &slog.HandlerOptions{Level: test.level}
 			manager := NewManager(store, slog.New(slog.NewTextHandler(&logs, options)))
 			manager.sender = fixedSender{outcome: sendAccepted}
+			observer := manager.Observer(herdr.BackendTUI)
 
-			manager.ObserveSnapshot(notificationSnapshot("working", "w1"), true)
-			manager.ObserveSnapshot(notificationSnapshot("blocked", "w1"), false)
+			observer.ObserveSnapshot(notificationSnapshot("working", "w1"), true)
+			observer.ObserveSnapshot(notificationSnapshot("blocked", "w1"), false)
 			event := <-manager.events
 			manager.deliverEvent(context.Background(), event)
 			event.pending.Done()
@@ -331,13 +332,14 @@ func TestDeliveryDiagnosticsReportStatusFieldsWithoutPrivateData(t *testing.T) {
 	}
 	var logs strings.Builder
 	manager := NewManager(store, slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	observer := manager.Observer(herdr.BackendTUI)
 
-	manager.ObserveSnapshot(notificationSnapshot("working", "w1"), true)
-	manager.ObserveSnapshot(notificationSnapshot("blocked", "w1"), false)
+	observer.ObserveSnapshot(notificationSnapshot("working", "w1"), true)
+	observer.ObserveSnapshot(notificationSnapshot("blocked", "w1"), false)
 	for len(manager.events) < cap(manager.events) {
 		manager.events <- Event{Kind: EventWorkspaceOpened}
 	}
-	manager.ObserveSnapshot(notificationSnapshot("done", "w1"), false)
+	observer.ObserveSnapshot(notificationSnapshot("done", "w1"), false)
 	if got := len(manager.events); got != cap(manager.events) {
 		t.Fatalf("saturated queue length = %d, want dropped work and length %d", got, cap(manager.events))
 	}
@@ -386,11 +388,12 @@ func TestDeliveryDiagnosticsReportWorkspaceFieldsAndEmptyBurstName(t *testing.T)
 	temporary := herdr.WorkspaceInfo{WorkspaceID: "secret-temporary", Label: "Temporary <script>"}
 	one := herdr.WorkspaceInfo{WorkspaceID: "secret-one", Label: "One"}
 	two := herdr.WorkspaceInfo{WorkspaceID: "secret-two", Label: "Two"}
+	observer := manager.Observer(herdr.BackendTUI)
 
-	manager.ObserveSnapshot(herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{base}}, true)
-	manager.ObserveSnapshot(herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{base, temporary}}, false)
-	manager.ObserveSnapshot(herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{base}}, false)
-	manager.ObserveSnapshot(herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{base, one, two}}, false)
+	observer.ObserveSnapshot(herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{base}}, true)
+	observer.ObserveSnapshot(herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{base, temporary}}, false)
+	observer.ObserveSnapshot(herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{base}}, false)
+	observer.ObserveSnapshot(herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{base, one, two}}, false)
 
 	got := logs.String()
 	for _, entry := range []struct {

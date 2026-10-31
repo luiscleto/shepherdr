@@ -153,7 +153,7 @@ func checkCoreVersion(version string) (string, error) {
 		return fmt.Sprintf("Herdr core reported version %q, which Shepherdr could not verify; Shepherdr supports Herdr core %s through %s; continuing best-effort", version, minimumSupportedCoreVersion, maximumSupportedCoreVersion), nil
 	}
 	if semver.Compare(parsed, "v"+minimumSupportedCoreVersion) < 0 {
-		return "", &CoreCompatibilityError{Detail: fmt.Sprintf("Herdr core %s is older than the supported range; Shepherdr supports Herdr core %s through %s.", version, minimumSupportedCoreVersion, maximumSupportedCoreVersion)}
+		return "", &CoreCompatibilityError{Detail: fmt.Sprintf("Herdr Core %s is older than the supported range; Shepherdr supports Herdr Core %s through %s.", version, minimumSupportedCoreVersion, maximumSupportedCoreVersion)}
 	}
 	if semver.Compare(parsed, "v"+maximumSupportedCoreVersion) > 0 || semver.Prerelease(parsed) != "" {
 		return fmt.Sprintf("Herdr core %s is outside Shepherdr's supported Herdr core range %s through %s; continuing best-effort", version, minimumSupportedCoreVersion, maximumSupportedCoreVersion), nil
@@ -162,7 +162,7 @@ func checkCoreVersion(version string) (string, error) {
 }
 
 func coreCannotServe(missing string) error {
-	return &CoreCompatibilityError{Detail: fmt.Sprintf("This Herdr core can't serve Shepherdr: it doesn't offer %s.", missing)}
+	return &CoreCompatibilityError{Detail: fmt.Sprintf("This Herdr Core can't serve Shepherdr: it doesn't offer %s.", missing)}
 }
 
 func contains(values []string, wanted string) bool {

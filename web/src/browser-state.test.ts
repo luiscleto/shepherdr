@@ -146,7 +146,6 @@ function state(value = flatHome(), connection: HomeState["connection"] = "live")
     connection,
     gap: 2,
     has_home: true,
-    herdr: "tui",
     herdr_version: "0.8.0",
     home: value,
     last_known: connection !== "live",
@@ -214,6 +213,7 @@ function makeView(window: Window, actions: Partial<ConstructorParameters<typeof 
     onShowAll: actions.onShowAll ?? (() => undefined),
     onShowBlocked: actions.onShowBlocked ?? (() => undefined),
     onShowError: actions.onShowError,
+    onShowHerdr: actions.onShowHerdr,
     prepareWorkspaceAction: actions.prepareWorkspaceAction ?? (async () => ({
       outcome: "refused",
       reason: "not_applicable",
@@ -231,6 +231,7 @@ function makeView(window: Window, actions: Partial<ConstructorParameters<typeof 
 function render(view: HomeView, next: HomeState, overrides: Partial<HomeViewRender> = {}): void {
   view.render({
     actionsAvailable: next.connection === "live" && !next.last_known && next.has_home,
+    herdr: "tui",
     mode: "all",
     reachability: "current",
     state: next,
@@ -291,7 +292,7 @@ test("Home shows one real initial or unavailable state with the transport-owned 
   assert.doesNotMatch(app.textContent ?? "", /Offline/);
 
   render(view, state());
-  assert.equal(requiredElement(app, ".herdr-version").textContent, "Herdr 0.8.0");
+  assert.equal(requiredElement(app, ".herdr-version").textContent, "Herdr TUI 0.8.0");
   assert.equal(requiredElement(connection, ".connection-label").textContent, "Live");
   assert.equal(requiredElement(connection, ".connection-dot").className, "connection-dot connection-dot-live");
   assert.equal(connection.childElementCount, 2);
@@ -385,7 +386,7 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   const connection = requiredElement(app, ".home-connection");
   const version = requiredElement(app, ".herdr-version");
   assert.equal(version.localName, "p");
-  assert.equal(version.textContent, "Herdr 0.8.0");
+  assert.equal(version.textContent, "Herdr TUI 0.8.0");
   const row = requiredRow(view, "pane-one");
   assert.equal(connection.childElementCount, 2);
   assert.equal(connection.querySelectorAll("button").length, 1);
@@ -420,7 +421,7 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   assert.doesNotMatch(connection.textContent ?? "", /Reconnect/);
 
   render(view, current);
-  assert.equal(version.textContent, "Herdr 0.8.0");
+  assert.equal(version.textContent, "Herdr TUI 0.8.0");
   assert.equal(app.querySelector(".home-connection") === connection, true);
   assert.equal(requiredElement(connection, ".connection-label").textContent, "Live");
   const recoveredRow = requiredRow(view, "pane-one");
@@ -440,10 +441,10 @@ test("Home renders the live Herdr version as text in a geometry-reserving slot",
   render(view, current);
 
   const version = requiredElement(app, ".herdr-version");
-  assert.equal(version.textContent, "Herdr 0.8.0<img src=x>");
+  assert.equal(version.textContent, "Herdr TUI 0.8.0<img src=x>");
   assert.equal(version.childElementCount, 0);
   render(view, { ...current, has_home: false });
-  assert.equal(version.textContent, "Herdr 0.8.0<img src=x>");
+  assert.equal(version.textContent, "Herdr TUI 0.8.0<img src=x>");
   render(view, { ...current, herdr_version: "" });
   assert.equal(version.textContent, "");
   const styles = readFileSync(new URL("./style.css", import.meta.url), "utf8");
@@ -763,13 +764,13 @@ test("With the Herdr app, Home says space, offers N error and Error, and has no 
   const window = new Window({ url: "http://localhost/" });
   const shown: string[] = [];
   const { app, view } = makeView(window, { onShowError: () => shown.push("error"), onShowBlocked: () => shown.push("blocked") });
-  const current = { ...state(coreHome()), herdr: "core" as const };
+  const current = state(coreHome());
 
-  render(view, current);
+  render(view, current, { herdr: "core" });
   const filter = requiredElement(app, ".home-filter input");
   assert.equal(filter.getAttribute("placeholder"), "Filter spaces and terminals");
   assert.equal(filter.getAttribute("aria-label"), "Filter spaces and terminals");
-  assert.equal(requiredElement(app, ".herdr-version").textContent, "Herdr core 0.8.0");
+  assert.equal(requiredElement(app, ".herdr-version").textContent, "Herdr Core 0.8.0");
   assert.equal(app.querySelectorAll(".new-space-action, .workspace-menu, .terminal-menu").length, 0);
   assert.deepEqual(
     Array.from(app.querySelectorAll(".attention-bar > :not([hidden])"), (node) => node.textContent),
@@ -784,7 +785,7 @@ test("With the Herdr app, Home says space, offers N error and Error, and has no 
   Array.from(app.querySelectorAll<HTMLElement>(".attention-bar button")).find((node) => node.textContent === "1 error")?.click();
   assert.deepEqual(shown, ["error"]);
 
-  render(view, current, { mode: "error" });
+  render(view, current, { herdr: "core", mode: "error" });
   assert.equal(requiredElement(app, "h1").textContent, "Error");
   assert.deepEqual(Array.from(app.querySelectorAll(".terminal-row .terminal-name"), (node) => node.textContent), ["alpha <img src=x onerror=alert(1)>"]);
   assert.equal(requiredWorkspaceRow(view, "sp-alpha").querySelector(".terminal-count-badge")?.textContent, "4");
@@ -801,10 +802,69 @@ test("The Herdr TUI keeps workspace words and never shows an error count", () =>
   const home = coreHome();
   render(view, state(home));
   assert.equal(requiredElement(app, ".home-filter input").getAttribute("placeholder"), "Filter workspaces and terminals");
-  assert.equal(requiredElement(app, ".herdr-version").textContent, "Herdr 0.8.0");
+  assert.equal(requiredElement(app, ".herdr-version").textContent, "Herdr TUI 0.8.0");
   assert.deepEqual(
     Array.from(app.querySelectorAll(".attention-bar > :not([hidden])"), (node) => node.textContent),
     ["0 working", "1 blocked"],
   );
+  window.close();
+});
+
+test("the Herdr switch shows only when asked, with fixed labels and the shown Herdr pressed", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const picked: string[] = [];
+  const { app, view } = makeView(window, { onShowHerdr: (herdr) => picked.push(herdr) });
+  const current = state();
+  current.herdr_version = "<b>0.9.5</b>";
+  current.home.workspaces[0].label = "Herdr Core <img src=x>";
+
+  render(view, current);
+  assert.equal(app.querySelectorAll(".herdr-switch").length, 0);
+
+  render(view, current, { herdrSwitch: true });
+  const group = requiredElement(app, ".herdr-switch");
+  assert.equal(app.children.item(1) === group, true, "the switch sits directly under the masthead");
+  assert.equal(group.getAttribute("role"), "group");
+  assert.equal(group.getAttribute("aria-label"), "Herdr");
+  assert.deepEqual(
+    Array.from(group.querySelectorAll("button"), (node) => [node.textContent, node.getAttribute("aria-pressed"), node.childElementCount]),
+    [["Herdr TUI", "true", 0], ["Herdr Core", "false", 0]],
+  );
+  assert.equal(requiredElement(app, ".herdr-version").textContent, "Herdr TUI <b>0.9.5</b>");
+  assert.equal(app.querySelectorAll("b, img").length, 0);
+
+  Array.from(group.querySelectorAll<HTMLElement>("button"))[1].click();
+  assert.deepEqual(picked, ["core"]);
+
+  render(view, { ...current, connection: "not_running", last_known: true }, { herdr: "core", herdrSwitch: true, actionsAvailable: false });
+  assert.deepEqual(
+    Array.from(group.querySelectorAll("button"), (node) => node.getAttribute("aria-pressed")),
+    ["false", "true"],
+  );
+  assert.equal(requiredElement(app, ".connection-label").textContent, "Herdr is not running");
+  window.close();
+});
+
+test("showing the other Herdr rebuilds rows that share ids and clears the filter", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window);
+  const tui = state();
+  render(view, tui, { herdrSwitch: true });
+  const tuiRow = requiredRow(view, "pane-one");
+  assert.equal(tuiRow.getAttribute("aria-label"), "Open Workspace one, workspace Workspace one, Agent one, blocked");
+  const filter = requiredElement(app, ".home-filter input") as HTMLInputElement;
+  filter.value = "Workspace";
+  filter.dispatchEvent(new window.Event("input") as unknown as Event);
+  assert.equal(filter.value, "Workspace");
+
+  const core = state();
+  core.home.workspaces[0].label = "alpha";
+  render(view, core, { herdr: "core", herdrSwitch: true });
+  const coreRow = requiredRow(view, "pane-one");
+  assert.equal(coreRow === tuiRow, false);
+  assert.equal(tuiRow.isConnected, false);
+  assert.equal(coreRow.getAttribute("aria-label"), "Open Workspace one, space alpha, Agent one, blocked");
+  assert.equal(filter.value, "");
+  assert.equal(filter.getAttribute("placeholder"), "Filter spaces and terminals");
   window.close();
 });

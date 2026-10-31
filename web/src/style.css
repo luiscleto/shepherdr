@@ -409,6 +409,30 @@ h3 {
   background: var(--blocked);
 }
 
+.herdr-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin: 0.75rem 0 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--paper-recessed);
+  padding: 2px;
+}
+
+.herdr-switch button {
+  min-width: 0;
+  min-height: 44px;
+  border: 0;
+  border-radius: 2px;
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+
+.herdr-switch button[aria-pressed="true"] {
+  color: var(--paper-raised);
+  background: var(--ink);
+}
+
 .home-tools {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;

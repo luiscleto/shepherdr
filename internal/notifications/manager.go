@@ -26,10 +26,7 @@ type Manager struct {
 	events    chan Event
 	authority TrustAuthority
 
-	herdr       herdr.Backend
-	evaluatorMu sync.Mutex
-	evaluator   snapshotEvaluator
-	pending     sync.WaitGroup
+	pending sync.WaitGroup
 }
 
 type TrustAuthority interface {
@@ -56,23 +53,26 @@ func (m *Manager) Start(ctx context.Context) {
 	}
 }
 
-// SetHerdr names the Herdr that serves Home, so notices use its words. Call it
-// before Start.
-func (m *Manager) SetHerdr(backend herdr.Backend) {
-	m.herdr = backend
-	m.evaluatorMu.Lock()
-	m.evaluator.herdr = backend
-	m.evaluatorMu.Unlock()
+// Observer follows one Herdr's reads. Each observer compares a read only with
+// the previous read from the same Herdr, and its notices name that Herdr.
+func (m *Manager) Observer(backend herdr.Backend) herdr.SnapshotObserver {
+	return &herdrObserver{manager: m, evaluator: snapshotEvaluator{herdr: backend}}
 }
 
-func (m *Manager) ObserveSnapshot(snapshot herdr.Snapshot, baseline bool) {
-	m.evaluatorMu.Lock()
-	events := m.evaluator.Observe(snapshot, baseline)
-	m.evaluatorMu.Unlock()
+type herdrObserver struct {
+	manager   *Manager
+	mu        sync.Mutex
+	evaluator snapshotEvaluator
+}
+
+func (o *herdrObserver) ObserveSnapshot(snapshot herdr.Snapshot, baseline bool) {
+	o.mu.Lock()
+	events := o.evaluator.Observe(snapshot, baseline)
+	o.mu.Unlock()
 	for _, event := range events {
-		event.Herdr = m.herdr
-		m.logger.Debug("Notification candidate observed", notificationLogFields(event)...)
-		m.enqueue(event)
+		event.Herdr = o.evaluator.herdr
+		o.manager.logger.Debug("Notification candidate observed", notificationLogFields(event)...)
+		o.manager.enqueue(event)
 	}
 }
 

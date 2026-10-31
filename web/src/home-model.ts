@@ -57,16 +57,81 @@ export interface Home {
   workspaces: Workspace[];
 }
 
+// HomeState is one Herdr's state. Each Home message carries both.
 export interface HomeState {
   connection: Connection;
   detail?: string;
-  epoch?: string;
   gap: number;
   has_home: boolean;
-  herdr: Herdr;
   herdr_version: string;
   home: Home;
   last_known: boolean;
+}
+
+export interface HomeSides {
+  core: HomeState;
+  tui: HomeState;
+}
+
+export interface HomeFrame extends HomeSides {
+  epoch: string;
+}
+
+export const herdrNames: Readonly<Record<Herdr, string>> = { tui: "Herdr TUI", core: "Herdr Core" };
+
+export function emptyHomeState(): HomeState {
+  return {
+    connection: "reconnecting",
+    gap: 0,
+    has_home: false,
+    herdr_version: "",
+    home: { blocked_count: 0, error_count: 0, working_count: 0, workspaces: [] },
+    last_known: false,
+  };
+}
+
+// A Herdr is settled once Shepherdr has finished its first attempt to reach it.
+export function herdrSettled(state: HomeState): boolean {
+  return state.connection !== "reconnecting" || state.has_home;
+}
+
+// A Herdr is present once Shepherdr has had a Home from it, or while it
+// answers but can't be used.
+export function herdrPresent(state: HomeState): boolean {
+  return state.has_home || state.connection === "incompatible";
+}
+
+export function herdrSwitchShown(sides: HomeSides): boolean {
+  return herdrPresent(sides.tui) && herdrPresent(sides.core);
+}
+
+// chooseHerdr picks the Herdr Home shows first: undefined until both are
+// settled, then the remembered one if present, else the only present one,
+// else Herdr Core when both are present, else the Herdr TUI.
+export function chooseHerdr(sides: HomeSides, remembered: Herdr | undefined): Herdr | undefined {
+  if (!herdrSettled(sides.tui) || !herdrSettled(sides.core)) return undefined;
+  if (remembered && herdrPresent(sides[remembered])) return remembered;
+  if (herdrPresent(sides.core)) return "core";
+  return "tui";
+}
+
+const rememberedHerdrKey = "shepherdr.home.herdr";
+
+export function readRememberedHerdr(storage: () => Storage): Herdr | undefined {
+  try {
+    const value = storage().getItem(rememberedHerdrKey);
+    return value === "tui" || value === "core" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function rememberHerdr(storage: () => Storage, herdr: Herdr): void {
+  try {
+    storage().setItem(rememberedHerdrKey, herdr);
+  } catch {
+    // Without storage the choice lasts for this visit.
+  }
 }
 
 export interface TerminalEntry {

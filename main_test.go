@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/luiscleto/shepherdr/internal/herdr"
+	"github.com/luiscleto/shepherdr/internal/notifications"
 	"github.com/luiscleto/shepherdr/internal/uploads"
 )
 
@@ -129,29 +131,24 @@ func TestTrustedSignInLabelKeepsLegacyFallbackHonest(t *testing.T) {
 	}
 }
 
-func TestHerdrCoreStartFlags(t *testing.T) {
+func TestHerdrCoreSocketPath(t *testing.T) {
 	set := func(value string) optionalStringFlag { return optionalStringFlag{set: true, value: value} }
 	for _, test := range []struct {
-		name           string
-		core           bool
-		coreSocket     optionalStringFlag
-		herdrSocketSet bool
-		runtime        string
-		want           string
-		err            string
+		name       string
+		coreSocket optionalStringFlag
+		runtime    string
+		want       string
+		err        string
 	}{
-		{name: "Herdr TUI", runtime: "/run/user/1"},
-		{name: "default core socket", core: true, runtime: "/run/user/1", want: "/run/user/1/herdr-core/default.sock"},
-		{name: "chosen core socket", core: true, coreSocket: set("/tmp/core/w1.sock"), want: "/tmp/core/w1.sock"},
-		{name: "chosen socket without runtime folder", core: true, coreSocket: set("/tmp/core/w1.sock"), want: "/tmp/core/w1.sock"},
-		{name: "no runtime folder", core: true, err: "-herdr-core-socket must be set when XDG_RUNTIME_DIR is not"},
-		{name: "with Herdr TUI socket", core: true, herdrSocketSet: true, runtime: "/run/user/1", err: "-herdr-core cannot be combined with -herdr-socket"},
-		{name: "core socket alone", coreSocket: set("/tmp/core/w1.sock"), err: "-herdr-core-socket requires -herdr-core"},
-		{name: "relative core socket", core: true, coreSocket: set("core.sock"), err: "-herdr-core-socket must be an absolute path"},
-		{name: "empty core socket", core: true, coreSocket: set(""), runtime: "/run/user/1", err: "-herdr-core-socket must be an absolute path"},
+		{name: "default socket", runtime: "/run/user/1", want: "/run/user/1/herdr-core/default.sock"},
+		{name: "chosen socket", coreSocket: set("/tmp/core/w1.sock"), runtime: "/run/user/1", want: "/tmp/core/w1.sock"},
+		{name: "chosen socket without runtime folder", coreSocket: set("/tmp/core/w1.sock"), want: "/tmp/core/w1.sock"},
+		{name: "not followed without runtime folder", want: ""},
+		{name: "relative socket", coreSocket: set("core.sock"), runtime: "/run/user/1", err: "-herdr-core-socket must be an absolute path"},
+		{name: "empty socket", coreSocket: set(""), runtime: "/run/user/1", err: "-herdr-core-socket must be an absolute path"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := selectHerdrCoreSocket(test.core, test.coreSocket, test.herdrSocketSet, test.runtime)
+			got, err := herdrCoreSocketPath(test.coreSocket, test.runtime)
 			if test.err != "" {
 				if err == nil || err.Error() != test.err {
 					t.Fatalf("error = %v, want %q", err, test.err)
@@ -166,32 +163,56 @@ func TestHerdrCoreStartFlags(t *testing.T) {
 }
 
 type recordingProjector struct {
+	observer  herdr.SnapshotObserver
 	published herdr.PublishedSnapshotObserver
+}
+
+func (p *recordingProjector) SetSnapshotObserver(observer herdr.SnapshotObserver) {
+	p.observer = observer
 }
 
 func (p *recordingProjector) SetPublishedSnapshotObserver(observer herdr.PublishedSnapshotObserver) {
 	p.published = observer
 }
 
-func (p *recordingProjector) publish(snapshot herdr.Snapshot) {
+func (p *recordingProjector) publish(snapshot herdr.Snapshot, baseline bool) {
+	if p.observer != nil {
+		p.observer.ObserveSnapshot(snapshot, baseline)
+	}
 	if p.published != nil {
-		p.published.ObservePublishedSnapshot(snapshot, true)
+		p.published.ObservePublishedSnapshot(snapshot, baseline)
 	}
 }
 
-// Upload records hold Herdr TUI workspace ids. A read from herdr-core, whose
-// spaces have other ids, must never remove files staged for a TUI workspace.
-func TestHerdrCoreStartKeepsFilesStagedForHerdrTUI(t *testing.T) {
+// Upload records hold Herdr TUI workspace ids. herdr-core reads, whose spaces
+// have other ids, run beside Herdr TUI reads and must never remove files staged
+// for a Herdr TUI workspace; Herdr TUI reads still clean up closed workspaces.
+func TestHerdrCoreReadsKeepFilesStagedForHerdrTUI(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	coreRead := herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "sp1"}}}
+	tuiOpen := herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "w1"}}}
+	tuiClosed := herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "w2"}}}
 	for _, test := range []struct {
 		name     string
-		core     bool
-		snapshot herdr.Snapshot
+		reads    func(tui, core *recordingProjector)
 		wantKept bool
 	}{
-		{name: "herdr-core", core: true, snapshot: herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "sp1"}}}, wantKept: true},
-		{name: "Herdr TUI with the workspace open", snapshot: herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "w1"}}}, wantKept: true},
-		{name: "Herdr TUI after the workspace closed", snapshot: herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "w2"}}}, wantKept: false},
+		{name: "herdr-core reads, restarts and an empty core", reads: func(tui, core *recordingProjector) {
+			core.publish(coreRead, true)
+			core.publish(coreRead, false)
+			core.publish(coreRead, true)
+			core.publish(herdr.Snapshot{}, false)
+		}, wantKept: true},
+		{name: "both, with the workspace open", reads: func(tui, core *recordingProjector) {
+			tui.publish(tuiOpen, true)
+			core.publish(coreRead, true)
+			tui.publish(tuiOpen, false)
+			core.publish(herdr.Snapshot{}, false)
+		}, wantKept: true},
+		{name: "both, after the workspace closed", reads: func(tui, core *recordingProjector) {
+			core.publish(coreRead, true)
+			tui.publish(tuiClosed, true)
+		}, wantKept: false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			base := t.TempDir()
@@ -218,13 +239,20 @@ func TestHerdrCoreStartKeepsFilesStagedForHerdrTUI(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			projector := &recordingProjector{}
-			observeUploads(projector, manager, test.core)
-			projector.publish(test.snapshot)
+			tui, core := &recordingProjector{}, &recordingProjector{}
+			observeHerdrs(tui, core, notifications.NewManager(notifications.UnavailableStore(errors.New("not needed")), logger), manager)
+			test.reads(tui, core)
 			manager.Close()
 			_, statErr := os.Stat(staged)
 			if kept := statErr == nil; kept != test.wantKept {
 				t.Fatalf("staged file kept = %v (%v), want %v", kept, statErr, test.wantKept)
+			}
+			records, err := os.ReadFile(statePath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if recorded := strings.Contains(string(records), `"w1"`); recorded != test.wantKept {
+				t.Fatalf("record for w1 kept = %v, want %v: %s", recorded, test.wantKept, records)
 			}
 		})
 	}

@@ -2,12 +2,14 @@ import {
   accessibleTerminalName,
   allTerminals,
   allWorkspaces,
+  herdrNames,
   showTabHeadings,
   terminalCount,
   visibleTabs,
   workspaceSets,
   type AgentCounts,
   type AgentStatus,
+  type Herdr,
   type Home,
   type HomeMode,
   type HomeState,
@@ -49,6 +51,7 @@ interface HomeViewActions {
   onShowAll: () => void;
   onShowBlocked: () => void;
   onShowError?: () => void;
+  onShowHerdr?: (herdr: Herdr) => void;
   prepareWorkspaceAction: (request: PrepareWorkspaceActionRequest) => Promise<PreparedWorkspaceActionResponse>;
   runWorkspaceAction: (request: RunWorkspaceActionRequest) => Promise<RunWorkspaceActionResponse>;
   prepareTerminalAction: (request: PrepareTerminalCloseRequest) => Promise<PreparedTerminalActionResponse>;
@@ -57,6 +60,9 @@ interface HomeViewActions {
 
 export interface HomeViewRender {
   actionsAvailable: boolean;
+  // herdr names the Herdr whose state Home shows.
+  herdr: Herdr;
+  herdrSwitch?: boolean;
   mode: HomeMode;
   reachability: HomeReachability;
   signInOff?: boolean;
@@ -214,6 +220,8 @@ export class HomeView {
   readonly #header: HTMLElement;
   readonly #headerHeading: HTMLElement;
   readonly #herdrVersion: HTMLElement;
+  readonly #herdrSwitch: HTMLElement;
+  readonly #herdrSwitchButtons: ReadonlyMap<Herdr, HTMLButtonElement>;
   readonly #notificationsAction: HTMLButtonElement;
   readonly #homeTools: HTMLElement;
   readonly #loading: HTMLElement;
@@ -276,6 +284,18 @@ export class HomeView {
     const mastheadActions = element(this.#document, "div", "masthead-actions");
     mastheadActions.append(this.#connectionPanel);
     this.#header.append(heading, mastheadActions);
+
+    this.#herdrSwitch = element(this.#document, "div", "herdr-switch");
+    this.#herdrSwitch.setAttribute("role", "group");
+    this.#herdrSwitch.setAttribute("aria-label", "Herdr");
+    const switchButtons = new Map<Herdr, HTMLButtonElement>();
+    for (const herdr of ["tui", "core"] as const) {
+      const option = this.#button(herdrNames[herdr], () => actions.onShowHerdr?.(herdr));
+      option.setAttribute("aria-pressed", "false");
+      switchButtons.set(herdr, option);
+      this.#herdrSwitch.append(option);
+    }
+    this.#herdrSwitchButtons = switchButtons;
 
     this.#loading = element(this.#document, "section", "state-panel");
     this.#loadingHeading = element(this.#document, "strong", undefined, "Loading terminals");
@@ -426,6 +446,7 @@ export class HomeView {
   }
 
   render(model: HomeViewRender): void {
+    if (this.#lastRender && this.#lastRender.herdr !== model.herdr) this.#forgetShownHerdr();
     this.#lastRender = model.restore ? { ...model, restore: undefined } : model;
     const view = this.#document.defaultView;
     const oldScroll = model.restore?.scroll ?? view?.scrollY ?? 0;
@@ -434,13 +455,16 @@ export class HomeView {
     setHidden(this.#headerHeading, model.mode === "all");
     setHidden(this.#accessNotice, !model.signInOff);
     const live = model.reachability === "current" && model.state.connection === "live" && !model.state.last_known;
-    const core = model.state.herdr === "core";
+    const core = model.herdr === "core";
     const filterCopy = core ? "Filter spaces and terminals" : "Filter workspaces and terminals";
     setAttribute(this.#filterInput, "placeholder", filterCopy);
     setAttribute(this.#filterInput, "aria-label", filterCopy);
-    setText(this.#herdrVersion, live && model.state.herdr_version !== "" ? `${core ? "Herdr core" : "Herdr"} ${model.state.herdr_version}` : "");
+    setText(this.#herdrVersion, live && model.state.herdr_version !== "" ? `${herdrNames[model.herdr]} ${model.state.herdr_version}` : "");
+    for (const [herdr, option] of this.#herdrSwitchButtons) {
+      setAttribute(option, "aria-pressed", String(herdr === model.herdr));
+    }
 
-    const desired: Node[] = [this.#header];
+    const desired: Node[] = [this.#header, ...(model.herdrSwitch ? [this.#herdrSwitch] : [])];
     const connection = this.#connectionCopy(model);
     this.#updateConnection(connection);
 
@@ -547,6 +571,28 @@ export class HomeView {
       this.#workspacePickerRows.get(model.restore.focusWorkspace)?.row.focus({ preventScroll: true });
     }
     if (automaticallyClosedPicker) this.#restoreAutomaticallyClosedPicker(automaticallyClosedPicker);
+  }
+
+  // The two Herdrs are different lists whose ids may repeat, so nothing kept
+  // for rows, groups, menus, the picker or the filter carries over.
+  #forgetShownHerdr(): void {
+    this.#closeMenu();
+    this.#pickerWorkspaceID = undefined;
+    this.#pickerReturnFocus = undefined;
+    reconcileChildren(this.#picker.body, []);
+    this.#rows.clear();
+    this.#items.clear();
+    this.#tabs.clear();
+    this.#workspaces.clear();
+    this.#workspacePickerRows.clear();
+    this.#workspaceSets.clear();
+    this.#workspaceMenus.clear();
+    this.#terminalMenus.clear();
+    this.#workspaceValues.clear();
+    this.#entries.clear();
+    this.#expandedSets.clear();
+    this.#filterValue = "";
+    this.#filterInput.value = "";
   }
 
   row(paneID: string): HTMLElement | undefined {
@@ -1354,7 +1400,7 @@ export class HomeView {
     }
 
     setClass(nodes.row, actionsAvailable ? "terminal-row" : "terminal-row terminal-row-stale");
-    if (actionsAvailable) setAttribute(nodes.row, "aria-label", accessibleTerminalName(entry, tabsShown, this.#lastRender?.state.herdr));
+    if (actionsAvailable) setAttribute(nodes.row, "aria-label", accessibleTerminalName(entry, tabsShown, this.#lastRender?.herdr));
     setText(nodes.name, entry.terminal.title);
     if (entry.terminal.agent) {
       const secondary = [

@@ -548,10 +548,10 @@ async function submitSettings(window: Window, root: ParentNode): Promise<void> {
   }
 }
 
-test("with the Herdr app, settings say space and offer error, which starts on", async () => {
+test("with only Herdr Core, settings say space and offer error, which starts on", async () => {
   const { api, controller, root, window } = notificationView();
   api.configValue = { contact: "mailto:operator@example.com", public_key: "public", setup: true };
-  controller.setHerdr("core");
+  controller.setPresent({ core: true, tui: false });
   await controller.init();
   assert.match(root.textContent ?? "", /Get an alert when a space needs attention or finishes\./);
   buttonWithText(root, "Turn on notifications").click();
@@ -568,14 +568,14 @@ test("with the Herdr app, settings say space and offer error, which starts on", 
   assert.equal(api.saved.at(-1)?.events.error, false);
 });
 
-test("with the Herdr TUI, settings keep workspace words and keep the hidden error choice", async () => {
+test("with only the Herdr TUI, or neither, settings keep workspace words and keep the hidden error choice", async () => {
   const { api, controller, platform, root, window } = notificationView();
   api.configValue = { contact: "mailto:operator@example.com", public_key: "public", setup: true };
   api.events = { ...defaultNotificationEvents, error: false };
   api.enabled = true;
   platform.permissionValue = "granted";
   platform.subscription = new FakeSubscription();
-  controller.setHerdr("tui");
+  controller.setPresent({ core: false, tui: true });
   await controller.init();
   controller.openSettings();
   await settle();
@@ -587,11 +587,32 @@ test("with the Herdr TUI, settings keep workspace words and keep the hidden erro
   assert.equal(labels.includes("Workspace opened"), true);
   await submitSettings(window, root);
   assert.equal(api.saved.at(-1)?.events.error, false);
+
+  controller.setPresent({ core: false, tui: false });
+  await settle();
+  assert.equal(root.querySelectorAll('input[name="error"]').length, 0);
+  assert.equal(Array.from(root.querySelectorAll(".notification-choice span"), (node) => node.textContent).includes("Workspace closed"), true);
+});
+
+test("with both Herdrs present, one set of settings names workspaces and spaces", async () => {
+  const { api, controller, root, window } = notificationView();
+  api.configValue = { contact: "mailto:operator@example.com", public_key: "public", setup: true };
+  controller.setPresent({ core: true, tui: true });
+  await controller.init();
+  assert.match(root.textContent ?? "", /Get an alert when a workspace or space needs attention or finishes\./);
+  buttonWithText(root, "Turn on notifications").click();
+  await settle();
+
+  const labels = Array.from(root.querySelectorAll(".notification-choice span"), (node) => node.textContent);
+  assert.deepEqual(labels.slice(0, 8), ["working", "blocked", "error", "idle", "done", "unknown", "Workspace or space opened", "Workspace or space closed"]);
+  root.querySelector<HTMLInputElement>('input[name="error"]')!.checked = false;
+  await submitSettings(window, root);
+  assert.equal(api.saved.at(-1)?.events.error, false);
 });
 
 test("with the Herdr app, pushes say space and error uses the blocked wording", async () => {
   const worker = serviceWorkerHarness();
-  const destination = "/#terminal=t3&terminal_id=core%3At3";
+  const destination = "/#terminal=t3&terminal_id=core%3At3&herdr=core";
   await worker.push({ destination: "/", herdr: "core", kind: "workspace_opened", workspace_name: "alpha" });
   assert.equal(worker.shownTitle(), "Space opened");
   assert.equal(worker.shownBody(), "alpha");
@@ -612,7 +633,7 @@ test("with the Herdr app, pushes say space and error uses the blocked wording", 
 
 test("with the Herdr app, pushes for a terminal in no space say terminal", async () => {
   const worker = serviceWorkerHarness();
-  const destination = "/#terminal=t4&terminal_id=core%3At4";
+  const destination = "/#terminal=t4&terminal_id=core%3At4&herdr=core";
   const bodies = Object.entries({
     blocked: "A terminal needs attention.",
     error: "A terminal needs attention.",
@@ -629,4 +650,26 @@ test("with the Herdr app, pushes for a terminal in no space say terminal", async
   const tui = "/#terminal=w1%3Ap1&terminal_id=term-1";
   await worker.push({ destination: tui, kind: "status", other_terminals: true, pane_id: "w1:p1", status: "blocked", terminal_id: "term-1" });
   assert.equal(worker.shownBody(), "A workspace needs attention.");
+});
+
+test("a status push opens only a link to the same Herdr", async () => {
+  const worker = serviceWorkerHarness();
+  const tui = { kind: "status", pane_id: "w1:p1", status: "blocked", terminal_id: "term-1", workspace_name: "api" };
+  for (const [destination, herdr, opens] of [
+    ["/#terminal=w1%3Ap1&terminal_id=term-1&herdr=tui", "tui", true],
+    ["/#terminal=w1%3Ap1&terminal_id=term-1", "tui", true],
+    ["/#terminal=w1%3Ap1&terminal_id=term-1&herdr=tui", undefined, true],
+    ["/#terminal=w1%3Ap1&terminal_id=term-1", undefined, true],
+    ["/#terminal=w1%3Ap1&terminal_id=term-1&herdr=core", "tui", false],
+    ["/#terminal=w1%3Ap1&terminal_id=term-1", "core", false],
+    ["/#terminal=w1%3Ap1&terminal_id=term-1&herdr=tui", "core", false],
+    ["/#terminal=w1%3Ap1&terminal_id=term-1&herdr=app", "tui", false],
+  ] as const) {
+    await worker.push({ ...tui, destination, ...(herdr ? { herdr } : {}) });
+    assert.equal(worker.shownTitle(), opens ? "Agent is blocked" : "Shepherdr", `${destination} ${herdr}`);
+    await worker.click(worker.shownDestination());
+    assert.equal(worker.opened(), opens ? `https://shepherdr.example${destination}` : "https://shepherdr.example/", `${destination} ${herdr}`);
+  }
+  await worker.push({ ...tui, destination: "/#terminal=w1%3Ap1&terminal_id=term-1&herdr=tui", herdr: "tui" });
+  assert.equal(worker.shownBody(), "Workspace: api");
 });

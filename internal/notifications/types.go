@@ -181,7 +181,8 @@ func (e *snapshotEvaluator) Observe(snapshot herdr.Snapshot, baseline bool) []Ev
 		if !ok || prior.AgentStatus == agent.AgentStatus {
 			continue
 		}
-		destination := "/#terminal=" + url.QueryEscape(agent.PaneID) + "&terminal_id=" + url.QueryEscape(agent.TerminalID)
+		destination := "/#terminal=" + url.QueryEscape(agent.PaneID) + "&terminal_id=" + url.QueryEscape(agent.TerminalID) +
+			"&herdr=" + url.QueryEscape(string(e.herdr))
 		events = append(events, Event{
 			Kind:           EventStatus,
 			Status:         agent.AgentStatus,

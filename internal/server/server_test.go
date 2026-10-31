@@ -1,18 +1,24 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/luiscleto/shepherdr/internal/herdr"
 )
 
 func TestApplicationAssetsAlwaysRevalidate(t *testing.T) {
 	application := New(fstest.MapFS{
 		"index.html": {Data: []byte("home")},
 		"app.js":     {Data: []byte("application")},
-	}, nil, nil, false)
+	}, nil, nil, nil, false)
 	for _, target := range []string{"/", "/app.js"} {
 		request := httptest.NewRequest("GET", "http://localhost"+target, nil)
 		response := httptest.NewRecorder()
@@ -37,13 +43,61 @@ func TestValidateListenAddressAllowsOnlyLocalhost(t *testing.T) {
 }
 
 func TestServerEpochIsPresentAndProcessLocal(t *testing.T) {
-	first := New(nil, nil, nil, false)
-	second := New(nil, nil, nil, false)
+	first := New(nil, nil, nil, nil, false)
+	second := New(nil, nil, nil, nil, false)
 	if first.epoch == "" || second.epoch == "" {
 		t.Fatal("server epoch must be present")
 	}
 	if first.epoch == second.epoch {
 		t.Fatalf("independent server instances shared epoch %q", first.epoch)
+	}
+}
+
+// One Home message carries both Herdrs' complete states. herdr-core that is
+// not followed is a fixed "not running" state without a Home.
+func TestHomeMessageCarriesBothHerdrs(t *testing.T) {
+	httpServer := httptest.NewServer(New(nil, herdr.NewProjector(nil), nil, nil, false).Handler())
+	defer httpServer.Close()
+	connection, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(httpServer.URL, "http")+"/api/home", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	_ = connection.SetReadDeadline(time.Now().Add(time.Second))
+	_, data, err := connection.ReadMessage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var message map[string]json.RawMessage
+	if err := json.Unmarshal(data, &message); err != nil {
+		t.Fatal(err)
+	}
+	keys := make([]string, 0, len(message))
+	for key := range message {
+		keys = append(keys, key)
+	}
+	if len(keys) != 3 || message["epoch"] == nil || message["tui"] == nil || message["core"] == nil {
+		t.Fatalf("Home message keys = %v, want epoch, tui and core: %s", keys, data)
+	}
+	var sides struct {
+		TUI  map[string]any `json:"tui"`
+		Core map[string]any `json:"core"`
+	}
+	if err := json.Unmarshal(data, &sides); err != nil {
+		t.Fatal(err)
+	}
+	wantCore := map[string]any{
+		"connection": "not_running", "gap": 0.0, "has_home": false, "herdr_version": "", "last_known": false,
+		"home": map[string]any{"workspaces": []any{}, "working_count": 0.0, "blocked_count": 0.0, "error_count": 0.0},
+	}
+	if !reflect.DeepEqual(sides.Core, wantCore) {
+		t.Fatalf("core side = %v, want %v", sides.Core, wantCore)
+	}
+	if sides.TUI["connection"] != "reconnecting" || sides.TUI["has_home"] != false {
+		t.Fatalf("Herdr TUI side = %v", sides.TUI)
+	}
+	if _, ok := sides.TUI["herdr"]; ok {
+		t.Fatalf("a side still names its Herdr: %v", sides.TUI)
 	}
 }
 
@@ -60,7 +114,7 @@ func TestSecurityHeadersConfineBrowserContent(t *testing.T) {
 }
 
 func TestProductionTerminalRequiresCurrentHerdrTarget(t *testing.T) {
-	application := New(nil, nil, &TerminalBridge{}, false)
+	application := New(nil, nil, nil, &TerminalBridge{}, false)
 	request := httptest.NewRequest("GET", "http://localhost/api/terminal?pane=w1:p1&terminal=term-1&mode=observe&cols=80&rows=24", nil)
 	response := httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)

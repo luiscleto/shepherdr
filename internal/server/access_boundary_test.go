@@ -556,7 +556,7 @@ func newProtectedTestServerWithOptions(t *testing.T, bridge *TerminalBridge, opt
 		opened.Store.Close()
 		t.Fatal(err)
 	}
-	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, bridge, options.terminalLab)
+	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, nil, bridge, options.terminalLab)
 	application.ConfigureProtectedAccess(manager)
 	return protectedTestServer{application: application, manager: manager, store: opened.Store, tokens: tokens, trustIDs: trustIDs}
 }
