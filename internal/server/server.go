@@ -53,9 +53,10 @@ func (s *Server) SetCoreTerminal(bridge *CoreTerminalBridge) {
 	s.coreTerminal = bridge
 }
 
-// New serves Home from both Herdrs. projector follows the Herdr TUI and serves
-// everything else, which is Herdr TUI only; coreProjector follows herdr-core,
-// or is herdr.NewNotFollowedProjector when herdr-core is not followed.
+// New serves Home from both Herdrs. projector follows the Herdr TUI, whose
+// terminals use terminal and whose actions are the only ones; coreProjector
+// follows herdr-core, or is herdr.NewNotFollowedProjector when herdr-core is
+// not followed. Herdr Core terminals use SetCoreTerminal.
 func New(assets fs.FS, projector, coreProjector *herdr.Projector, terminal *TerminalBridge, terminalLabEnabled bool, actionClients ...*herdr.Client) *Server {
 	server := &Server{
 		assets:             assets,
