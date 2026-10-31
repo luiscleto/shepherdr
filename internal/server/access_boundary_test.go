@@ -287,6 +287,39 @@ func TestProtectedTerminalLabSocketsCloseAndCollectChildrenForEveryInvalidation(
 	}
 }
 
+func TestProtectedHomeSaysWhichTerminalsCanOpen(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		terminal *TerminalBridge
+		wantTUI  bool
+	}{
+		{name: "herdr not on PATH", terminal: nil, wantTUI: false},
+		{name: "Herdr TUI terminal bridge", terminal: &TerminalBridge{}, wantTUI: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			application, manager, store, token := newProtectedTestServer(t, test.terminal)
+			defer manager.Close()
+			defer store.Close()
+			application.projector = herdr.NewProjector(nil)
+			httpServer := httptest.NewServer(application.Handler())
+			defer httpServer.Close()
+			connection := dialProtectedWebSocket(t, httpServer.URL, "/api/home", token)
+			defer connection.Close()
+			_ = connection.SetReadDeadline(time.Now().Add(time.Second))
+			var message struct {
+				TUI  map[string]any `json:"tui"`
+				Core map[string]any `json:"core"`
+			}
+			if err := connection.ReadJSON(&message); err != nil {
+				t.Fatal(err)
+			}
+			if message.TUI["can_open_terminals"] != test.wantTUI || message.Core["can_open_terminals"] != false {
+				t.Fatalf("can_open_terminals: tui = %v, core = %v; want %t and false", message.TUI["can_open_terminals"], message.Core["can_open_terminals"], test.wantTUI)
+			}
+		})
+	}
+}
+
 func TestProtectedInvalidationClosesHomeAndTerminalSocketsAndCollectsChildren(t *testing.T) {
 	t.Run("Home", func(t *testing.T) {
 		application, manager, store, token := newProtectedTestServer(t, nil)
