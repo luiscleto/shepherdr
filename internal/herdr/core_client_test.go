@@ -268,6 +268,74 @@ func TestCoreProjectorPublishesLiveHomeAndRereadsAfterAnEvent(t *testing.T) {
 	waitForState(t, updates, func(state State) bool { return state.Connection == ConnectionReconnecting && state.LastKnown })
 }
 
+// heldWindow answers each window check only when the test says, so a check
+// can hang for as long as the test needs.
+type heldWindow struct {
+	asked   chan struct{}
+	answers chan bool
+}
+
+func (w *heldWindow) WindowOpen(ctx context.Context) bool {
+	select {
+	case w.asked <- struct{}{}:
+	case <-ctx.Done():
+		return false
+	}
+	select {
+	case open := <-w.answers:
+		return open
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func TestCoreProjectorKeepsHomeLiveWhileTheAppWindowHangs(t *testing.T) {
+	core, path := newTestCore(t)
+	window := &heldWindow{asked: make(chan struct{}), answers: make(chan bool)}
+	projector := NewCoreProjector(NewCoreClient(path, discardLogger()), "/home/user")
+	projector.SetAppWindow(window)
+	updates, unsubscribe := projector.Subscribe()
+	defer unsubscribe()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go projector.Run(ctx)
+
+	appActions := func(state State) bool { return len(state.Home.Actions) > 0 }
+	<-window.asked
+	window.answers <- true
+	waitForState(t, updates, func(state State) bool { return state.Connection == ConnectionLive && appActions(state) })
+
+	// The next check hangs. Core changes still show at once, with the last
+	// answer kept.
+	projector.RequestRefresh()
+	<-window.asked
+	core.set(func(core *testCore) {
+		document := strings.Replace(string(core.read.Document), `"name": "alpha"`, `"name": "beta"`, 1)
+		document = strings.Replace(document, `"name":"alpha"`, `"name":"beta"`, 1)
+		core.read.Document = json.RawMessage(document)
+	})
+	started := time.Now()
+	core.events <- `{"jsonrpc":"2.0","method":"event","params":{"data":{"name":"herdr-app","version":8},"seq":9,"type":"doc"}}`
+	renamed := waitForState(t, updates, func(state State) bool {
+		return len(state.Home.Workspaces) > 0 && state.Home.Workspaces[0].Label == "beta"
+	})
+	if elapsed := time.Since(started); elapsed > time.Second || !appActions(renamed) {
+		t.Fatalf("a core change behind a hung window took %s, actions %v", elapsed, renamed.Home.Actions)
+	}
+
+	// The hung check ends as closed: the actions go. A later answer brings
+	// them back.
+	window.answers <- false
+	waitForState(t, updates, func(state State) bool { return !appActions(state) })
+	projector.RequestRefresh()
+	<-window.asked
+	window.answers <- true
+	back := waitForState(t, updates, appActions)
+	if back.Connection != ConnectionLive || back.Home.Workspaces[0].Label != "beta" {
+		t.Fatalf("back = %+v", back)
+	}
+}
+
 func waitForState(t *testing.T, updates <-chan State, match func(State) bool) State {
 	t.Helper()
 	timeout := time.After(5 * time.Second)

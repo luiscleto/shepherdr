@@ -17,6 +17,7 @@ import (
 const (
 	validatedAppVersion   = "0.1.10"
 	appCommandTimeout     = 10 * time.Second
+	appStatusTimeout      = 2 * time.Second
 	appWindowDidNotAnswer = "the window did not answer"
 )
 
@@ -39,12 +40,15 @@ var appRequiredArguments = map[string][]string{
 type AppClient struct {
 	path    string
 	timeout time.Duration
+	// status bounds the window check: a local round trip, so a window that
+	// doesn't answer by then counts as closed.
+	status time.Duration
 }
 
 // NewAppClient checks the herdr-app at path: its version and the commands and
 // arguments Shepherdr uses. An error says why app actions are off.
 func NewAppClient(ctx context.Context, path string, logger *slog.Logger) (*AppClient, error) {
-	client := &AppClient{path: path, timeout: appCommandTimeout}
+	client := &AppClient{path: path, timeout: appCommandTimeout, status: appStatusTimeout}
 	output, _, err := client.run(ctx, "--version")
 	if err != nil {
 		return nil, fmt.Errorf("herdr-app --version failed: %w", err)
@@ -101,9 +105,11 @@ func checkAppCommands(output []byte) error {
 	return nil
 }
 
-// WindowOpen reports whether the app window answers. Its socket file stays
-// after the window closes, so only an answer counts.
+// WindowOpen reports whether the app window answers within the status limit.
+// Its socket file stays after the window closes, so only an answer counts.
 func (c *AppClient) WindowOpen(ctx context.Context) bool {
+	ctx, cancel := context.WithTimeout(ctx, c.status)
+	defer cancel()
 	_, _, err := c.run(ctx, "status")
 	return err == nil
 }

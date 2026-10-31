@@ -6,7 +6,7 @@ import (
 )
 
 // appWindowInterval is how often Home asks whether the Herdr app window is
-// open while herdr-core is live.
+// open.
 const appWindowInterval = 5 * time.Second
 
 // AppWindow says whether the Herdr app window answers.
@@ -20,8 +20,63 @@ func (p *Projector) SetAppWindow(app AppWindow) {
 	p.app = app
 }
 
-func (p *Projector) appWindowOpen(ctx context.Context) bool {
-	return p.app != nil && p.app.WindowOpen(ctx)
+// appWindowWatch asks the app window outside the core loop, so a slow or
+// hung window never holds up core reads, events or reconnects. The loop asks
+// through ask and takes the latest answer from answers; open is the answer
+// Home shows, and only the core loop uses it.
+type appWindowWatch struct {
+	ask     chan struct{}
+	answers chan bool
+	open    bool
+}
+
+// watchAppWindow asks the window every appWindowInterval and on each ask.
+// Without the app it never answers, and Home offers no app actions.
+func (p *Projector) watchAppWindow(ctx context.Context) *appWindowWatch {
+	window := &appWindowWatch{ask: make(chan struct{}, 1)}
+	if p.app == nil {
+		return window
+	}
+	answers := make(chan bool, 1)
+	window.answers = answers
+	go func() {
+		ticker := time.NewTicker(appWindowInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			case <-window.ask:
+			}
+			open := p.app.WindowOpen(ctx)
+			// Only the latest answer waits.
+			select {
+			case <-answers:
+			default:
+			}
+			answers <- open
+		}
+	}()
+	return window
+}
+
+// take reports whether a waiting answer changed open.
+func (w *appWindowWatch) take() bool {
+	select {
+	case open := <-w.answers:
+		return w.changed(open)
+	default:
+		return false
+	}
+}
+
+func (w *appWindowWatch) changed(open bool) bool {
+	if open == w.open {
+		return false
+	}
+	w.open = open
+	return true
 }
 
 // runCore keeps Home current from herdr-core: subscribe, then one complete
@@ -30,6 +85,7 @@ func (p *Projector) appWindowOpen(ctx context.Context) bool {
 func (p *Projector) runCore(ctx context.Context) {
 	retry := time.NewTimer(0)
 	defer retry.Stop()
+	window := p.watchAppWindow(ctx)
 	lastDetail := ""
 	for {
 		select {
@@ -39,7 +95,7 @@ func (p *Projector) runCore(ctx context.Context) {
 		}
 		subscription, err := p.core.Subscribe(ctx)
 		if err == nil {
-			readFailed, followErr := p.followCore(ctx, subscription)
+			readFailed, followErr := p.followCore(ctx, subscription, window)
 			_ = subscription.Close()
 			if ctx.Err() != nil {
 				return
@@ -68,7 +124,7 @@ func (p *Projector) runCore(ctx context.Context) {
 
 // followCore returns when the subscription or a read fails; readFailed says
 // which, so a failed read shows its reason while a dropped stream reconnects.
-func (p *Projector) followCore(ctx context.Context, subscription *CoreSubscription) (readFailed bool, err error) {
+func (p *Projector) followCore(ctx context.Context, subscription *CoreSubscription, window *appWindowWatch) (readFailed bool, err error) {
 	changed := make(chan struct{}, 1)
 	lost := make(chan error, 1)
 	go func() {
@@ -84,23 +140,18 @@ func (p *Projector) followCore(ctx context.Context, subscription *CoreSubscripti
 		}
 	}()
 
-	// The window is asked at the start, every appWindowInterval, and on each
-	// requested refresh, which follows every action. Core events alone don't
-	// ask it. A change publishes one complete Home.
-	var windowTick <-chan time.Time
-	if p.app != nil {
-		ticker := time.NewTicker(appWindowInterval)
-		defer ticker.Stop()
-		windowTick = ticker.C
-	}
-	windowOpen := p.appWindowOpen(ctx)
+	// The window is asked on subscribe and on each requested refresh, which
+	// follows every action, as well as on its own cadence. Core events alone
+	// don't ask it. Reads use the latest answer; a changed answer publishes
+	// one complete Home.
+	latchDirty(window.ask)
 	takeSignals := func() bool {
 		dirty := takeRefreshSignals(changed, nil)
 		if takeRefreshSignals(nil, p.refresh) {
-			windowOpen = p.appWindowOpen(ctx)
+			latchDirty(window.ask)
 			dirty = true
 		}
-		return dirty
+		return window.take() || dirty
 	}
 	baseline := true
 	for {
@@ -109,7 +160,7 @@ func (p *Projector) followCore(ctx context.Context, subscription *CoreSubscripti
 		if err != nil {
 			return true, err
 		}
-		read.AppWindowOpen = windowOpen
+		read.AppWindowOpen = window.open
 		snapshot, home, err := ProjectCore(read, p.homeFolder)
 		if err != nil {
 			return true, err
@@ -129,11 +180,10 @@ func (p *Projector) followCore(ctx context.Context, subscription *CoreSubscripti
 			case <-changed:
 				break wait
 			case <-p.refresh:
-				windowOpen = p.appWindowOpen(ctx)
+				latchDirty(window.ask)
 				break wait
-			case <-windowTick:
-				if open := p.appWindowOpen(ctx); open != windowOpen {
-					windowOpen = open
+			case open := <-window.answers:
+				if window.changed(open) {
 					break wait
 				}
 			}

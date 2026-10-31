@@ -35,7 +35,7 @@ exit $(cat "$dir/code")
 	}
 	app := &fakeApp{dir: dir}
 	app.answer(t, 0, "", "")
-	return app, &AppClient{path: filepath.Join(dir, "herdr-app"), timeout: 2 * time.Second}
+	return app, &AppClient{path: filepath.Join(dir, "herdr-app"), timeout: 2 * time.Second, status: time.Second}
 }
 
 func (f *fakeApp) answer(t *testing.T, code int, stdout, stderr string) {
@@ -121,6 +121,22 @@ func TestAppClientWindowOpenOnlyWhenStatusAnswers(t *testing.T) {
 	app.answer(t, 2, "", "herdr-app: no Herdr window at /x/herdr-app.sock: Connection refused (os error 111)\n")
 	if client.WindowOpen(context.Background()) {
 		t.Fatal("status exit 2 is open")
+	}
+
+	// A window that doesn't answer counts as closed after the status limit,
+	// well before the command limit.
+	app.answer(t, 0, "", "")
+	if err := os.WriteFile(filepath.Join(app.dir, "sleep"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client.timeout, client.status = time.Minute, 200*time.Millisecond
+	started := time.Now()
+	if client.WindowOpen(context.Background()) {
+		t.Fatal("a hung status is open")
+	}
+	// The fake's sleep keeps its output open, so WaitDelay adds up to 1 s.
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("a hung status took %s", elapsed)
 	}
 }
 
