@@ -15,7 +15,7 @@ Write for a person checking Herdr workspaces, terminals, and agents from a phone
 - Security language is quiet and direct.
 - Internal names stay off the screen unless the person needs an exact value to act.
 
-Use familiar words: **workspace**, **terminal**, **agent**, **worktree**, **group**, **device**, and **notification**. When Shepherdr is started for the Herdr app (herdr-core), say **space** and **tab** instead of workspace, matching the app. Keep internal words such as source, pane, route, and session off the screen. **Linked workspace** may appear only when someone needs to understand the additional work an action affects.
+Use familiar words: **workspace**, **terminal**, **agent**, **worktree**, **group**, **device**, and **notification**. When Home shows **Herdr Core**, the runtime behind the Herdr app, say **space** and **tab** instead of workspace, matching the app. Keep internal words such as source, pane, route, and session off the screen. **Linked workspace** may appear only when someone needs to understand the additional work an action affects.
 
 Use Herdr's status words unchanged: **working**, **blocked**, **idle**, **done**, and **unknown**, plus **error** from the Herdr app. Treat **error** like **blocked** for attention: when nonzero, **N error** follows **N blocked** and opens a temporary **Error** view. Supporting text may say a blocked agent “needs you,” but that is not another status. Show paths and raw errors only when they help someone act. Do not show internal IDs.
 
@@ -52,7 +52,7 @@ Think of a well-used drafting table made comfortable for a small screen:
 - typography, spacing, and alignment doing most of the work; and
 - no gradients, glass panels, glowing controls, hacker decoration, or stacks of generic rounded cards.
 
-Use a strong sans-serif face for the product, workspace, and terminal names. Use monospace only for exact technical values, statuses, and compact counts. The normal masthead says **Shepherdr**; a temporary view such as **Blocked** has its own visible heading.
+Use a strong sans-serif face for the product, workspace, and terminal names. Use monospace only for exact technical values, statuses, and compact counts. The normal masthead says **Shepherdr**, with the Herdr it shows and its version, such as **Herdr TUI 0.9.5**; a temporary view such as **Blocked** has its own visible heading.
 
 ## Home and attention
 
@@ -69,6 +69,8 @@ Groups with working or blocked agents start expanded. Later choices win for the 
 Keep one row per workspace on Home. One terminal opens directly. When a workspace has several terminals, the same terminal control carries a small count badge and opens a terminal picker: a bottom sheet on a phone and a compact dialog on a larger screen. List every terminal there with its status, open action, and three-dot menu. Do not add another inline expand/collapse level for terminals.
 
 ### With the Herdr app
+
+Shepherdr follows the Herdr TUI and Herdr Core together. When both are available, a switch at the top of Home, **Herdr TUI** | **Herdr Core**, picks which one Home shows, and each browser remembers its choice. With only one, Home shows it without a switch. Counts, **Blocked**, **Error** and the filter cover the Herdr that Home shows; the masthead names it with its version. Notifications come from both, and opening one goes to that Herdr's terminal.
 
 Home lists the app's spaces and tabs in the app's order and with the app's names. Terminals that no space contains appear once in a last group, **Other terminals**. The app has no worktree groups, so none appear, and there are no space or terminal actions. Terminal offers **Control** and **Release** but no **Take over**: the phone and the app window can both type, and the size follows whoever typed last. **Send keys** shows only keys Herdr can send.
 

@@ -6,12 +6,18 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ### Added
 
-- Start with `-herdr-core` to use Shepherdr with the Herdr desktop app. Home lists the app's spaces and tabs with the app's names, and terminals that no space holds appear once under **Other terminals**. Home keeps working while the app window is closed.
+- Shepherdr also follows herdr-core, the runtime behind the Herdr desktop app, whenever it runs. When the Herdr TUI and Herdr Core are both running, a switch on Home picks which one to show, and each browser remembers its choice. For Herdr Core, Home lists the app's spaces and tabs with the app's names, and terminals that no space holds appear once under **Other terminals**. Home keeps working while the app window is closed.
+- Notifications come from both, whichever one Home shows.
 - With the Herdr app, an agent's **error** status shows on Home, **N error** opens an **Error** view, and a new **error** notification choice starts on.
+
+### Changed
+
+- `herdr` on `PATH` is needed only to open Herdr TUI terminals; Shepherdr starts without it.
+- The masthead names the Herdr it shows: **Herdr TUI 0.9.5** or **Herdr Core 0.1.15**.
 
 ### Compatibility
 
-- Support herdr-core 0.1.15 with the Herdr app. Newer versions run best effort with a warning. With the app, opening a terminal is not available, and there are no space or terminal actions.
+- Support herdr-core 0.1.15 with the Herdr app. Newer versions run best effort with a warning. For Herdr Core, opening a terminal is not available yet, and there are no space or terminal actions.
 
 ## [0.4.3] - 2026-10-16
 

@@ -1,11 +1,13 @@
 # Herdr core plan
 
-Status: **approved human direction and work brief** (2026-10-31). The human approved option A (keep the Herdr TUI backend unchanged and add a herdr-core backend chosen at start), decisions 1–10 below, decisions A–C in section 8 as recommended, and the documentation changes in section 5. Waves 1–2 are approved for dispatch; wave 3 needs separate approval.
+Status: **approved human direction and work brief** (2026-10-31). The human approved option A (keep the Herdr TUI backend unchanged and add a herdr-core backend), decisions 1–10 below, decisions A–C in section 8 as recommended, and the documentation changes in section 5. Later on 2026-10-31 the human replaced decision 1 and the section 2 flag rules: one Shepherdr follows both, and Home switches between them (section 2, "Both at once"). Waves 1, 1b and 2 are approved for dispatch; wave 3 needs separate approval.
+
+In this document, **core mode** means what Shepherdr shows for Herdr Core (its Home, terminals and notices), and **TUI mode** the same for the Herdr TUI. Both run at once in one Shepherdr.
 
 Planning base: Shepherdr `628eccb` (v0.4.3). Upstream: herdr-core 0.1.15 (`4a3591a`), Herdr app 0.1.10 (`e3cdccc`).
 Date: 2026-10-31. Discovery evidence was recorded outside the repository during planning.
 
-Approved decisions 1–10: (1) keep the TUI backend and add a core backend chosen with an explicit start flag, no auto-detection; (2) read the `herdr-app` document read-only plus terminal labels, never write it; (3) say **space** and **tab** in core mode; (4) Control = active attach, Release = observe, no Take over in core mode, no extra note; (5) hide worktrees, Split and Rename in core mode; (6) show `error` unchanged and treat it as attention like blocked; (7) an agent is a terminal with a current non-null status, identity from `status.app`; (8) hide Send keys combinations core cannot send, uppercase as `shift+<lower>`; (9) gate on API generation 1 and required methods, validated from 0.1.15, newer best effort; (10) this machine's terminals only.
+Approved decisions 1–10: (1) keep the TUI backend and add a core backend; one Shepherdr follows both on their sockets whenever each runs, and Home switches between **Herdr TUI** and **Herdr Core**, remembered per browser; (2) read the `herdr-app` document read-only plus terminal labels, never write it; (3) say **space** and **tab** in core mode; (4) Control = active attach, Release = observe, no Take over in core mode, no extra note; (5) hide worktrees, Split and Rename in core mode; (6) show `error` unchanged and treat it as attention like blocked; (7) an agent is a terminal with a current non-null status, identity from `status.app`; (8) hide Send keys combinations core cannot send, uppercase as `shift+<lower>`; (9) gate on API generation 1 and required methods, validated from 0.1.15, newer best effort; (10) this machine's terminals only.
 Close terminal, New space and Close space stay out of waves 1–2.
 
 ---
@@ -93,17 +95,24 @@ Everything else matched: hello (generation 1, 0.1.15, 32 methods, features `fram
 
 ### Flags
 
-- `-herdr-core`: use herdr-core instead of the Herdr TUI for this start.
-- `-herdr-core-socket PATH`: the core socket. The default is `$XDG_RUNTIME_DIR/herdr-core/default.sock`. If `XDG_RUNTIME_DIR` is unset there is no default: the start fails with "-herdr-core-socket must be set when XDG_RUNTIME_DIR is not".
-- These are start errors:
-  - `-herdr-core` together with `-herdr-socket`;
-  - `-herdr-core-socket` without `-herdr-core`;
-  - a relative socket path.
-- In core mode Shepherdr does not look up the `herdr` binary. `main.go:201` currently fails without it.
+- There is no mode flag. Shepherdr follows the Herdr TUI (`-herdr-socket`, default unchanged) and herdr-core (`-herdr-core-socket`) at once, each whenever it is running.
+- `-herdr-core-socket PATH`: the default is `$XDG_RUNTIME_DIR/herdr-core/default.sock`. If `XDG_RUNTIME_DIR` is unset and the flag is not given, Shepherdr does not follow core: it logs this once at start and shows the Herdr TUI only.
+- A relative path in either socket flag is a start error.
+- `herdr` on `PATH` is needed only to open Herdr TUI terminals. Without it Shepherdr starts, logs a warning, and Herdr TUI terminals show **Terminal unavailable**.
 - Shepherdr never runs `hc connect` or `hc` itself, because those can start a core. It dials the socket only, so a stopped core shows honestly as "not running".
-- The ready log line adds `herdr="core"` and the socket path.
+- The ready log line names both sockets.
+
+### Both at once
+
+- Each Herdr has its own connection loop, state, Home, notification evaluator and upload records. Neither waits for or affects the other.
+- The Home message carries both complete states, `{epoch, tui, core}`, and is sent whenever either changes.
+- A Herdr is *present* once Shepherdr has had a Home from it since starting, or while it answers but can't be used. When both are present, Home shows a switch, **Herdr TUI** | **Herdr Core**. With one present, Home shows it without a switch. Each browser remembers its choice in local storage, and works for the visit without storage. A stopped Herdr stays in the switch with its last-known Home and **Herdr is not running** until Shepherdr restarts.
+- Every terminal link names its Herdr: `#terminal=<pane>&terminal_id=<id>&herdr=tui|core`. A link without `herdr` is a Herdr TUI link.
+- Notifications come from both, whichever one Home shows. Settings are one set for both.
 
 ### Connection states (existing badge words, unchanged)
+
+Each Herdr has its own badge state; Home shows the state of the Herdr it is showing. **Offline** applies to both.
 
 | Situation | Badge | Detail (logged; shown where detail is shown today) |
 |---|---|---|
@@ -146,7 +155,7 @@ How to read the document:
 
 ### 3.2 Projection onto the existing Home contract
 
-The core read becomes the existing internal `Snapshot` / `Home` contract, so Home, the filter, Blocked, notifications and uploads keep working unchanged.
+The core read becomes the existing internal `Snapshot` / `Home` contract, so Home, the filter, Blocked, notifications and uploads work the same way for each Herdr.
 
 | Home field | Core source |
 |---|---|
@@ -216,7 +225,7 @@ The browser keeps its WebSocket protocol, and the server holds the core channel.
 | **Message** text and Enter | The existing chunks (bracketed paste, then `\r`), written as DATA on the active channel, in order and under the existing write lock. **Accepted** means the bytes were written to the core socket. A failed or partial write is **unknown**. There is no retry. |
 | **Send keys** | `terminal.keys {terminal, keys:[name]}`, only while controlling. Core waits up to ~3 s after the last typing ("quiet rule"); note this as a known limitation. |
 | Resize while controlling | A RESIZE frame (u16 cols, u16 rows) on the active channel. Never while observing. |
-| Files (Reader Send, full-terminal Insert) | Unchanged local staging. Paths are sent as Message chunks. **Add files** shows only while the terminal has a non-null status. `terminal.put` is not used. |
+| Files (Reader Send, full-terminal Insert) | Unchanged local staging, with core records kept in their own file (`uploads-core.json`), apart from the Herdr TUI's. **Other terminals** keeps its files while the group is listed. Paths are sent as Message chunks. **Add files** shows only while the terminal has a non-null status. `terminal.put` is not used. |
 | Program ends, or `lost` | Core CLOSE `{reason, …}` → the existing `terminal.closed` with that reason. The page shows its existing ended state. Reopening attaches to the restarted shell; nothing reattaches automatically. |
 | Exact target | Valid while Home is live and not last-known, and the latest Home still contains `pane=address` with the same `terminal_id=core.id:address`. There is no layout-rectangle check in core mode. |
 
@@ -249,7 +258,9 @@ TUI mode copy is unchanged. In core mode:
 
 | Where | TUI mode (today) | Core mode |
 |---|---|---|
-| Masthead | Herdr 0.9.5 | **Herdr core 0.1.15** (the herdr-core version) |
+| Masthead | **Herdr TUI 0.9.5** | **Herdr Core 0.1.15** (the herdr-core version) |
+| Switch (both present) | **Herdr TUI** \| **Herdr Core** | same |
+| Notifications settings, both present | Get an alert when a **workspace or space** needs attention or finishes. **Workspace or space opened** / **Workspace or space closed** | same |
 | Home filter label | Filter workspaces and terminals | **Filter spaces and terminals** |
 | Unplaced terminals group | (n/a) | **Other terminals** (decision A) |
 | A lone Other terminal | (n/a) | Shows its own name, with **Other terminals** beneath it; it is not renamed **Other terminals** |
@@ -269,7 +280,7 @@ TUI mode copy is unchanged. In core mode:
 | Connection badge | Live, Reconnecting, Offline, Herdr is not running, Cannot use this Herdr | unchanged |
 | Empty Home | No terminals / Herdr is running, but nothing is open. | unchanged |
 
-The browser learns the mode from one new field in the existing state JSON, `"herdr": "tui" | "core"`. The service worker gets the same field in its notification payload, so it can pick the space wording. A status notice for an agent under Other terminals also carries `"other_terminals": true`, so it can say terminal.
+The browser gets both Herdrs' states in each Home message (`tui`, `core`) and words Home for the one it shows. Every notification payload carries `"herdr": "tui" | "core"`, so the service worker can pick the wording. A status notice for an agent under Other terminals also carries `"other_terminals": true`, so it can say terminal.
 
 ### Approved `docs/ui-direction.md` change (applied in wave 1)
 
@@ -293,13 +304,13 @@ The human also approved a matching one-line note in `docs/north-star.md` ("Uses 
 
 ## 6. What stays untouched in TUI mode
 
-- `-herdr-socket` and its default, the snapshot loop and the 0.9.0–0.9.5 gate.
+- `-herdr-socket` and its default, the snapshot loop and the 0.9.0–0.9.5 gate. (`herdr` on `PATH` is no longer a start requirement; see section 2.)
 - Worktree groups and actions, Split, Rename, Close, New space, Take over and its confirmation.
 - The `herdr` subprocess terminal bridge, `pane read` for Reader, and today's key names (`plus`, `percent` and the others stay).
 - All current copy ("workspace").
 - The only shared code changes are additive:
   - the `error` status and count;
-  - the `herdr` mode field;
+  - the two-Herdr Home message, the switch and `herdr` in terminal links;
   - a backend seam in the projector and terminal bridge.
 
   The TUI never produces `error`, so its Home and notifications behave the same.
@@ -376,7 +387,86 @@ Each wave starts from the approved integrated commit of the one before. Wave 1 s
   9. Hostile space, tab, title and `where` values render as inert text.
   10. The TUI acceptance passes unchanged in TUI mode.
 
+### Wave 1b: both at once
+
+- **Base:** `e0e7446` (or the human's chosen integrated commit).
+- **Scope:** sections 1–8 of `docs/herdr-core-both-plan.md`, except the wave 2 parts (the core bridge, the core uploads manager, and `herdr` on terminal endpoints); rereview finding A; and the doc edits in its section 9.
+- **Likely files:**
+  - `main.go`, `main_test.go`;
+  - `internal/herdr/projector.go` (drop the `Herdr` JSON field; a fixed not-followed state), `errors.go` ("Herdr Core");
+  - `internal/server/server.go`, `server_test.go` (two sources, the `{epoch, tui, core}` message), `file_uploads.go` and `workspace_actions.go` (TUI source wiring only);
+  - `internal/notifications/manager.go`, `types.go` (`Observer(backend)`, destination `&herdr=`), `sender.go` (`herdr` always set), and their tests;
+  - `web/src/home-parser.ts`, `home-model.ts` (two-side state, finding A), `main.ts` (shown side, storage, routes), `terminal-route.ts` (`herdr` parameter), `home-view.ts` (switch, masthead, cache reset, finding A), `notifications.ts` (presence-based copy), `service-worker.js` (`herdr` match), `style.css` (switch);
+  - web tests, a `web/dist` rebuild, and the docs.
+- **Unit tests worth having (small, no large stand-ins):**
+  - two evaluators never cross-diff;
+  - the TUI payload and destination carry `herdr=tui`;
+  - the route parser handles a missing, `tui`, `core` and an unknown `herdr`;
+  - the presence, settled and shown-side rules;
+  - storage that throws;
+  - the uploads test reworked (`docs/herdr-core-both-plan.md` section 8);
+  - finding A at view level.
+- **Isolation for validation (required):** defaults now connect automatically, so **every** Shepherdr, `hc` and `herdr` process runs under `env -i`, with `XDG_CONFIG_HOME`, `XDG_RUNTIME_DIR`, `XDG_STATE_HOME`, `HC_SESSION`, `HERDR_APP_HOME` and `HERDR_RELEASES_URL=http://127.0.0.1:9` all pointing under `/tmp/shepherdr-core-w1b/`. Shepherdr is started **without** socket flags, so the defaults are exercised against isolated sockets. A second run passes both flags explicitly. Never touch the human's core, app, TUI or Shepherdr on 8787. Record the human's `terminals.json` hash before and after, as wave 1 did.
+- **Acceptance gate** (production build; isolated herdr-core 0.1.15, isolated Herdr TUI 0.9.5; headless Chromium at a phone viewport, with a real phone where the human offers one):
+  1. **Presence:**
+     - both running: both are Live, and the switch shows **Herdr TUI** | **Herdr Core**;
+     - TUI only, or core only: no switch, that side's Home;
+     - neither: **Loading terminals**, then **Herdr is not running**, with no switch;
+     - with both running, page loads show no pop-in of the switch (screenshots or a DOM-presence trace from the first frame).
+  2. **Late start:** with Shepherdr running on the TUI only, start core. The switch appears with Herdr TUI still selected, and the page doesn't move. Repeat the other way round.
+  3. **Independence:**
+     - `hc server stop` shows Core as **Herdr is not running** with its last-known Home; the switch stays; TUI stays Live with no Reconnecting frame (log of TUI states).
+     - `hc server restart`: Core goes Reconnecting, then Live.
+     - Stop and restart the Herdr TUI: the mirror case.
+     - A stand-in core older than 0.1.15 shows **Cannot use this Herdr** with its detail on the Core side while the TUI is Live.
+  4. **Per browser:**
+     - two browser profiles pick different sides, and each keeps its choice across reloads;
+     - with storage disabled or throwing, the switch works for the visit and a reload falls back to Herdr Core when both are present;
+     - switching from Blocked returns to all terminals of the other side, with the filter cleared.
+  5. **Words per side:**
+     - filter copy, masthead text, **New space** and menus on TUI only;
+     - **N error** and the Error view on core only;
+     - accessible names say workspace or space.
+  6. **Notifications from both:**
+     - while Home shows Core, a TUI agent goes blocked, and the candidate and payload carry `herdr=tui` with workspace wording; the mirror case for core, with space wording; an Other terminals agent says terminal;
+     - starting, stopping and restarting either side raises no opened or closed candidates;
+     - one settings set; the settings copy follows section 6.1 for TUI-only, core-only and both.
+  7. **Taps:**
+     - a TUI status link opens the real TUI Terminal;
+     - a core status link shows **Terminal unavailable** with **Home**;
+     - an old-format TUI link (no `herdr`) opens the TUI Terminal;
+     - **Home** from a core terminal shows Core Home with the row focused.
+  8. **Uploads:**
+     - stage a file for TUI `w1` (`StageAndForward`, as earlier runs did);
+     - run both sides, with core reads, a core restart, a core stop and a Shepherdr restart: the file and record are kept;
+     - close `w1`: they are removed.
+  9. **Flags:**
+     - `-herdr-core` is refused as an unknown flag;
+     - a relative socket path is refused;
+     - with `XDG_RUNTIME_DIR` unset and no core flag, Shepherdr starts, logs one info line and shows the TUI only;
+     - with `herdr` not on `PATH`, Shepherdr starts, logs a warning, core Home works, and a TUI row opens **Terminal unavailable**.
+  10. **Finding A:** a real program in an Other terminal runs `printf '\e]0;\a\e]7501;state=idle\a'`. Its picker row has no stray "·", and its accessible name has no empty part.
+  11. **TUI unchanged:** the existing Go and web tests pass; `TestRealProductionHome` and `TestRealHerdrSnapshot` pass against the isolated TUI; TUI Terminal, Message, Send keys, actions and file send work with core also running.
+  12. **Hostile values** on both sides render as inert text, including in the switch region (the labels are fixed text).
+- **Gate for wave 2:** an independent review approves 1b, and the integrator's run of checks 1, 3, 6, 7 and 11 passes on the integrated commit.
+
 ### Wave 2: Terminal on core
+
+Wave 2 starts from the approved integrated wave 1b commit. With both Herdrs followed at once, it changes as follows; everything else in this section stands.
+
+- **Added scope:**
+  - `/api/terminal`, `/api/terminal/read` and `/api/terminal/files` take a required `herdr` parameter. The server routes to the TUI bridge or the new core bridge, each checking targets against its own projector.
+  - Terminal routes are registered when either bridge exists. The core bridge needs no `herdr` binary.
+  - The second upload manager (`uploads-core.json`), wired only to the core projector, with the **Other terminals** rule (decision D5 of `docs/herdr-core-both-plan.md`). File-send agent presence for core = a non-null status, as plan 4 already says. `Status.Valid()` currently rejects `error`; the review note stands.
+  - Delete the 1b `core` route → **Terminal unavailable** branch.
+  - README and CHANGELOG drop "not available yet".
+- **Added acceptance:**
+  - With both running, a TUI terminal and a core terminal are open in two tabs at once, each controlling its own. Notification taps from each side open the right one.
+  - Staged files for a TUI workspace and a core space are kept and removed independently: closing the core space removes only core files, and the reverse.
+  - Other terminals files stay while the group is listed, survive a Shepherdr restart while it still is, and are removed once it's gone.
+  - The existing wave 2 checks apply to core; TUI Terminal acceptance is unchanged.
+- **Release:** still not before wave 2 is integrated and the human has accepted both side by side on a real phone.
+
 
 - **Scope:** section 4 and the terminal copy in section 5.
 - **Likely files:**
