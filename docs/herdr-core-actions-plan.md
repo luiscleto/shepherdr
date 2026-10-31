@@ -217,7 +217,7 @@ There is no retry.
 - A change triggers the normal complete core read and publish, so the actions appear or disappear in one complete Home. There is no new visible state.
 
 **Commands.**
-- **New space:** `do space.new {"folder": <absolute, ~ expanded by Shepherdr>, "name": <label, omitted when blank>}`. No `tab`, `argv`, `task` or `machine`. Success is `{space, tab, terminal}`.
+- **New space:** `do space.new {"folder": <absolute, ~ expanded by Shepherdr>, "name": <label, omitted when blank>}`. No `tab`, `argv`, `task` or `machine`. Success is `{space, tab, terminal}`. Before sending, Shepherdr checks the folder exists on this machine and otherwise refuses with "This folder doesn't exist."; a folder that vanishes after the check falls back to the app's own refusal.
 - **New terminal (split):** `do pane.split {"direction": "right"|"down", "pane": <document block id>}`.
   - The document block id (`p…`) is kept server-side with each placed terminal. It is never sent to the browser.
   - Success is `{pane, terminal}`.
@@ -234,7 +234,7 @@ There is no retry.
 | exit 2 and `no Herdr window at…` | refused `app_closed` (not sent), and Home re-reads |
 | exit 2 otherwise ("the window hung up"), a timeout, a kill, or unparsable output | **unknown** |
 
-The `herdr_refused` errors are definite: validation, `no space`, `no pane`, or a spawn failure such as a missing folder.
+The `herdr_refused` errors are definite: validation, `no space`, `no pane`, or a spawn failure (a missing folder is normally caught by Shepherdr's own check first).
 
 There is no retry, and Shepherdr never sends `confirmed` for anything except `space.close`, which the 3b design doesn't use.
 
@@ -251,7 +251,7 @@ There is no retry, and Shepherdr never sends `confirmed` for anything except `sp
 | Close terminal copy | "Closing this terminal stops what is running there. {Agent} is {status}. The {tab} tab will also close." | the same, plus **"N terminals it started will also close."** when workers end with it (new sentence, needs approval) |
 | Working headings | Checking workspace / Closing workspace | **Checking space / Closing space** |
 | Results | Workspace closed: "Its folder and branch remain. Home will update when it is ready." (via Close terminal: "Its terminals are closed. The folder and branch remain.") | **Space closed**: "Its folder and branch remain. Home will update when it is ready." in both cases, because a Close space through the app finishes its kills after the reply |
-| Refusals | "This workspace is no longer here." / "This workspace changed. Open the action again to check the latest details." / "Another workspace action is running. Try again when it finishes." | **space** in place of workspace; a Close terminal whose terminal is gone says "This terminal is no longer here." |
+| Refusals | "This workspace is no longer here." / "This workspace changed. Open the action again to check the latest details." / "Another workspace action is running. Try again when it finishes." | **space** in place of workspace; a Close terminal whose terminal is gone says "This terminal is no longer here."; New space with a missing folder says "This folder doesn't exist." |
 | New refusal (3b) | — | `app_closed`: **"The Herdr app window is closed. Open it on the computer, then try again."** |
 | New space sheet | "Add a workspace for an existing folder." / Working directory / Label (optional) / Create space; suggestions from repository checkouts | "Add a **space** for an existing folder." The fields and button are unchanged. **No suggestions**: core has no checkout paths. |
 | New space result | Space created: "Home will update when the new space is ready." | unchanged |
