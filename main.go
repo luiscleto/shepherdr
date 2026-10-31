@@ -202,15 +202,16 @@ func run() error {
 		accessManager.SetNotificationAuthority(notificationManager)
 	}
 	// Shepherdr follows the Herdr TUI and herdr-core at once, each on its own
-	// socket, with its own terminals and file records. Actions are Herdr TUI only.
+	// socket, with its own terminals, file records and actions.
 	actionClient := herdr.NewClient(*socketPath, logger)
 	tuiProjector := herdr.NewProjector(actionClient)
 	coreProjector := herdr.NewNotFollowedProjector()
 	var coreTerminal *server.CoreTerminalBridge
 	var coreUploadManager *uploads.Manager
+	var coreClient *herdr.CoreClient
+	homeFolder, _ := os.UserHomeDir()
 	if coreSocketPath != "" {
-		homeFolder, _ := os.UserHomeDir()
-		coreClient := herdr.NewCoreClient(coreSocketPath, logger)
+		coreClient = herdr.NewCoreClient(coreSocketPath, logger)
 		coreProjector = herdr.NewCoreProjector(coreClient, homeFolder)
 		coreTerminal = server.NewCoreTerminalBridge(coreClient, logger, coreProjector)
 		defer coreTerminal.Close()
@@ -235,6 +236,7 @@ func run() error {
 	if coreTerminal != nil {
 		application.SetCoreTerminal(coreTerminal)
 		application.SetCoreFileUploads(coreUploadManager)
+		application.SetCoreActions(coreClient, homeFolder)
 	}
 	application.SetNotifications(notificationManager)
 	if accessManager != nil {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,7 +27,7 @@ const (
 
 var (
 	coreRequiredFeatures = []string{"events", "framed", "attach"}
-	coreRequiredMethods  = []string{"hello", "events.subscribe", "terminal.list", "doc.get", "terminal.attach", "terminal.keys"}
+	coreRequiredMethods  = []string{"hello", "events.subscribe", "terminal.list", "doc.get", "terminal.attach", "terminal.keys", "terminal.kill"}
 )
 
 // CoreClient reads Home from herdr-core, the runtime behind the Herdr app.
@@ -54,14 +55,15 @@ type CoreRead struct {
 }
 
 type CoreTerminal struct {
-	Address   string            `json:"address"`
-	CreatedMS uint64            `json:"created_ms"`
-	CWD       string            `json:"cwd"`
-	Labels    map[string]string `json:"labels"`
-	Name      *string           `json:"name"`
-	Parent    *string           `json:"parent"`
-	Status    *CoreStatus       `json:"status"`
-	Title     string            `json:"title"`
+	Address       string            `json:"address"`
+	CreatedMS     uint64            `json:"created_ms"`
+	CWD           string            `json:"cwd"`
+	DieWithParent bool              `json:"die_with_parent"`
+	Labels        map[string]string `json:"labels"`
+	Name          *string           `json:"name"`
+	Parent        *string           `json:"parent"`
+	Status        *CoreStatus       `json:"status"`
+	Title         string            `json:"title"`
 }
 
 type CoreStatus struct {
@@ -219,6 +221,36 @@ func (c *CoreClient) Read(ctx context.Context) (CoreRead, error) {
 		return CoreRead{}, err
 	}
 	return CoreRead{CoreID: hello.Core.ID, Version: hello.Version, Terminals: list.Terminals, Document: document.Value}, nil
+}
+
+// Kill ends one terminal of this machine by its exact address, never a name,
+// and returns the state core observed. Core answers a terminal that had
+// already finished with its finished record, so whether it was live must come
+// from a fresh read before the kill.
+func (c *CoreClient) Kill(ctx context.Context, address string) (string, error) {
+	if address == "" || strings.Contains(address, "/") {
+		return "", &MutationError{Err: errors.New("kill target is invalid")}
+	}
+	connection, _, err := c.open(ctx)
+	if err != nil {
+		return "", &MutationError{Err: err}
+	}
+	defer connection.conn.Close()
+	var result struct {
+		Address string `json:"address"`
+		State   string `json:"state"`
+	}
+	if err := connection.call("terminal.kill", map[string]any{"terminal": address}, &result); err != nil {
+		var apiError *APIError
+		if errors.As(err, &apiError) {
+			return "", apiError
+		}
+		return "", &MutationError{Err: err, Submitted: true}
+	}
+	if result.Address != address {
+		return "", &MutationError{Err: fmt.Errorf("Herdr Core answered the kill for %q", result.Address), Submitted: true}
+	}
+	return result.State, nil
 }
 
 type CoreSubscription struct {

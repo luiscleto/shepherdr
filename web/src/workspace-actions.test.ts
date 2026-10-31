@@ -11,7 +11,7 @@ const expected: ConfirmationFacts = {
   workspace_label: "Review <script>",
   scope_workspace_ids: ["opaque-a", "opaque-b"],
   agent_total: 4,
-  interruption_counts: { working: 2, blocked: 1, unknown: 0 },
+  interruption_counts: { working: 2, blocked: 1, error: 0, unknown: 0 },
 };
 
 function jsonResponse(value: unknown, status = 200): Response {
@@ -72,13 +72,13 @@ test("uses exact same-origin JSON requests and returns prepared facts unchanged"
     });
   });
 
-  const response = await client.prepare({ action: "close_group", workspace_id: "opaque-parent" });
+  const response = await client.prepare({ herdr: "tui", action: "close_group", workspace_id: "opaque-parent" });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].endpoint, "/api/workspace-actions/prepare");
   assert.equal(calls[0].method, "POST");
   assert.equal(calls[0].mode, "same-origin");
-  assert.equal(calls[0].body, '{"action":"close_group","workspace_id":"opaque-parent"}');
+  assert.equal(calls[0].body, '{"herdr":"tui","action":"close_group","workspace_id":"opaque-parent"}');
   assert.equal(response.outcome, "prepared");
   assert.equal(response.outcome === "prepared" ? JSON.stringify(response.expected) : "", JSON.stringify(expected));
 });
@@ -90,10 +90,10 @@ test("omits blank optional creation fields and never retries an unconfirmed run"
     throw new TypeError("connection lost");
   });
 
-  const response = await client.run({ action: "create_space", working_directory: "~/exact $VALUE *" });
+  const response = await client.run({ herdr: "tui", action: "create_space", working_directory: "~/exact $VALUE *" });
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0], '{"action":"create_space","working_directory":"~/exact $VALUE *"}');
+  assert.equal(calls[0], '{"herdr":"tui","action":"create_space","working_directory":"~/exact $VALUE *"}');
   assert.equal(response.outcome, "unknown");
 });
 
@@ -103,7 +103,7 @@ test("posts complete prepared facts as stale-state checks without adding authori
     calls.push(String(init?.body));
     return jsonResponse({ outcome: "succeeded" });
   });
-  const request = { action: "close_group" as const, workspace_id: "opaque-parent", expected };
+  const request = { herdr: "tui" as const, action: "close_group" as const, workspace_id: "opaque-parent", expected };
 
   const response = await client.run(request);
 

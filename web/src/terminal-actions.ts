@@ -1,5 +1,5 @@
-import type { Agent, AgentStatus } from "./home-model";
-import type { ConfirmationFacts, RefusalReason } from "./workspace-actions";
+import type { Agent, AgentStatus, Herdr } from "./home-model";
+import { parseInterruptionCounts, type ConfirmationFacts, type RefusalReason } from "./workspace-actions";
 
 export interface TerminalActionTarget {
   workspace_id: string;
@@ -10,16 +10,20 @@ export interface TerminalActionTarget {
 
 export type SplitDirection = "right" | "down";
 
+// Every request names the Herdr it is for.
 export interface PrepareTerminalCloseRequest extends TerminalActionTarget {
+  herdr: Herdr;
   action: "close_terminal";
 }
 
 export interface SplitTerminalRequest extends TerminalActionTarget {
+  herdr: Herdr;
   action: "split_terminal";
   direction: SplitDirection;
 }
 
 export interface RenameTerminalRequest extends TerminalActionTarget {
+  herdr: Herdr;
   action: "rename_terminal";
   name: string;
 }
@@ -31,11 +35,14 @@ export interface TerminalCloseFacts {
   terminal_title: string;
   agent?: Agent;
   closes_tab: boolean;
+  // How many terminals it started end with it; Herdr Core only.
+  closes_workers?: number;
   workspace_action?: "close_workspace" | "close_group";
   workspace_expected?: ConfirmationFacts;
 }
 
 export interface CloseTerminalRequest {
+  herdr: Herdr;
   action: "close_terminal";
   expected: TerminalCloseFacts;
 }
@@ -68,7 +75,7 @@ export type RunTerminalActionResponse = SucceededTerminalAction | RefusedTermina
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-const statuses = new Set<AgentStatus>(["working", "blocked", "idle", "done", "unknown"]);
+const statuses = new Set<AgentStatus>(["working", "blocked", "error", "idle", "done", "unknown"]);
 const refusalReasons = new Set<RefusalReason>([
   "invalid_request", "not_found", "not_applicable", "busy", "stale", "herdr_unavailable", "herdr_refused",
   "checkout_has_changes",
@@ -124,15 +131,13 @@ function parseConfirmationFacts(value: unknown): ConfirmationFacts | undefined {
   for (let index = 1; index < facts.scope_workspace_ids.length; index++) {
     if ((facts.scope_workspace_ids[index - 1] as string) > (facts.scope_workspace_ids[index] as string)) return undefined;
   }
-  const counts = record(facts.interruption_counts);
-  if (!counts || !exactKeys(counts, ["working", "blocked", "unknown"]) ||
-    !nonnegativeInteger(counts.working) || !nonnegativeInteger(counts.blocked) || !nonnegativeInteger(counts.unknown)) return undefined;
-  if (counts.working + counts.blocked + counts.unknown > facts.agent_total) return undefined;
+  const counts = parseInterruptionCounts(facts.interruption_counts, facts.agent_total);
+  if (!counts) return undefined;
   return {
     workspace_label: facts.workspace_label,
     scope_workspace_ids: facts.scope_workspace_ids as string[],
     agent_total: facts.agent_total,
-    interruption_counts: { working: counts.working, blocked: counts.blocked, unknown: counts.unknown },
+    interruption_counts: counts,
   };
 }
 
@@ -141,9 +146,11 @@ function parseCloseFacts(value: unknown): TerminalCloseFacts | undefined {
   if (!facts || !exactKeys(
     facts,
     ["target", "workspace_label", "tab_label", "terminal_title", "closes_tab"],
-    ["agent", "workspace_action", "workspace_expected"],
+    ["agent", "closes_workers", "workspace_action", "workspace_expected"],
   ) || typeof facts.workspace_label !== "string" || typeof facts.tab_label !== "string" ||
     typeof facts.terminal_title !== "string" || typeof facts.closes_tab !== "boolean") return undefined;
+  if (Object.hasOwn(facts, "closes_workers") &&
+    (!nonnegativeInteger(facts.closes_workers) || facts.closes_workers === 0)) return undefined;
   const target = parseTarget(facts.target);
   if (!target) return undefined;
   const agent = Object.hasOwn(facts, "agent") ? parseAgent(facts.agent) : undefined;
@@ -165,6 +172,7 @@ function parseCloseFacts(value: unknown): TerminalCloseFacts | undefined {
     tab_label: facts.tab_label,
     terminal_title: facts.terminal_title,
     closes_tab: facts.closes_tab,
+    ...(typeof facts.closes_workers === "number" ? { closes_workers: facts.closes_workers } : {}),
     ...(agent ? { agent } : {}),
     ...(workspaceAction && workspaceExpected
       ? { workspace_action: workspaceAction, workspace_expected: workspaceExpected }

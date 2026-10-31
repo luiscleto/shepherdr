@@ -5,13 +5,15 @@ import test from "node:test";
 import { Window } from "happy-dom";
 
 import { HomeView } from "./home-view.ts";
-import type { Home, HomeState } from "./home-model.ts";
+import type { Herdr, Home, HomeState } from "./home-model.ts";
 import type {
+  PrepareWorkspaceActionRequest,
   PreparedWorkspaceActionResponse,
   RunWorkspaceActionRequest,
   RunWorkspaceActionResponse,
 } from "./workspace-actions.ts";
 import type {
+  PrepareTerminalCloseRequest,
   PreparedTerminalActionResponse,
   RunTerminalActionRequest,
   RunTerminalActionResponse,
@@ -125,10 +127,11 @@ function state(home = actionHome()): HomeState {
 }
 
 interface ViewOverrides {
+  herdr?: Herdr;
   isHomeActive?: () => boolean;
   onOpenCreated?: (target: TerminalActionTarget) => void;
-  prepare?: (request: { action: "close_workspace" | "close_group" | "delete_checkout"; workspace_id: string }) => Promise<PreparedWorkspaceActionResponse>;
-  prepareTerminal?: (request: { action: "close_terminal" } & TerminalActionTarget) => Promise<PreparedTerminalActionResponse>;
+  prepare?: (request: PrepareWorkspaceActionRequest) => Promise<PreparedWorkspaceActionResponse>;
+  prepareTerminal?: (request: PrepareTerminalCloseRequest) => Promise<PreparedTerminalActionResponse>;
   run?: (request: RunWorkspaceActionRequest) => Promise<RunWorkspaceActionResponse>;
   runTerminal?: (request: RunTerminalActionRequest) => Promise<RunTerminalActionResponse>;
 }
@@ -148,7 +151,7 @@ function makeView(window: Window, overrides: ViewOverrides = {}, home = actionHo
     runWorkspaceAction: overrides.run ?? (async () => ({ outcome: "succeeded" })),
     runTerminalAction: overrides.runTerminal ?? (async () => ({ outcome: "succeeded" })),
   });
-  view.render({ actionsAvailable: true, herdr: "tui", mode: "all", reachability: "current", state: state(home) });
+  view.render({ actionsAvailable: true, herdr: overrides.herdr ?? "tui", mode: "all", reachability: "current", state: state(home) });
   return { app, view };
 }
 
@@ -211,7 +214,7 @@ test("New space filters deduplicated top-level paths and submits exact free-form
     .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
   await settle();
 
-  assert.equal(JSON.stringify(submitted), '{"action":"create_space","working_directory":"~/free $HOME * <b>"}');
+  assert.equal(JSON.stringify(submitted), '{"herdr":"tui","action":"create_space","working_directory":"~/free $HOME * <b>"}');
   assert.equal(app.querySelectorAll(".new-space-action").length, 0);
   assert.equal(app.querySelectorAll(".workspace-menu-trigger").length, 0);
   assert.equal(view.row("parent-pane")?.dataset.testIdentity, "original-parent-row");
@@ -279,7 +282,7 @@ test("workspace menu is immediately after Open and keyboard reaches fresh close 
       workspace_label: "Parent <script>",
       scope_workspace_ids: ["opaque-child", "opaque-parent"],
       agent_total: 7,
-      interruption_counts: { working: 2, blocked: 1, unknown: 3 },
+      interruption_counts: { working: 2, blocked: 1, error: 0, unknown: 3 },
     },
   };
   const { app, view } = makeView(window, {
@@ -331,7 +334,7 @@ test("workspace menu is immediately after Open and keyboard reaches fresh close 
   assert.doesNotMatch(text, /opaque-child|opaque-parent/);
   assert.equal(panel.querySelectorAll("script").length, 0);
   assert.equal(disclosure.getAttribute("aria-expanded"), "false");
-  assert.equal(JSON.stringify(prepareRequest), '{"action":"close_group","workspace_id":"opaque-parent"}');
+  assert.equal(JSON.stringify(prepareRequest), '{"herdr":"tui","action":"close_group","workspace_id":"opaque-parent"}');
   assert.equal(requiredElement<HTMLButtonElement>(panel, ".home-action-primary").textContent, "Close workspace");
 
   requiredElement<HTMLButtonElement>(panel, ".home-action-primary").click();
@@ -387,7 +390,7 @@ test("close confirmation describes only current nonzero scope and agent facts", 
           workspace_label: "Parent <script>",
           scope_workspace_ids: closeCase.scope_workspace_ids,
           agent_total: closeCase.agent_total,
-          interruption_counts: { working: 0, blocked: 0, unknown: 0 },
+          interruption_counts: { working: 0, blocked: 0, error: 0, unknown: 0 },
         },
       }),
     });
@@ -437,7 +440,7 @@ test("delete confirmation states the agent total only when nonzero", async () =>
           workspace_label: "Child <img>",
           scope_workspace_ids: [request.workspace_id],
           agent_total: deleteCase.agent_total,
-          interruption_counts: { working: 0, blocked: 0, unknown: 0 },
+          interruption_counts: { working: 0, blocked: 0, error: 0, unknown: 0 },
           checkout_path: "/repo/child",
         },
       }),
@@ -477,7 +480,7 @@ test("delete confirmation and dirty refusal keep hostile path and detail inert",
         workspace_label: "Child <img>",
         scope_workspace_ids: [request.workspace_id],
         agent_total: 1,
-        interruption_counts: { working: 0, blocked: 1, unknown: 0 },
+        interruption_counts: { working: 0, blocked: 1, error: 0, unknown: 0 },
         checkout_path: path,
       },
     }),
@@ -549,10 +552,10 @@ test("New worktree omits a blank branch and preserves an entered branch exactly"
 
   await submitWorktree("   ");
   await submitWorktree(" feature/<b> ");
-  assert.equal(JSON.stringify(requests[0]), '{"action":"create_worktree","workspace_id":"opaque-parent"}');
+  assert.equal(JSON.stringify(requests[0]), '{"herdr":"tui","action":"create_worktree","workspace_id":"opaque-parent"}');
   assert.equal(
     JSON.stringify(requests[1]),
-    '{"action":"create_worktree","workspace_id":"opaque-parent","branch":" feature/<b> "}',
+    '{"herdr":"tui","action":"create_worktree","workspace_id":"opaque-parent","branch":" feature/<b> "}',
   );
   assert.equal(app.querySelectorAll("b").length, 0);
   window.close();
@@ -778,6 +781,7 @@ test("terminal menu uses exact action order and split opens only the returned te
   await settle();
 
   assert.equal(JSON.stringify(request), JSON.stringify({
+    herdr: "tui",
     action: "split_terminal",
     workspace_id: "terminal-workspace",
     tab_id: "terminal-tab-main",
@@ -815,6 +819,7 @@ test("rename sends the manual pane name exactly and blank remains available to c
     .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
   await settle();
   assert.equal(JSON.stringify(request), JSON.stringify({
+    herdr: "tui",
     action: "rename_terminal",
     workspace_id: "terminal-workspace",
     tab_id: "terminal-tab-main",
@@ -868,10 +873,10 @@ test("close terminal prepares fresh exact facts and names interruption and tab i
     requiredElement(panel, ".home-action-copy").textContent,
     "Closing this terminal stops what is running there. Builder is working. The Main tab will also close.",
   );
-  assert.equal(JSON.stringify(prepareRequest), JSON.stringify({ action: "close_terminal", ...closeFacts.target }));
+  assert.equal(JSON.stringify(prepareRequest), JSON.stringify({ herdr: "tui", action: "close_terminal", ...closeFacts.target }));
   requiredElement<HTMLButtonElement>(panel, ".home-action-primary").click();
   await settle();
-  assert.equal(JSON.stringify(runRequest), JSON.stringify({ action: "close_terminal", expected: closeFacts }));
+  assert.equal(JSON.stringify(runRequest), JSON.stringify({ herdr: "tui", action: "close_terminal", expected: closeFacts }));
   assert.equal(requiredElement(panel, ".home-action-title").textContent, "Result unknown");
   assert.match(requiredElement(panel, ".home-action-copy").textContent ?? "", /Check Home before trying to close this terminal again/);
   window.close();
@@ -1051,4 +1056,251 @@ test("Home action controls retain phone-sized touch targets in the Home-owned st
   assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.terminal-picker-layer\s*\{[^}]*place-items:\s*end center;/);
   assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.terminal-picker-header\s*\{[^}]*safe-area-inset-right[^}]*safe-area-inset-left/);
   assert.match(styles, /@media \(max-width: 520px\)[\s\S]*\.home-filter\s*\{[^}]*grid-column:\s*1 \/ -1;/);
+});
+
+function coreHome(): Home {
+  return {
+    blocked_count: 1,
+    error_count: 1,
+    working_count: 1,
+    workspaces: [{
+      actions: ["close_workspace"],
+      agent_counts: { blocked: 1, error: 1, working: 1 },
+      id: "sp-core",
+      label: "Core <img src=x>",
+      number: 1,
+      tabs: [{
+        current: false,
+        id: "tb-main",
+        label: "main",
+        number: 1,
+        terminals: [{
+          actions: ["close_terminal"],
+          agent: { kind: "claude", name: "Claude", status: "working" },
+          pane_id: "t3",
+          terminal_id: "core:t3",
+          title: "Claude",
+        }, {
+          actions: ["close_terminal"],
+          agent: { kind: "claude", name: "Worker <b>", status: "blocked" },
+          pane_id: "t9",
+          terminal_id: "core:t9",
+          title: "Worker <b>",
+        }],
+      }, {
+        current: false,
+        id: "tb-two",
+        label: "2",
+        number: 2,
+        terminals: [{
+          actions: ["close_terminal"],
+          agent: { kind: "codex", name: "Codex", status: "error" },
+          pane_id: "t5",
+          terminal_id: "core:t5",
+          title: "Codex",
+        }],
+      }],
+    }, {
+      actions: [],
+      id: "other",
+      label: "Other terminals",
+      number: 2,
+      tabs: [{
+        current: false,
+        id: "other",
+        label: "Other terminals",
+        number: 1,
+        terminals: [{
+          actions: ["close_terminal"],
+          agent: { kind: "claude", name: "Outside <i>", status: "working" },
+          pane_id: "t8",
+          terminal_id: "core:t8",
+          title: "Outside <i>",
+        }],
+      }],
+    }],
+  } as Home;
+}
+
+test("Herdr Core closes a space in space words and sends the request to core", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  let prepareRequest: PrepareWorkspaceActionRequest | undefined;
+  let runRequest: RunWorkspaceActionRequest | undefined;
+  const expected = {
+    workspace_label: "Core <img src=x>",
+    scope_workspace_ids: ["sp-core"],
+    agent_total: 3,
+    interruption_counts: { working: 1, blocked: 1, error: 1, unknown: 0 },
+  };
+  const { app } = makeView(window, {
+    herdr: "core",
+    prepare: async (request) => {
+      prepareRequest = request;
+      return { outcome: "prepared", action: "close_workspace", workspace_id: "sp-core", expected };
+    },
+    run: async (request) => {
+      runRequest = request;
+      return { outcome: "succeeded" };
+    },
+  }, coreHome());
+  assert.equal(app.querySelectorAll(".new-space-action").length, 0);
+  const spaceTrigger = requiredMatchingElement<HTMLButtonElement>(
+    app, ".workspace-menu-trigger", (node) => node.getAttribute("aria-label") === "Actions for Core <img src=x>",
+  );
+  spaceTrigger.click();
+  const items = Array.from(spaceTrigger.parentElement!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+  assert.deepEqual(items.map((item) => item.textContent), ["Close space"]);
+  items[0].click();
+  await settle();
+
+  const panel = requiredElement(app, ".home-action-panel");
+  assert.equal(JSON.stringify(prepareRequest), '{"herdr":"core","action":"close_workspace","workspace_id":"sp-core"}');
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "Close Core <img src=x>?");
+  assert.equal(
+    requiredElement(panel, ".home-action-copy").textContent,
+    "This closes this space. 3 agents will be affected. Its terminals will end, and unsaved work can be lost. The folder and branch remain.",
+  );
+  assert.equal(requiredElement(panel, ".home-action-warning").textContent, "Agents may be interrupted: 1 working, 1 blocked, 1 error.");
+  assert.equal(panel.querySelectorAll("img").length, 0);
+  assert.equal(requiredElement<HTMLButtonElement>(panel, ".home-action-primary").textContent, "Close space");
+
+  requiredElement<HTMLButtonElement>(panel, ".home-action-primary").click();
+  await settle();
+  assert.equal(JSON.stringify(runRequest), JSON.stringify({ herdr: "core", action: "close_workspace", workspace_id: "sp-core", expected }));
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "Space closed");
+  assert.equal(requiredElement(panel, ".home-action-copy").textContent, "Its folder and branch remain. Home will update when it is ready.");
+  window.close();
+});
+
+test("Herdr Core refusals and checks say space", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  const refusals: Array<"not_found" | "stale" | "busy"> = ["not_found", "stale", "busy"];
+  const { app } = makeView(window, {
+    herdr: "core",
+    prepare: async () => {
+      const reason = refusals.shift()!;
+      return { outcome: "refused", reason };
+    },
+  }, coreHome());
+  const messages: string[] = [];
+  for (let index = 0; index < 3; index++) {
+    const trigger = requiredMatchingElement<HTMLButtonElement>(
+      app, ".workspace-menu-trigger", (node) => node.getAttribute("aria-label") === "Actions for Core <img src=x>",
+    );
+    trigger.click();
+    requiredElement<HTMLButtonElement>(trigger.parentElement!, '[role="menuitem"]').click();
+    await settle();
+    const panel = requiredElement(app, ".home-action-panel");
+    messages.push(requiredElement(panel, ".home-action-copy").textContent ?? "");
+    requiredElement<HTMLButtonElement>(panel, "button").click();
+  }
+  assert.deepEqual(messages, [
+    "This space is no longer here.",
+    "This space changed. Open the action again to check the latest details.",
+    "Another space action is running. Try again when it finishes.",
+  ]);
+  window.close();
+});
+
+test("Herdr Core Close terminal counts the terminals it started and Other terminals has no group menu", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  let prepareRequest: PrepareTerminalCloseRequest | undefined;
+  let runRequest: RunTerminalActionRequest | undefined;
+  const facts = {
+    target: { workspace_id: "other", tab_id: "other", pane_id: "t8", terminal_id: "core:t8" },
+    workspace_label: "Other terminals",
+    tab_label: "Other terminals",
+    terminal_title: "Outside <i>",
+    agent: { kind: "claude", name: "Outside <i>", status: "working" as const },
+    closes_tab: false,
+    closes_workers: 2,
+  };
+  const { app } = makeView(window, {
+    herdr: "core",
+    prepareTerminal: async (request) => {
+      prepareRequest = request;
+      return { outcome: "prepared", action: "close_terminal", expected: facts };
+    },
+    runTerminal: async (request) => {
+      runRequest = request;
+      return { outcome: "succeeded" };
+    },
+  }, coreHome());
+  assert.equal(
+    Array.from(app.querySelectorAll(".workspace-menu-trigger"), (node) => node.getAttribute("aria-label"))
+      .includes("Actions for Other terminals"),
+    false,
+  );
+  const trigger = requiredMatchingElement<HTMLButtonElement>(
+    app, ".workspace-menu-trigger", (node) => node.getAttribute("aria-label") === "Actions for Outside <i>",
+  );
+  trigger.click();
+  const items = Array.from(trigger.parentElement!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+  assert.deepEqual(items.map((item) => item.textContent), ["Close terminal"]);
+  items[0].click();
+  await settle();
+
+  const panel = requiredElement(app, ".home-action-panel");
+  assert.equal(JSON.stringify(prepareRequest), JSON.stringify({ herdr: "core", action: "close_terminal", ...facts.target }));
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "Close Outside <i>?");
+  assert.equal(
+    requiredElement(panel, ".home-action-copy").textContent,
+    "Closing this terminal stops what is running there. Outside <i> is working. 2 terminals it started will also close.",
+  );
+  assert.equal(panel.querySelectorAll("i").length, 0);
+  requiredElement<HTMLButtonElement>(panel, ".home-action-primary").click();
+  await settle();
+  assert.equal(JSON.stringify(runRequest), JSON.stringify({ herdr: "core", action: "close_terminal", expected: facts }));
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "Terminal closed");
+  window.close();
+});
+
+test("Herdr Core Close terminal on a space's last terminal confirms Close space", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  const space = {
+    workspace_label: "Core <img src=x>",
+    scope_workspace_ids: ["sp-core"],
+    agent_total: 1,
+    interruption_counts: { working: 0, blocked: 0, error: 1, unknown: 0 },
+  };
+  const { app } = makeView(window, {
+    herdr: "core",
+    prepareTerminal: async (request) => ({
+      outcome: "prepared",
+      action: "close_terminal",
+      expected: {
+        target: { workspace_id: request.workspace_id, tab_id: request.tab_id, pane_id: request.pane_id, terminal_id: request.terminal_id },
+        workspace_label: "Core <img src=x>",
+        tab_label: "2",
+        terminal_title: "Codex",
+        closes_tab: false,
+        workspace_action: "close_workspace",
+        workspace_expected: space,
+      },
+    }),
+    runTerminal: async () => ({ outcome: "succeeded" }),
+  }, coreHome());
+  requiredMatchingElement<HTMLButtonElement>(
+    app, ".workspace-menu-trigger", (node) => node.getAttribute("aria-label") === "Actions for Core <img src=x>",
+  ).click();
+  // The space opens in the picker; Codex's menu offers Close terminal.
+  requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
+  const codexTrigger = requiredMatchingElement<HTMLButtonElement>(
+    app, ".workspace-menu-trigger", (node) => node.getAttribute("aria-label") === "Actions for Codex",
+  );
+  codexTrigger.click();
+  requiredMatchingElement<HTMLButtonElement>(app, '[role="menuitem"]', (node) => node.textContent === "Close terminal").click();
+  await settle();
+  const panel = requiredElement(app, ".home-action-panel");
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "Close Core <img src=x>?");
+  assert.equal(
+    requiredElement(panel, ".home-action-copy").textContent,
+    "This closes this space. 1 agent will be affected. Its terminals will end, and unsaved work can be lost. The folder and branch remain.",
+  );
+  assert.equal(requiredElement(panel, ".home-action-warning").textContent, "Agents may be interrupted: 1 error.");
+  assert.equal(requiredElement<HTMLButtonElement>(panel, ".home-action-primary").textContent, "Close space");
+  requiredElement<HTMLButtonElement>(panel, ".home-action-primary").click();
+  await settle();
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "Space closed");
+  window.close();
 });

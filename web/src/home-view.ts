@@ -4,6 +4,7 @@ import {
   allWorkspaces,
   herdrNames,
   showTabHeadings,
+  spaceWord,
   terminalCount,
   visibleTabs,
   workspaceSets,
@@ -46,7 +47,7 @@ interface HomeViewActions {
   onFocusPane: (paneID: string) => void;
   onFocusWorkspace?: (workspaceID: string) => void;
   onOpen: (entry: TerminalEntry) => void;
-  onOpenCreated: (target: TerminalActionTarget) => void;
+  onOpenCreated: (target: TerminalActionTarget, herdr: Herdr) => void;
   onNotifications?: () => void;
   onShowAll: () => void;
   onShowBlocked: () => void;
@@ -161,6 +162,15 @@ interface AutomaticallyClosedPicker {
 interface ConnectionCopy {
   heading: string;
   tone: "live" | "offline" | "reconnecting";
+}
+
+function workspaceActionLabels(herdr: Herdr): Record<WorkspaceAction, string> {
+  return {
+    create_worktree: "New worktree",
+    close_workspace: `Close ${spaceWord(herdr)}`,
+    close_group: "Close workspace",
+    delete_checkout: "Delete checkout",
+  };
 }
 
 function element<K extends keyof HTMLElementTagNameMap>(
@@ -1156,12 +1166,7 @@ export class HomeView {
   #updateWorkspaceMenu(nodes: WorkspaceMenuNodes, workspace: Workspace): void {
     setAttribute(nodes.trigger, "aria-label", `Actions for ${workspace.label}`);
     const order: WorkspaceAction[] = ["create_worktree", "close_workspace", "close_group", "delete_checkout"];
-    const labels: Record<WorkspaceAction, string> = {
-      create_worktree: "New worktree",
-      close_workspace: "Close workspace",
-      close_group: "Close workspace",
-      delete_checkout: "Delete checkout",
-    };
+    const labels = workspaceActionLabels(this.#shownHerdr());
     const items: Node[] = [];
     for (const action of order) {
       if (!workspace.actions.includes(action)) continue;
@@ -1180,7 +1185,9 @@ export class HomeView {
   }
 
   #updateTerminalMenu(nodes: WorkspaceMenuNodes, entry: TerminalEntry, includeWorkspace: boolean): void {
-    setAttribute(nodes.trigger, "aria-label", `Actions for ${includeWorkspace ? entry.workspace.label : entry.terminal.title}`);
+    // Other terminals is not a space: its lone terminal's menu is the terminal's.
+    const forWorkspace = includeWorkspace && (this.#shownHerdr() === "tui" || entry.workspace.actions.length > 0);
+    setAttribute(nodes.trigger, "aria-label", `Actions for ${forWorkspace ? entry.workspace.label : entry.terminal.title}`);
     setAttribute(
       nodes.trigger,
       "aria-haspopup",
@@ -1206,12 +1213,7 @@ export class HomeView {
     }
     if (includeWorkspace) {
       const workspaceOrder: WorkspaceAction[] = ["create_worktree", "close_workspace", "close_group", "delete_checkout"];
-      const labels: Record<WorkspaceAction, string> = {
-        create_worktree: "New worktree",
-        close_workspace: "Close workspace",
-        close_group: "Close workspace",
-        delete_checkout: "Delete checkout",
-      };
+      const labels = workspaceActionLabels(this.#shownHerdr());
       for (const action of workspaceOrder) {
         if (!entry.workspace.actions.includes(action)) continue;
         const key = `workspace:${action}`;
@@ -1435,6 +1437,7 @@ export class HomeView {
 
   #openNewSpace(): void {
     if (this.#actionRunning || !this.#lastRender) return;
+    const herdr = this.#shownHerdr();
     this.#returnFocus = this.#newSpaceAction;
     const copy = element(this.#document, "p", "home-action-copy", "Add a workspace for an existing folder.");
     const form = element(this.#document, "form", "home-action-form");
@@ -1485,6 +1488,7 @@ export class HomeView {
       event.preventDefault();
       if (!form.reportValidity()) return;
       const request: RunWorkspaceActionRequest = {
+        herdr,
         action: "create_space",
         working_directory: directory.value,
         ...(label.value.trim() === "" ? {} : { label: label.value }),
@@ -1494,7 +1498,7 @@ export class HomeView {
     this.#showActionLayer("New space", [copy, form], () => this.#closeActionLayer(), directory);
   }
 
-  #openNewWorktree(workspace: Workspace, returnFocus: HTMLElement): void {
+  #openNewWorktree(workspace: Workspace, returnFocus: HTMLElement, herdr: Herdr): void {
     if (this.#actionRunning) return;
     this.#returnFocus = returnFocus;
     const copy = element(this.#document, "p", "home-action-copy", "This adds a workspace in a new folder.");
@@ -1517,6 +1521,7 @@ export class HomeView {
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       const request: RunWorkspaceActionRequest = {
+        herdr,
         action: "create_worktree",
         workspace_id: workspace.id,
         ...(branch.value.trim() === "" ? {} : { branch: branch.value }),
@@ -1535,17 +1540,22 @@ export class HomeView {
     return { container, primary };
   }
 
+  #shownHerdr(): Herdr {
+    return this.#lastRender?.herdr ?? "tui";
+  }
+
   #chooseTerminalAction(paneID: string, action: TerminalAction, returnFocus: HTMLElement): void {
     const entry = this.#entries.get(paneID);
     if (!entry || !entry.terminal.actions.includes(action) || this.#actionRunning) return;
     this.#closeMenu();
     this.#returnFocus = returnFocus;
+    const herdr = this.#shownHerdr();
     if (action === "split_terminal") {
-      this.#openSplitTerminal(entry);
+      this.#openSplitTerminal(entry, herdr);
     } else if (action === "rename_terminal") {
-      this.#openRenameTerminal(entry);
+      this.#openRenameTerminal(entry, herdr);
     } else {
-      void this.#prepareTerminalClose(this.#terminalTarget(entry));
+      void this.#prepareTerminalClose(this.#terminalTarget(entry), herdr);
     }
   }
 
@@ -1558,7 +1568,7 @@ export class HomeView {
     };
   }
 
-  #openSplitTerminal(entry: TerminalEntry): void {
+  #openSplitTerminal(entry: TerminalEntry, herdr: Herdr): void {
     const copy = element(
       this.#document,
       "p",
@@ -1567,12 +1577,14 @@ export class HomeView {
     );
     const choices = element(this.#document, "div", "home-action-buttons terminal-split-actions");
     const beside = this.#button("Beside", () => void this.#submitTerminalAction({
+      herdr,
       action: "split_terminal",
       ...this.#terminalTarget(entry),
       direction: "right",
     }));
     beside.className = "home-action-primary";
     const below = this.#button("Below", () => void this.#submitTerminalAction({
+      herdr,
       action: "split_terminal",
       ...this.#terminalTarget(entry),
       direction: "down",
@@ -1583,7 +1595,7 @@ export class HomeView {
     this.#showActionLayer("Split terminal", [copy, choices], () => this.#closeActionLayer(), beside);
   }
 
-  #openRenameTerminal(entry: TerminalEntry): void {
+  #openRenameTerminal(entry: TerminalEntry, herdr: Herdr): void {
     const form = element(this.#document, "form", "home-action-form");
     const field = element(this.#document, "label", "home-action-field");
     field.append(element(this.#document, "span", undefined, "Name"));
@@ -1598,6 +1610,7 @@ export class HomeView {
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       void this.#submitTerminalAction({
+        herdr,
         action: "rename_terminal",
         ...this.#terminalTarget(entry),
         name: name.value,
@@ -1606,14 +1619,14 @@ export class HomeView {
     this.#showActionLayer(`Rename ${entry.terminal.title}`, [form], () => this.#closeActionLayer(), name);
   }
 
-  async #prepareTerminalClose(target: TerminalActionTarget): Promise<void> {
+  async #prepareTerminalClose(target: TerminalActionTarget, herdr: Herdr): Promise<void> {
     if (this.#actionRunning) return;
     this.#actionRunning = true;
     this.#showWorking("Checking terminal");
     this.#renderAgain();
     let response: PreparedTerminalActionResponse | undefined;
     try {
-      response = await this.#actions.prepareTerminalAction({ action: "close_terminal", ...target });
+      response = await this.#actions.prepareTerminalAction({ herdr, action: "close_terminal", ...target });
     } catch {
       // Preparing performs no mutation, so a failed check is not an unknown action result.
     }
@@ -1624,13 +1637,13 @@ export class HomeView {
       return;
     }
     if (response.outcome === "refused") {
-      this.#showRefusal(response);
+      this.#showRefusal(response, herdr);
       return;
     }
-    this.#openTerminalCloseConfirmation(response.expected);
+    this.#openTerminalCloseConfirmation(response.expected, herdr);
   }
 
-  #openTerminalCloseConfirmation(facts: TerminalCloseFacts): void {
+  #openTerminalCloseConfirmation(facts: TerminalCloseFacts, herdr: Herdr): void {
     const content: Node[] = [];
     const closesWorkspace = facts.workspace_expected !== undefined;
     if (closesWorkspace) {
@@ -1638,7 +1651,7 @@ export class HomeView {
         this.#document,
         "p",
         "home-action-copy",
-        this.#closeConfirmationCopy(facts.workspace_expected!),
+        this.#closeConfirmationCopy(facts.workspace_expected!, herdr),
       ));
       const warning = this.#interruptionWarning(facts.workspace_expected!);
       if (warning) content.push(warning);
@@ -1646,12 +1659,18 @@ export class HomeView {
       const sentences = ["Closing this terminal stops what is running there."];
       if (facts.agent) sentences.push(`${facts.agent.name} is ${facts.agent.status}.`);
       if (facts.closes_tab) sentences.push(`The ${facts.tab_label} tab will also close.`);
+      if (facts.closes_workers) {
+        sentences.push(`${facts.closes_workers} ${facts.closes_workers === 1 ? "terminal" : "terminals"} it started will also close.`);
+      }
       content.push(element(this.#document, "p", "home-action-copy", sentences.join(" ")));
     }
-    const actions = this.#formActions(closesWorkspace ? "Close workspace" : "Close terminal", () => this.#closeActionLayer());
+    const actions = this.#formActions(
+      closesWorkspace ? `Close ${spaceWord(herdr)}` : "Close terminal",
+      () => this.#closeActionLayer(),
+    );
     actions.primary.addEventListener("click", (event) => {
       event.preventDefault();
-      void this.#submitTerminalAction({ action: "close_terminal", expected: facts });
+      void this.#submitTerminalAction({ herdr, action: "close_terminal", expected: facts });
     });
     content.push(actions.container);
     this.#showActionLayer(
@@ -1669,7 +1688,7 @@ export class HomeView {
       split_terminal: "Splitting terminal",
       rename_terminal: "Renaming terminal",
       close_terminal: request.action === "close_terminal" && request.expected.workspace_expected
-        ? "Closing workspace"
+        ? `Closing ${spaceWord(request.herdr)}`
         : "Closing terminal",
     };
     this.#showWorking(headings[request.action]);
@@ -1683,7 +1702,7 @@ export class HomeView {
     this.#actionRunning = false;
     this.#renderAgain();
     if (response.outcome === "refused") {
-      this.#showRefusal(response);
+      this.#showRefusal(response, request.herdr);
       return;
     }
     if (response.outcome === "unknown") {
@@ -1703,14 +1722,17 @@ export class HomeView {
         return;
       }
       this.#closeActionLayer();
-      this.#actions.onOpenCreated(response.terminal);
+      this.#actions.onOpenCreated(response.terminal, request.herdr);
       return;
     }
     if (request.action === "rename_terminal") {
       this.#showResult("Terminal renamed", "The new name is ready on Home.");
       return;
     }
-    if (request.expected.workspace_expected) {
+    if (request.expected.workspace_expected && request.herdr === "core") {
+      // Close space ends terminals the app tidies up after, so Home follows.
+      this.#showResult("Space closed", "Its folder and branch remain. Home will update when it is ready.");
+    } else if (request.expected.workspace_expected) {
       this.#showResult("Workspace closed", "Its terminals are closed. The folder and branch remain.");
     } else {
       this.#showResult("Terminal closed", "The terminal is no longer open.");
@@ -1721,18 +1743,19 @@ export class HomeView {
     const workspace = this.#workspaceValues.get(workspaceID);
     if (!workspace || !workspace.actions.includes(action) || this.#actionRunning) return;
     this.#closeMenu();
+    const herdr = this.#shownHerdr();
     if (action === "create_worktree") {
-      this.#openNewWorktree(workspace, returnFocus);
+      this.#openNewWorktree(workspace, returnFocus, herdr);
       return;
     }
     this.#returnFocus = returnFocus;
-    void this.#prepareAction({ action, workspace_id: workspace.id });
+    void this.#prepareAction({ herdr, action, workspace_id: workspace.id });
   }
 
   async #prepareAction(request: PrepareWorkspaceActionRequest): Promise<void> {
     if (this.#actionRunning) return;
     this.#actionRunning = true;
-    this.#showWorking("Checking workspace");
+    this.#showWorking(`Checking ${spaceWord(request.herdr)}`);
     this.#renderAgain();
     let response: PreparedWorkspaceActionResponse | undefined;
     try {
@@ -1744,31 +1767,31 @@ export class HomeView {
     this.#renderAgain();
     if (!response) {
       this.#showResult(
-        "Could not check this workspace",
+        `Could not check this ${spaceWord(request.herdr)}`,
         "Home has not changed. Check the connection, then open the action again.",
       );
       return;
     }
     if (response.outcome === "refused") {
-      this.#showRefusal(response);
+      this.#showRefusal(response, request.herdr);
       return;
     }
-    this.#openConfirmation(response);
+    this.#openConfirmation(response, request.herdr);
   }
 
-  #openConfirmation(prepared: PreparedWorkspaceAction): void {
+  #openConfirmation(prepared: PreparedWorkspaceAction, herdr: Herdr): void {
     const facts = prepared.expected;
     const content: Node[] = [];
     let heading: string;
     let confirmLabel: string;
     if (prepared.action === "close_group" || prepared.action === "close_workspace") {
       heading = `Close ${facts.workspace_label}?`;
-      confirmLabel = "Close workspace";
+      confirmLabel = workspaceActionLabels(herdr)[prepared.action];
       content.push(element(
         this.#document,
         "p",
         "home-action-copy",
-        this.#closeConfirmationCopy(facts),
+        this.#closeConfirmationCopy(facts, herdr),
       ));
     } else {
       heading = `Delete checkout for ${facts.workspace_label}?`;
@@ -1790,6 +1813,7 @@ export class HomeView {
     actions.primary.addEventListener("click", (event) => {
       event.preventDefault();
       void this.#submitAction({
+        herdr,
         action: prepared.action,
         workspace_id: prepared.workspace_id,
         expected: prepared.expected,
@@ -1799,9 +1823,9 @@ export class HomeView {
     this.#showActionLayer(heading, content, () => this.#closeActionLayer(), actions.primary);
   }
 
-  #closeConfirmationCopy(facts: ConfirmationFacts): string {
+  #closeConfirmationCopy(facts: ConfirmationFacts, herdr: Herdr): string {
     const additionalWorkspaceCount = facts.scope_workspace_ids.length - 1;
-    const sentences = ["This closes this workspace."];
+    const sentences = [`This closes this ${spaceWord(herdr)}.`];
     if (additionalWorkspaceCount > 0) {
       sentences.push(
         `${additionalWorkspaceCount} additional linked ${additionalWorkspaceCount === 1 ? "workspace" : "workspaces"} will also close.`,
@@ -1826,7 +1850,8 @@ export class HomeView {
   }
 
   #interruptionWarning(facts: ConfirmationFacts): HTMLElement | undefined {
-    const statuses = (["working", "blocked", "unknown"] as const)
+    // Herdr Core reports error but never unknown; the Herdr TUI the reverse.
+    const statuses = (["working", "blocked", "error", "unknown"] as const)
       .filter((status) => facts.interruption_counts[status] > 0)
       .map((status) => `${facts.interruption_counts[status]} ${status}`);
     if (statuses.length === 0) return undefined;
@@ -1841,7 +1866,7 @@ export class HomeView {
   async #submitAction(request: RunWorkspaceActionRequest): Promise<void> {
     if (this.#actionRunning) return;
     this.#actionRunning = true;
-    this.#showWorking(this.#workingHeading(request.action));
+    this.#showWorking(this.#workingHeading(request.action, request.herdr));
     this.#renderAgain();
     let response: RunWorkspaceActionResponse;
     try {
@@ -1852,30 +1877,30 @@ export class HomeView {
     this.#actionRunning = false;
     this.#renderAgain();
     if (response.outcome === "refused") {
-      this.#showRefusal(response);
+      this.#showRefusal(response, request.herdr);
     } else if (response.outcome === "unknown") {
       this.#showUnknown(request.action);
     } else {
-      this.#showSuccess(request.action);
+      this.#showSuccess(request.action, request.herdr);
     }
   }
 
-  #workingHeading(action: RunWorkspaceActionRequest["action"]): string {
+  #workingHeading(action: RunWorkspaceActionRequest["action"], herdr: Herdr): string {
     const headings: Record<RunWorkspaceActionRequest["action"], string> = {
       create_space: "Creating space",
       create_worktree: "Creating worktree",
-      close_workspace: "Closing workspace",
+      close_workspace: `Closing ${spaceWord(herdr)}`,
       close_group: "Closing workspace",
       delete_checkout: "Deleting checkout",
     };
     return headings[action];
   }
 
-  #showSuccess(action: RunWorkspaceActionRequest["action"]): void {
+  #showSuccess(action: RunWorkspaceActionRequest["action"], herdr: Herdr): void {
     const copy: Record<RunWorkspaceActionRequest["action"], [string, string]> = {
       create_space: ["Space created", "Home will update when the new space is ready."],
       create_worktree: ["Worktree created", "Home will update when the new worktree is ready."],
-      close_workspace: ["Workspace closed", "Its folder and branch remain. Home will update when it is ready."],
+      close_workspace: [herdr === "core" ? "Space closed" : "Workspace closed", "Its folder and branch remain. Home will update when it is ready."],
       close_group: ["Workspace closed", "Linked checkout folders and branches remain. Home will update when it is ready."],
       delete_checkout: ["Checkout deleted", "The Git branch remains. Home will update when it is ready."],
     };
@@ -1891,7 +1916,8 @@ export class HomeView {
     this.#showResult("Result unknown", message);
   }
 
-  #showRefusal(refusal: RefusedWorkspaceAction): void {
+  #showRefusal(refusal: RefusedWorkspaceAction, herdr: Herdr): void {
+    const word = spaceWord(herdr);
     if (refusal.reason === "checkout_has_changes") {
       this.#showResult(
         "Checkout not deleted",
@@ -1901,10 +1927,10 @@ export class HomeView {
     }
     const messages: Record<Exclude<RefusedWorkspaceAction["reason"], "checkout_has_changes">, string> = {
       invalid_request: "Shepherdr could not use this request.",
-      not_found: "This workspace is no longer here.",
+      not_found: `This ${word} is no longer here.`,
       not_applicable: "This action is no longer available.",
-      busy: "Another workspace action is running. Try again when it finishes.",
-      stale: "This workspace changed. Open the action again to check the latest details.",
+      busy: `Another ${word} action is running. Try again when it finishes.`,
+      stale: `This ${word} changed. Open the action again to check the latest details.`,
       herdr_unavailable: "Herdr is not available. Try again when it is running.",
       herdr_refused: "Herdr refused this action.",
     };

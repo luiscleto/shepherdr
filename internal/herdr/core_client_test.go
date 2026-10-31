@@ -32,7 +32,7 @@ func newTestCore(t *testing.T) (*testCore, string) {
 		hello: map[string]any{
 			"core": map[string]any{"id": read.CoreID, "name": "host"}, "features": []string{"framed", "attach", "events", "status", "shell"},
 			"framed": false, "generation": 1, "version": "0.1.15",
-			"methods": []string{"hello", "server.status", "terminal.list", "terminal.attach", "terminal.keys", "doc.get", "doc.set", "events.subscribe"},
+			"methods": []string{"hello", "server.status", "terminal.list", "terminal.attach", "terminal.keys", "terminal.kill", "doc.get", "doc.set", "events.subscribe"},
 		},
 		read:   read,
 		events: make(chan string, 16),
@@ -83,6 +83,20 @@ func (core *testCore) serve(conn net.Conn) {
 			result = map[string]any{"value": read.Document, "version": 7}
 		case "events.subscribe":
 			result = map[string]any{"channel": nil, "seq": 3, "terminals": []any{}}
+		case "terminal.kill":
+			var params struct {
+				Terminal string `json:"terminal"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			for _, terminal := range read.Terminals {
+				if terminal.Address == params.Terminal {
+					result = map[string]any{"address": terminal.Address, "state": "finished", "reason": "killed", "signal": 1}
+				}
+			}
+			if result == nil {
+				_ = json.NewEncoder(conn).Encode(map[string]any{"jsonrpc": "2.0", "id": request.ID, "error": map[string]any{"code": -32000, "message": "not_found", "data": map[string]any{"kind": "not_found"}}})
+				continue
+			}
 		}
 		if result == nil {
 			_ = json.NewEncoder(conn).Encode(map[string]any{"jsonrpc": "2.0", "id": request.ID, "error": map[string]any{"code": -32601, "message": "unknown method", "data": map[string]any{"kind": "unknown_method"}}})
@@ -303,4 +317,38 @@ func TestRealHerdrCoreRead(t *testing.T) {
 		t.Fatalf("Home shows %d terminals for %d live local terminals", len(seen), local)
 	}
 	t.Logf("Herdr Core %s: %d spaces and groups, %d live terminals exactly once, %d working, %d blocked, %d error", read.Version, len(projected.Workspaces), local, projected.WorkingCount, projected.BlockedCount, projected.ErrorCount)
+}
+
+func TestCoreClientKillsOneExactAddress(t *testing.T) {
+	core, path := newTestCore(t)
+	client := NewCoreClient(path, discardLogger())
+	state, err := client.Kill(context.Background(), "t4")
+	if err != nil || state != "finished" {
+		t.Fatalf("kill = %q, %v", state, err)
+	}
+	want := []string{`hello {"generation":1}`, `terminal.kill {"terminal":"t4"}`}
+	if got := core.methods(); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("requests = %q", got)
+	}
+
+	_, err = client.Kill(context.Background(), "t99")
+	var apiError *APIError
+	if !errors.As(err, &apiError) || apiError.Code != "not_found" || MutationMayHaveRun(err) {
+		t.Fatalf("unknown address: %v", err)
+	}
+	// Another machine's terminal, or nothing, is never sent.
+	for _, address := range []string{"", "box/t4"} {
+		if _, err := client.Kill(context.Background(), address); err == nil || MutationMayHaveRun(err) {
+			t.Fatalf("kill %q = %v", address, err)
+		}
+	}
+	if len(core.methods()) != 4 {
+		t.Fatalf("invalid targets reached core: %q", core.methods())
+	}
+
+	// No core: nothing was sent.
+	_, err = NewCoreClient(path+".missing", discardLogger()).Kill(context.Background(), "t4")
+	if err == nil || MutationMayHaveRun(err) {
+		t.Fatalf("missing core: %v", err)
+	}
 }

@@ -273,7 +273,7 @@ func TestOneMutationAtATimeAndClientDisconnectDoesNotCancelIt(t *testing.T) {
 	refresh := &countingHomeRefresher{}
 	handler := actionHandler(client, refresh)
 	requestContext, cancelRequest := context.WithCancel(context.Background())
-	request := httptest.NewRequest("POST", "http://localhost/api/workspace-actions", strings.NewReader(`{"action":"create_space","working_directory":"/one"}`)).WithContext(requestContext)
+	request := httptest.NewRequest("POST", "http://localhost/api/workspace-actions", strings.NewReader(`{"herdr":"tui","action":"create_space","working_directory":"/one"}`)).WithContext(requestContext)
 	request.Header.Set("Content-Type", "application/json")
 	first := httptest.NewRecorder()
 	finished := make(chan struct{})
@@ -376,13 +376,13 @@ func TestActionRoutesRequireStrictSameOriginJSON(t *testing.T) {
 	browserCWD := performActionRequest(t, handler, "/api/workspace-actions", `{"action":"create_worktree","workspace_id":"ordinary","cwd":"/browser/chosen"}`)
 	assertOutcome(t, browserCWD, http.StatusBadRequest, "refused", "invalid_request")
 
-	wrongType := httptest.NewRequest("POST", "http://localhost/api/workspace-actions", strings.NewReader(`{"action":"create_space","working_directory":"/work"}`))
+	wrongType := httptest.NewRequest("POST", "http://localhost/api/workspace-actions", strings.NewReader(`{"herdr":"tui","action":"create_space","working_directory":"/work"}`))
 	wrongType.Header.Set("Content-Type", "text/plain")
 	wrongTypeResponse := httptest.NewRecorder()
 	handler.ServeHTTP(wrongTypeResponse, wrongType)
 	assertOutcome(t, wrongTypeResponse, http.StatusBadRequest, "refused", "invalid_request")
 
-	crossOrigin := httptest.NewRequest("POST", "http://localhost/api/workspace-actions", strings.NewReader(`{"action":"create_space","working_directory":"/work"}`))
+	crossOrigin := httptest.NewRequest("POST", "http://localhost/api/workspace-actions", strings.NewReader(`{"herdr":"tui","action":"create_space","working_directory":"/work"}`))
 	crossOrigin.Header.Set("Content-Type", "application/json")
 	crossOrigin.Header.Set("Origin", "https://other.example")
 	crossOriginResponse := httptest.NewRecorder()
@@ -413,7 +413,7 @@ func TestInvalidNonNullWorktreeProvenanceCannotReachClose(t *testing.T) {
 			"workspace_label":"Ambiguous",
 			"scope_workspace_ids":["ambiguous"],
 			"agent_total":0,
-			"interruption_counts":{"working":0,"blocked":0,"unknown":0}
+			"interruption_counts":{"working":0,"blocked":0,"error":0,"unknown":0}
 		}
 	}`)
 	assertOutcome(t, run, http.StatusConflict, "refused", "not_applicable")
@@ -479,7 +479,25 @@ func actionHandler(client workspaceActionClient, refresh homeRefresher) http.Han
 	return (&Server{workspaceActions: newWorkspaceActionCoordinator(client, refresh)}).Handler()
 }
 
+// performActionRequest sends a Herdr TUI action: a JSON object body without
+// a herdr field gets "herdr":"tui", as the browser sends.
 func performActionRequest(t *testing.T, handler http.Handler, endpoint, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	return performSideActionRequest(t, handler, endpoint, withHerdr(body, "tui"))
+}
+
+func withHerdr(body, side string) string {
+	trimmed := strings.TrimSpace(body)
+	if !strings.HasPrefix(trimmed, "{") || strings.Contains(trimmed, `"herdr"`) {
+		return body
+	}
+	if strings.TrimSpace(trimmed[1:]) == "}" {
+		return `{"herdr":"` + side + `"}`
+	}
+	return `{"herdr":"` + side + `",` + trimmed[1:]
+}
+
+func performSideActionRequest(t *testing.T, handler http.Handler, endpoint, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	request := httptest.NewRequest("POST", "http://localhost"+endpoint, strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")

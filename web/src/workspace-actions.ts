@@ -1,9 +1,13 @@
+import type { Herdr } from "./home-model";
+
 export type WorkspaceAction = "create_worktree" | "close_workspace" | "close_group" | "delete_checkout";
 export type DestructiveWorkspaceAction = Exclude<WorkspaceAction, "create_worktree">;
 
+// error comes only from Herdr Core and unknown only from the Herdr TUI.
 export interface InterruptionCounts {
   working: number;
   blocked: number;
+  error: number;
   unknown: number;
 }
 
@@ -52,24 +56,29 @@ export type WorkspaceActionResponse =
   | UnknownWorkspaceAction
   | SucceededWorkspaceAction;
 
+// Every request names the Herdr it is for.
 export interface PrepareWorkspaceActionRequest {
+  herdr: Herdr;
   action: DestructiveWorkspaceAction;
   workspace_id: string;
 }
 
 export interface CreateSpaceRequest {
+  herdr: Herdr;
   action: "create_space";
   working_directory: string;
   label?: string;
 }
 
 export interface CreateWorktreeRequest {
+  herdr: Herdr;
   action: "create_worktree";
   workspace_id: string;
   branch?: string;
 }
 
 export interface ConfirmWorkspaceActionRequest {
+  herdr: Herdr;
   action: DestructiveWorkspaceAction;
   workspace_id: string;
   expected: ConfirmationFacts;
@@ -112,6 +121,15 @@ function nonnegativeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0;
 }
 
+export function parseInterruptionCounts(value: unknown, agentTotal: number): InterruptionCounts | undefined {
+  const counts = record(value);
+  if (!counts || !exactKeys(counts, ["working", "blocked", "error", "unknown"])) return undefined;
+  if (!nonnegativeInteger(counts.working) || !nonnegativeInteger(counts.blocked) ||
+    !nonnegativeInteger(counts.error) || !nonnegativeInteger(counts.unknown)) return undefined;
+  if (counts.working + counts.blocked + counts.error + counts.unknown > agentTotal) return undefined;
+  return { working: counts.working, blocked: counts.blocked, error: counts.error, unknown: counts.unknown };
+}
+
 function parseConfirmationFacts(value: unknown, action: DestructiveWorkspaceAction): ConfirmationFacts | undefined {
   const facts = record(value);
   if (!facts || !exactKeys(
@@ -128,12 +146,8 @@ function parseConfirmationFacts(value: unknown, action: DestructiveWorkspaceActi
   for (let index = 1; index < facts.scope_workspace_ids.length; index++) {
     if (facts.scope_workspace_ids[index - 1] > facts.scope_workspace_ids[index]) return undefined;
   }
-  const counts = record(facts.interruption_counts);
-  if (!counts || !exactKeys(counts, ["working", "blocked", "unknown"])) return undefined;
-  if (!nonnegativeInteger(counts.working) || !nonnegativeInteger(counts.blocked) || !nonnegativeInteger(counts.unknown)) {
-    return undefined;
-  }
-  if (counts.working + counts.blocked + counts.unknown > facts.agent_total) return undefined;
+  const counts = parseInterruptionCounts(facts.interruption_counts, facts.agent_total);
+  if (!counts) return undefined;
   if (action === "delete_checkout") {
     if (typeof facts.checkout_path !== "string") return undefined;
   } else if (Object.hasOwn(facts, "checkout_path")) {
@@ -143,11 +157,7 @@ function parseConfirmationFacts(value: unknown, action: DestructiveWorkspaceActi
     workspace_label: facts.workspace_label,
     scope_workspace_ids: [...facts.scope_workspace_ids],
     agent_total: facts.agent_total,
-    interruption_counts: {
-      working: counts.working,
-      blocked: counts.blocked,
-      unknown: counts.unknown,
-    },
+    interruption_counts: counts,
     ...(typeof facts.checkout_path === "string" ? { checkout_path: facts.checkout_path } : {}),
   };
 }

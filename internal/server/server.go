@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -31,6 +32,7 @@ type Server struct {
 	projector          *herdr.Projector
 	coreProjector      *herdr.Projector
 	workspaceActions   *workspaceActionCoordinator
+	coreActions        *coreActionCoordinator
 	terminal           *TerminalBridge
 	coreTerminal       *CoreTerminalBridge
 	fileUploads        *uploads.Manager
@@ -53,8 +55,18 @@ func (s *Server) SetCoreTerminal(bridge *CoreTerminalBridge) {
 	s.coreTerminal = bridge
 }
 
+// SetCoreActions offers Herdr Core's actions through client. homeFolder is the
+// "~" Home shows, and Home on core refreshes after each action.
+func (s *Server) SetCoreActions(client coreActionClient, homeFolder string) {
+	var refresh homeRefresher
+	if s.coreProjector != nil {
+		refresh = s.coreProjector
+	}
+	s.coreActions = newCoreActionCoordinator(client, homeFolder, refresh)
+}
+
 // New serves Home from both Herdrs. projector follows the Herdr TUI, whose
-// terminals use terminal and whose actions are the only ones; coreProjector
+// terminals use terminal and whose actions use actionClients; coreProjector
 // follows herdr-core, or is herdr.NewNotFollowedProjector when herdr-core is
 // not followed. Herdr Core terminals use SetCoreTerminal.
 func New(assets fs.FS, projector, coreProjector *herdr.Projector, terminal *TerminalBridge, terminalLabEnabled bool, actionClients ...*herdr.Client) *Server {
@@ -93,11 +105,11 @@ func (s *Server) Handler() http.Handler {
 		s.registerAccessRoutes(mux)
 	}
 	mux.HandleFunc("GET /api/home", s.homeSocket)
-	if s.workspaceActions != nil {
-		mux.HandleFunc("POST /api/workspace-actions/prepare", s.workspaceActions.prepare)
-		mux.HandleFunc("POST /api/workspace-actions", s.workspaceActions.run)
-		mux.HandleFunc("POST /api/terminal-actions/prepare", s.workspaceActions.prepareTerminal)
-		mux.HandleFunc("POST /api/terminal-actions", s.workspaceActions.runTerminal)
+	if s.workspaceActions != nil || s.coreActions != nil {
+		mux.HandleFunc("POST /api/workspace-actions/prepare", s.sideAction(actionSide.prepare))
+		mux.HandleFunc("POST /api/workspace-actions", s.sideAction(actionSide.run))
+		mux.HandleFunc("POST /api/terminal-actions/prepare", s.sideAction(actionSide.prepareTerminal))
+		mux.HandleFunc("POST /api/terminal-actions", s.sideAction(actionSide.runTerminal))
 	}
 	if s.terminal != nil || s.coreTerminal != nil {
 		mux.HandleFunc("GET /api/terminal", s.terminalSocket)
@@ -123,6 +135,39 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /", s.asset)
 	return securityHeaders(s.accessBoundary(mux), s.terminalLabEnabled)
+}
+
+// actionSide is one Herdr's actions. Each Herdr runs one action at a time,
+// and neither waits for the other.
+type actionSide interface {
+	prepare(http.ResponseWriter, *http.Request, map[string]json.RawMessage)
+	run(http.ResponseWriter, *http.Request, map[string]json.RawMessage)
+	prepareTerminal(http.ResponseWriter, *http.Request, map[string]json.RawMessage)
+	runTerminal(http.ResponseWriter, *http.Request, map[string]json.RawMessage)
+}
+
+// sideAction sends an action request to the Herdr its required herdr field
+// names, "tui" or "core". A Herdr without actions refuses it.
+func (s *Server) sideAction(handle func(actionSide, http.ResponseWriter, *http.Request, map[string]json.RawMessage)) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		fields, ok := readActionObject(writer, request)
+		if !ok {
+			return
+		}
+		name, named := decodeString(fields["herdr"])
+		delete(fields, "herdr")
+		var side actionSide
+		switch {
+		case named && name == string(herdr.BackendTUI) && s.workspaceActions != nil:
+			side = s.workspaceActions
+		case named && name == string(herdr.BackendCore) && s.coreActions != nil:
+			side = s.coreActions
+		default:
+			writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
+			return
+		}
+		handle(side, writer, request, fields)
+	}
 }
 
 // terminalHerdr picks the Herdr named by the required herdr parameter of a

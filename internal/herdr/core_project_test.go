@@ -80,16 +80,22 @@ func TestProjectCoreMatchesTheAppAndPlacesEveryTerminalOnce(t *testing.T) {
 		t.Fatalf("space order = %+v", home.Workspaces)
 	}
 	for _, workspace := range home.Workspaces {
-		if len(workspace.Actions) != 0 || workspace.Worktrees != nil || workspace.CheckoutPath != "" {
-			t.Fatalf("core space has actions or worktrees: %+v", workspace)
+		// A space can be closed; Other terminals is not a space.
+		wantActions := []WorkspaceAction{WorkspaceActionCloseWorkspace}
+		if workspace.ID == OtherTerminalsID {
+			wantActions = []WorkspaceAction{}
+		}
+		if !reflect.DeepEqual(workspace.Actions, wantActions) || workspace.Worktrees != nil || workspace.CheckoutPath != "" {
+			t.Fatalf("core space has other actions or worktrees: %+v", workspace)
 		}
 		for _, tab := range workspace.Tabs {
 			if tab.Current {
 				t.Fatalf("core tab claims app focus: %+v", tab)
 			}
 			for _, terminal := range tab.Terminals {
-				if len(terminal.Actions) != 0 || terminal.ManualName != nil {
-					t.Fatalf("core terminal has actions or a manual name: %+v", terminal)
+				// Every terminal can be closed, including under Other terminals.
+				if !reflect.DeepEqual(terminal.Actions, []TerminalAction{TerminalActionClose}) || terminal.ManualName != nil {
+					t.Fatalf("core terminal has other actions or a manual name: %+v", terminal)
 				}
 			}
 		}
@@ -332,5 +338,25 @@ func TestCoreTerminalNamesFollowTheAgentThenTheTerminal(t *testing.T) {
 				t.Fatalf("agent = %v %q, title = %q; want %q, %q", terminal.Agent != nil, agentName, terminal.Title, test.agentName, test.title)
 			}
 		})
+	}
+}
+
+func TestCoreEndsWithFollowsWorkersThatDieWithTheirParent(t *testing.T) {
+	parent, child := "t1", "t2"
+	terminals := []CoreTerminal{
+		{Address: "t1"},
+		{Address: "t2", Parent: &parent, DieWithParent: true},
+		{Address: "t3", Parent: &child, DieWithParent: true},
+		// Started by t1 but outlives it.
+		{Address: "t4", Parent: &parent},
+		{Address: "t5"},
+	}
+	got := CoreEndsWith(terminals, "t1")
+	want := map[string]struct{}{"t1": {}, "t2": {}, "t3": {}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ending = %v", got)
+	}
+	if got := CoreEndsWith(terminals, "t9"); len(got) != 0 {
+		t.Fatalf("a terminal that isn't live ends %v", got)
 	}
 }

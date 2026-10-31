@@ -559,15 +559,14 @@ function openTerminal(entry: TerminalEntry): void {
   window.location.hash = terminalHash(shownHerdr, entry.terminal.pane_id);
 }
 
-function openCreatedTerminal(target: TerminalActionTarget): void {
+function openCreatedTerminal(target: TerminalActionTarget, herdr: Herdr): void {
   homeScroll = window.scrollY;
   homeFocusPane = target.pane_id;
   homeFocusWorkspace = undefined;
   homeAnchorTop = homeView.row(target.pane_id)?.getBoundingClientRect().top;
   homeHadListFocus = false;
   selectedTerminal = undefined;
-  // Terminal actions exist only for the Herdr TUI.
-  window.location.hash = terminalHash("tui", target.pane_id, target.terminal_id);
+  window.location.hash = terminalHash(herdr, target.pane_id, target.terminal_id);
 }
 
 function renderTerminal(route: TerminalRoute): void {

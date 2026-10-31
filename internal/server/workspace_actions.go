@@ -44,9 +44,12 @@ func newWorkspaceActionCoordinator(client workspaceActionClient, refresh homeRef
 	}
 }
 
+// Error comes only from Herdr Core and unknown only from the Herdr TUI; the
+// other Herdr always sends 0.
 type interruptionCounts struct {
 	Working int `json:"working"`
 	Blocked int `json:"blocked"`
+	Error   int `json:"error"`
 	Unknown int `json:"unknown"`
 }
 
@@ -64,9 +67,8 @@ type refusedResponse struct {
 	Detail  string `json:"detail,omitempty"`
 }
 
-func (c *workspaceActionCoordinator) prepare(writer http.ResponseWriter, request *http.Request) {
-	fields, ok := readActionObject(writer, request)
-	if !ok || !requireObjectKeys(writer, fields, []string{"action", "workspace_id"}, []string{"action", "workspace_id"}) {
+func (c *workspaceActionCoordinator) prepare(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage) {
+	if !requireObjectKeys(writer, fields, []string{"action", "workspace_id"}, []string{"action", "workspace_id"}) {
 		return
 	}
 	actionName, actionOK := decodeString(fields["action"])
@@ -104,11 +106,7 @@ func (c *workspaceActionCoordinator) prepare(writer http.ResponseWriter, request
 	}{Outcome: "prepared", Action: actionName, WorkspaceID: workspaceID, Expected: facts})
 }
 
-func (c *workspaceActionCoordinator) run(writer http.ResponseWriter, request *http.Request) {
-	fields, ok := readActionObject(writer, request)
-	if !ok {
-		return
-	}
+func (c *workspaceActionCoordinator) run(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage) {
 	actionName, actionOK := decodeString(fields["action"])
 	if !actionOK {
 		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
@@ -366,11 +364,13 @@ func decodeConfirmationFacts(raw json.RawMessage, checkoutRequired bool) (confir
 	var total int
 	totalOK := json.Unmarshal(fields["agent_total"], &total) == nil && total >= 0 && string(fields["agent_total"]) != "null"
 	countFields, countsOK := decodeObject(fields["interruption_counts"])
-	countsOK = countsOK && keysMatch(countFields, []string{"working", "blocked", "unknown"}, []string{"working", "blocked", "unknown"})
+	countKeys := []string{"working", "blocked", "error", "unknown"}
+	countsOK = countsOK && keysMatch(countFields, countKeys, countKeys)
 	var counts interruptionCounts
 	if countsOK {
 		countsOK = decodeNonnegativeInt(countFields["working"], &counts.Working) &&
-			decodeNonnegativeInt(countFields["blocked"], &counts.Blocked) && decodeNonnegativeInt(countFields["unknown"], &counts.Unknown)
+			decodeNonnegativeInt(countFields["blocked"], &counts.Blocked) &&
+			decodeNonnegativeInt(countFields["error"], &counts.Error) && decodeNonnegativeInt(countFields["unknown"], &counts.Unknown)
 	}
 	facts := confirmationFacts{WorkspaceLabel: label, ScopeWorkspaceIDs: scope, AgentTotal: total, InterruptionCounts: counts}
 	if checkoutRequired {

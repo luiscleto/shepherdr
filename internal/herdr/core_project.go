@@ -187,7 +187,7 @@ func ProjectCore(read CoreRead, homeFolder string) (Snapshot, Home, error) {
 
 	for spaceIndex, space := range spaces {
 		workspace := Workspace{
-			Actions: []WorkspaceAction{}, ID: space.ID, Label: spaceLabel(space, live, homeFolder),
+			Actions: []WorkspaceAction{WorkspaceActionCloseWorkspace}, ID: space.ID, Label: spaceLabel(space, live, homeFolder),
 			Number: uint(spaceIndex + 1), Tabs: []Tab{},
 		}
 		if !space.Machine {
@@ -262,8 +262,10 @@ func coreStatusValid(status Status) bool {
 	}
 }
 
+// Every terminal Home shows can be closed, including those under Other
+// terminals; a space can be closed, but Other terminals can't.
 func coreTerminal(coreID string, source CoreTerminal) Terminal {
-	terminal := Terminal{Actions: []TerminalAction{}, PaneID: source.Address, TerminalID: coreID + ":" + source.Address}
+	terminal := Terminal{Actions: []TerminalAction{TerminalActionClose}, PaneID: source.Address, TerminalID: coreID + ":" + source.Address}
 	if source.Status != nil {
 		name := source.Title
 		if name == "" {
@@ -352,4 +354,32 @@ func folderLabel(folder, homeFolder string) string {
 		return "~"
 	}
 	return filepath.Base(cleaned)
+}
+
+// CoreEndsWith lists the live terminals that end when address is killed: the
+// terminal itself, then, down the chain, the workers it started that die with
+// their parent.
+func CoreEndsWith(terminals []CoreTerminal, address string) map[string]struct{} {
+	ending := map[string]struct{}{}
+	live := make(map[string]struct{}, len(terminals))
+	for _, terminal := range terminals {
+		live[terminal.Address] = struct{}{}
+	}
+	if _, ok := live[address]; !ok {
+		return ending
+	}
+	ending[address] = struct{}{}
+	for grown := true; grown; {
+		grown = false
+		for _, terminal := range terminals {
+			if _, done := ending[terminal.Address]; done || !terminal.DieWithParent || terminal.Parent == nil {
+				continue
+			}
+			if _, parentEnds := ending[*terminal.Parent]; parentEnds {
+				ending[terminal.Address] = struct{}{}
+				grown = true
+			}
+		}
+	}
+	return ending
 }

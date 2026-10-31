@@ -56,6 +56,7 @@ test("posts exact same-origin terminal requests once and preserves returned iden
     });
   });
   const response = await client.run({
+    herdr: "tui",
     action: "split_terminal",
     ...expected.target,
     direction: "down",
@@ -69,7 +70,7 @@ test("posts exact same-origin terminal requests once and preserves returned iden
   assert.equal(calls[0].init?.credentials, "same-origin");
   assert.equal(
     calls[0].init?.body,
-    '{"action":"split_terminal","workspace_id":"opaque-workspace","tab_id":"opaque-tab","pane_id":"opaque-pane","terminal_id":"opaque-terminal","direction":"down"}',
+    '{"herdr":"tui","action":"split_terminal","workspace_id":"opaque-workspace","tab_id":"opaque-tab","pane_id":"opaque-pane","terminal_id":"opaque-terminal","direction":"down"}',
   );
 });
 
@@ -84,7 +85,7 @@ test("rejects mismatched HTTP outcomes without retrying", async () => {
   });
 
   await assert.rejects(
-    client.run({ action: "rename_terminal", ...expected.target, name: "New name" }),
+    client.run({ herdr: "tui", action: "rename_terminal", ...expected.target, name: "New name" }),
     TerminalActionRequestError,
   );
   assert.equal(calls, 1);

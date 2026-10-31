@@ -33,6 +33,7 @@ type terminalCloseFacts struct {
 	TerminalTitle     string                `json:"terminal_title"`
 	Agent             *herdr.Agent          `json:"agent,omitempty"`
 	ClosesTab         bool                  `json:"closes_tab"`
+	ClosesWorkers     int                   `json:"closes_workers,omitempty"`
 	WorkspaceAction   herdr.WorkspaceAction `json:"workspace_action,omitempty"`
 	WorkspaceExpected *confirmationFacts    `json:"workspace_expected,omitempty"`
 }
@@ -44,9 +45,8 @@ type exactTerminalTarget struct {
 	Workspace herdr.WorkspaceInfo
 }
 
-func (c *workspaceActionCoordinator) prepareTerminal(writer http.ResponseWriter, request *http.Request) {
-	fields, ok := readActionObject(writer, request)
-	if !ok || !requireObjectKeys(
+func (c *workspaceActionCoordinator) prepareTerminal(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage) {
+	if !requireObjectKeys(
 		writer,
 		fields,
 		[]string{"action", "workspace_id", "tab_id", "pane_id", "terminal_id"},
@@ -87,11 +87,7 @@ func (c *workspaceActionCoordinator) prepareTerminal(writer http.ResponseWriter,
 	}{Outcome: "prepared", Action: action, Expected: facts})
 }
 
-func (c *workspaceActionCoordinator) runTerminal(writer http.ResponseWriter, request *http.Request) {
-	fields, ok := readActionObject(writer, request)
-	if !ok {
-		return
-	}
+func (c *workspaceActionCoordinator) runTerminal(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage) {
 	action, actionOK := decodeString(fields["action"])
 	if !actionOK {
 		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
@@ -530,7 +526,7 @@ func decodeTerminalCloseFacts(raw json.RawMessage) (terminalCloseFacts, bool) {
 	fields, ok := decodeObject(raw)
 	if !ok || !keysMatch(
 		fields,
-		[]string{"target", "workspace_label", "tab_label", "terminal_title", "agent", "closes_tab", "workspace_action", "workspace_expected"},
+		[]string{"target", "workspace_label", "tab_label", "terminal_title", "agent", "closes_tab", "closes_workers", "workspace_action", "workspace_expected"},
 		[]string{"target", "workspace_label", "tab_label", "terminal_title", "closes_tab"},
 	) {
 		return terminalCloseFacts{}, false
@@ -555,7 +551,13 @@ func decodeTerminalCloseFacts(raw json.RawMessage) (terminalCloseFacts, bool) {
 	if rawAgent, present := fields["agent"]; present {
 		agentFields, valid := decodeObject(rawAgent)
 		if !valid || !keysMatch(agentFields, []string{"kind", "name", "status"}, []string{"kind", "name", "status"}) ||
-			json.Unmarshal(rawAgent, &facts.Agent) != nil || facts.Agent == nil || !facts.Agent.Status.Valid() {
+			json.Unmarshal(rawAgent, &facts.Agent) != nil || facts.Agent == nil ||
+			!facts.Agent.Status.Valid() && facts.Agent.Status != herdr.StatusError {
+			return terminalCloseFacts{}, false
+		}
+	}
+	if rawWorkers, present := fields["closes_workers"]; present {
+		if !decodeNonnegativeInt(rawWorkers, &facts.ClosesWorkers) || facts.ClosesWorkers == 0 {
 			return terminalCloseFacts{}, false
 		}
 	}
