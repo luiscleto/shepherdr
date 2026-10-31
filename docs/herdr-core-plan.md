@@ -485,7 +485,7 @@ Wave 2 starts from the approved integrated wave 1b commit. With both Herdrs foll
   - tests and a `web/dist` rebuild.
 - **First step:** confirm on a disposable core how the first paint arrives (one DATA frame?). Stop and report if it doesn't.
 - **Acceptance gate:**
-  1. Reader shows history with colors, then live output. An OSC 8 link printed after opening opens through **Open link?** in full Terminal. Opening controls the terminal, so it takes the phone's size until someone types in the app window, and typing in the app is unaffected. (Amended 2026-10-31: core terminals open in control.)
+  1. Reader shows history with colors, then live output. An OSC 8 link printed after opening opens through **Open link?** in full Terminal. Opening controls the terminal, so it takes the opening browser's size until someone types in the app window, and typing in the app is unaffected. (Amended 2026-10-31: core terminals open in control.)
   2. **Control**: Message sends text and Enter into Claude Code. Send keys sends Esc, Ctrl+C, the arrows, F5, Tab, an uppercase letter (as Shift) and a Super combination. Unsupported characters are not offered. The size follows the phone while it types and returns when the app window is used.
   3. **Release** goes back to observing, and the size is no longer the phone's once the app types. No **Take over** appears anywhere.
   4. Files: exact bytes are staged and their paths inserted, for a terminal with status. **Add files** is absent for a shell and for an agent on its trust prompt.
