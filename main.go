@@ -48,6 +48,9 @@ func run() error {
 	}
 	listenAddress := flag.String("listen", "127.0.0.1:8787", "localhost address to listen on")
 	socketPath := flag.String("herdr-socket", defaultSocket, "Unix socket for the one Herdr session")
+	herdrCore := flag.Bool("herdr-core", false, "use herdr-core, the runtime behind the Herdr app, instead of the Herdr TUI")
+	var herdrCoreSocket optionalStringFlag
+	flag.Var(&herdrCoreSocket, "herdr-core-socket", "Unix socket for herdr-core (default $XDG_RUNTIME_DIR/herdr-core/default.sock)")
 	terminalLabEnabled := flag.Bool("terminal-lab", false, "enable the development-only terminal comparison lab")
 	noSignIn := flag.Bool("no-sign-in", false, "run without passkey protection for this start")
 	var publicOrigin optionalStringFlag
@@ -82,7 +85,7 @@ func run() error {
 			return fmt.Errorf("unknown command %q", flag.Args()[0])
 		}
 		if *noSignIn || publicOrigin.set || sessionLifetime.set || vapidContact.set || *resetNotifications ||
-			flagWasSet("listen") || flagWasSet("herdr-socket") || flagWasSet("terminal-lab") ||
+			flagWasSet("listen") || flagWasSet("herdr-socket") || flagWasSet("herdr-core") || herdrCoreSocket.set || flagWasSet("terminal-lab") ||
 			flagWasSet("upload-parent") || flagWasSet("upload-limit") || flagWasSet("log-level") {
 			return errors.New("access commands cannot be combined with server configuration flags")
 		}
@@ -129,7 +132,11 @@ func run() error {
 	if err := server.ValidateListenAddress(*listenAddress); err != nil {
 		return err
 	}
-	if *socketPath == "" || !filepath.IsAbs(*socketPath) {
+	coreSocketPath, err := selectHerdrCoreSocket(*herdrCore, herdrCoreSocket, flagWasSet("herdr-socket"), os.Getenv("XDG_RUNTIME_DIR"))
+	if err != nil {
+		return err
+	}
+	if !*herdrCore && (*socketPath == "" || !filepath.IsAbs(*socketPath)) {
 		return fmt.Errorf("-herdr-socket must be an absolute path")
 	}
 	assets, err := fs.Sub(browserFiles, "web/dist")
@@ -194,17 +201,27 @@ func run() error {
 		}
 		accessManager.SetNotificationAuthority(notificationManager)
 	}
-	client := herdr.NewClient(*socketPath, logger)
-	projector := herdr.NewProjector(client)
+	var projector *herdr.Projector
+	var terminal *server.TerminalBridge
+	var actionClient *herdr.Client
+	if *herdrCore {
+		// The Terminal page and actions on herdr-core come later; Home only.
+		homeFolder, _ := os.UserHomeDir()
+		projector = herdr.NewCoreProjector(herdr.NewCoreClient(coreSocketPath, logger), homeFolder)
+		notificationManager.SetHerdr(herdr.BackendCore)
+	} else {
+		actionClient = herdr.NewClient(*socketPath, logger)
+		projector = herdr.NewProjector(actionClient)
+		herdrBinary, err := exec.LookPath("herdr")
+		if err != nil {
+			return fmt.Errorf("find herdr executable for terminal access: %w", err)
+		}
+		terminal = server.NewTerminalBridge(herdrBinary, *socketPath, logger, projector)
+		defer terminal.Close()
+	}
 	projector.SetSnapshotObserver(notificationManager)
 	projector.SetPublishedSnapshotObserver(uploadManager)
-	herdrBinary, err := exec.LookPath("herdr")
-	if err != nil {
-		return fmt.Errorf("find herdr executable for terminal access: %w", err)
-	}
-	terminal := server.NewTerminalBridge(herdrBinary, *socketPath, logger, projector)
-	defer terminal.Close()
-	application := server.New(assets, projector, terminal, *terminalLabEnabled, client)
+	application := server.New(assets, projector, terminal, *terminalLabEnabled, actionClient)
 	application.SetFileUploads(uploadManager, uploadLimit)
 	application.SetNotifications(notificationManager)
 	if accessManager != nil {
@@ -234,11 +251,17 @@ func run() error {
 	if accessManager != nil {
 		address = protectedOrigin.Value
 	}
-	logger.Info("Shepherdr is ready", "address", address, "local_address", "http://"+listener.Addr().String(), "herdr_socket", *socketPath, "terminal_lab", *terminalLabEnabled, "sign_in_off", *noSignIn, "upload_parent", *uploadParent, "upload_limit", *uploadLimitText)
+	if *herdrCore {
+		logger.Info("Shepherdr is ready", "address", address, "local_address", "http://"+listener.Addr().String(), "herdr", herdr.BackendCore, "herdr_core_socket", coreSocketPath, "terminal_lab", *terminalLabEnabled, "sign_in_off", *noSignIn, "upload_parent", *uploadParent, "upload_limit", *uploadLimitText)
+	} else {
+		logger.Info("Shepherdr is ready", "address", address, "local_address", "http://"+listener.Addr().String(), "herdr_socket", *socketPath, "terminal_lab", *terminalLabEnabled, "sign_in_off", *noSignIn, "upload_parent", *uploadParent, "upload_limit", *uploadLimitText)
+	}
 
 	select {
 	case <-ctx.Done():
-		terminal.Close()
+		if terminal != nil {
+			terminal.Close()
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
@@ -329,6 +352,30 @@ func defaultHerdrSocket() (string, error) {
 		configurationDirectory = filepath.Join(home, ".config")
 	}
 	return filepath.Join(configurationDirectory, "herdr", "herdr.sock"), nil
+}
+
+// selectHerdrCoreSocket checks the herdr-core start flags. It returns the
+// core socket in core mode and "" otherwise.
+func selectHerdrCoreSocket(coreEnabled bool, coreSocket optionalStringFlag, herdrSocketSet bool, runtimeDirectory string) (string, error) {
+	if !coreEnabled {
+		if coreSocket.set {
+			return "", errors.New("-herdr-core-socket requires -herdr-core")
+		}
+		return "", nil
+	}
+	if herdrSocketSet {
+		return "", errors.New("-herdr-core cannot be combined with -herdr-socket")
+	}
+	if !coreSocket.set {
+		if runtimeDirectory == "" {
+			return "", errors.New("-herdr-core-socket must be set when XDG_RUNTIME_DIR is not")
+		}
+		return filepath.Join(runtimeDirectory, "herdr-core", "default.sock"), nil
+	}
+	if !filepath.IsAbs(coreSocket.value) {
+		return "", errors.New("-herdr-core-socket must be an absolute path")
+	}
+	return coreSocket.value, nil
 }
 
 func runAccessCommand(arguments []string, accessPath, notificationPath string) error {

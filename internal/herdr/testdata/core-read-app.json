@@ -1,0 +1,461 @@
+{
+ "doc.get": {
+  "value": {
+   "spaces": [
+    {
+     "folder": "/tmp/w1/work/repo",
+     "id": "sp4d15c560d9928dee4d7842adfe949cb6",
+     "name": "alpha",
+     "tabs": [
+      {
+       "id": "tba5ed0454645e0dac10d29a4b83da7df7",
+       "name": "main",
+       "root": {
+        "children": [
+         {
+          "content": {
+           "terminal": "t3"
+          },
+          "id": "pae1f676198932a54ce6f2139bf784204",
+          "size": {
+           "weight": 0.5
+          },
+          "type": "block"
+         },
+         {
+          "content": {
+           "terminal": "t4"
+          },
+          "id": "p20daff1ca339f27e18f44423f49f4290",
+          "size": {
+           "weight": 0.5
+          },
+          "type": "block"
+         }
+        ],
+        "id": "tba5ed0454645e0dac10d29a4b83da7df7",
+        "type": "row"
+       }
+      },
+      {
+       "id": "tb7c3a8ed2988a3811e31c1b41c81d4ba0",
+       "name": "",
+       "root": {
+        "children": [
+         {
+          "content": {
+           "terminal": "t5"
+          },
+          "id": "p28ae454a565e5b4add407e0c392d9126",
+          "type": "block"
+         }
+        ],
+        "id": "tb7c3a8ed2988a3811e31c1b41c81d4ba0",
+        "type": "row"
+       }
+      }
+     ]
+    },
+    {
+     "folder": "/tmp/w1/work/repo/web",
+     "id": "spc240a9a46604c00dbc3b616dd243bddc",
+     "name": "",
+     "tabs": [
+      {
+       "id": "tbdc8eb027b46091d1a984e46cd625290a",
+       "name": "",
+       "root": {
+        "children": [
+         {
+          "content": {
+           "terminal": "t6"
+          },
+          "id": "pa7fdb8c2bd022bc54f74b006b6ea26f3",
+          "type": "block"
+         }
+        ],
+        "id": "tbdc8eb027b46091d1a984e46cd625290a",
+        "type": "row"
+       }
+      }
+     ]
+    },
+    {
+     "folder": "/home/user",
+     "id": "sp7505c737346ffd7748db790ab36a8360",
+     "name": "",
+     "tabs": [
+      {
+       "id": "tb21e1a929c2457ed22d4180ca8202c6c7",
+       "name": "",
+       "root": {
+        "children": [
+         {
+          "content": {
+           "terminal": "t7"
+          },
+          "id": "p8729330849df8138fb59deee22057952",
+          "type": "block"
+         }
+        ],
+        "id": "tb21e1a929c2457ed22d4180ca8202c6c7",
+        "type": "row"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "version": 5
+ },
+ "hello": {
+  "core": {
+   "id": "cac4bb11530d086b9153628d8382a040",
+   "name": "host"
+  },
+  "features": [
+   "framed",
+   "attach",
+   "events",
+   "status",
+   "shell"
+  ],
+  "framed": false,
+  "generation": 1,
+  "methods": [
+   "hello",
+   "server.status",
+   "server.stop",
+   "server.restart",
+   "terminal.run",
+   "templates.list",
+   "terminal.list",
+   "terminal.get",
+   "terminal.kill",
+   "terminal.rm",
+   "terminal.keep",
+   "terminal.label",
+   "terminal.read",
+   "terminal.attach",
+   "terminal.send",
+   "terminal.wait",
+   "terminal.keys",
+   "terminal.interrupt",
+   "terminal.put",
+   "machine.exec",
+   "file.read",
+   "file.write",
+   "file.edit",
+   "doc.get",
+   "doc.set",
+   "events.subscribe",
+   "machine.add",
+   "machine.list",
+   "machine.connect",
+   "machine.rename",
+   "machine.rm",
+   "rpc.discover"
+  ],
+  "version": "0.1.15"
+ },
+ "terminal.list": {
+  "hidden_finished": 0,
+  "terminals": [
+   {
+    "address": "t3",
+    "argv": [
+     "/usr/bin/bash"
+    ],
+    "cols": 25,
+    "created_ms": 1793406400671,
+    "cwd": "/tmp/w1/work/repo",
+    "die_with_parent": false,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "/usr/bin/bash"
+     ],
+     "cwd": "/tmp/w1/work/repo",
+     "name": "bash",
+     "pid": 1843044
+    },
+    "identity": "ghostty",
+    "keep": true,
+    "labels": {
+     "herdr.space": "sp4d15c560d9928dee4d7842adfe949cb6",
+     "herdr.tab": "tba5ed0454645e0dac10d29a4b83da7df7",
+     "where": "alpha / main"
+    },
+    "name": null,
+    "notify": true,
+    "parent": null,
+    "pid": 1843044,
+    "reason": null,
+    "reported": false,
+    "rm": false,
+    "rows": 14,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": null,
+    "status_ms": null,
+    "template": null,
+    "title": "user@host:/tmp/w1/work/repo",
+    "turn": 0
+   },
+   {
+    "address": "t4",
+    "argv": [
+     "/usr/bin/bash"
+    ],
+    "cols": 25,
+    "created_ms": 1793406414763,
+    "cwd": "/tmp/w1/work/repo",
+    "die_with_parent": false,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "/usr/bin/bash"
+     ],
+     "cwd": "/tmp/w1/work/repo",
+     "name": "bash",
+     "pid": 1843540
+    },
+    "identity": "ghostty",
+    "keep": true,
+    "labels": {
+     "herdr.space": "sp4d15c560d9928dee4d7842adfe949cb6",
+     "herdr.tab": "tba5ed0454645e0dac10d29a4b83da7df7",
+     "where": "alpha / main"
+    },
+    "name": null,
+    "notify": true,
+    "parent": null,
+    "pid": 1843540,
+    "reason": null,
+    "reported": false,
+    "rm": false,
+    "rows": 14,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": null,
+    "status_ms": null,
+    "template": null,
+    "title": "user@host:/tmp/w1/work/repo",
+    "turn": 0
+   },
+   {
+    "address": "t5",
+    "argv": [
+     "/usr/bin/bash"
+    ],
+    "cols": 55,
+    "created_ms": 1793406414784,
+    "cwd": "/tmp/w1/work/repo",
+    "die_with_parent": false,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "/usr/bin/bash"
+     ],
+     "cwd": "/tmp/w1/work/repo",
+     "name": "bash",
+     "pid": 1843566
+    },
+    "identity": "ghostty",
+    "keep": true,
+    "labels": {
+     "herdr.space": "sp4d15c560d9928dee4d7842adfe949cb6",
+     "herdr.tab": "tb7c3a8ed2988a3811e31c1b41c81d4ba0",
+     "where": "alpha / 2"
+    },
+    "name": null,
+    "notify": true,
+    "parent": null,
+    "pid": 1843566,
+    "reason": null,
+    "reported": false,
+    "rm": false,
+    "rows": 14,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": null,
+    "status_ms": null,
+    "template": null,
+    "title": "user@host:/tmp/w1/work/repo",
+    "turn": 0
+   },
+   {
+    "address": "t6",
+    "argv": [
+     "/usr/bin/bash"
+    ],
+    "cols": 55,
+    "created_ms": 1793406415806,
+    "cwd": "/tmp/w1/work/repo/web",
+    "die_with_parent": false,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "/usr/bin/bash"
+     ],
+     "cwd": "/tmp/w1/work/repo/web",
+     "name": "bash",
+     "pid": 1844021
+    },
+    "identity": "ghostty",
+    "keep": true,
+    "labels": {
+     "herdr.space": "spc240a9a46604c00dbc3b616dd243bddc",
+     "herdr.tab": "tbdc8eb027b46091d1a984e46cd625290a",
+     "where": "repo / 1"
+    },
+    "name": null,
+    "notify": true,
+    "parent": null,
+    "pid": 1844021,
+    "reason": null,
+    "reported": false,
+    "rm": false,
+    "rows": 14,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": null,
+    "status_ms": null,
+    "template": null,
+    "title": "user@host:/tmp/w1/work/repo/web",
+    "turn": 0
+   },
+   {
+    "address": "t7",
+    "argv": [
+     "/usr/bin/bash"
+    ],
+    "cols": 55,
+    "created_ms": 1793406416827,
+    "cwd": "/home/user",
+    "die_with_parent": false,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "/usr/bin/bash"
+     ],
+     "cwd": "/home/user",
+     "name": "bash",
+     "pid": 1844385
+    },
+    "identity": "ghostty",
+    "keep": true,
+    "labels": {
+     "herdr.space": "sp7505c737346ffd7748db790ab36a8360",
+     "herdr.tab": "tb21e1a929c2457ed22d4180ca8202c6c7",
+     "where": "~ / 1"
+    },
+    "name": null,
+    "notify": true,
+    "parent": null,
+    "pid": 1844385,
+    "reason": null,
+    "reported": false,
+    "rm": false,
+    "rows": 14,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": null,
+    "status_ms": null,
+    "template": null,
+    "title": "user@host:~",
+    "turn": 0
+   },
+   {
+    "address": "t8",
+    "argv": [
+     "bash"
+    ],
+    "cols": 200,
+    "created_ms": 1793406425307,
+    "cwd": "/tmp/w1/work",
+    "die_with_parent": false,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "bash"
+     ],
+     "cwd": "/tmp/w1/work",
+     "name": "bash",
+     "pid": 1844840
+    },
+    "identity": "ghostty",
+    "keep": false,
+    "labels": {},
+    "name": "outside",
+    "notify": true,
+    "parent": null,
+    "pid": 1844840,
+    "reason": null,
+    "reported": false,
+    "rm": false,
+    "rows": 120,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": null,
+    "status_ms": null,
+    "template": null,
+    "title": "user@host:/tmp/w1/work",
+    "turn": 0
+   },
+   {
+    "address": "t9",
+    "argv": [
+     "bash"
+    ],
+    "cols": 200,
+    "created_ms": 1793406425307,
+    "cwd": "/tmp/w1/work/repo",
+    "die_with_parent": true,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "bash"
+     ],
+     "cwd": "/tmp/w1/work/repo",
+     "name": "bash",
+     "pid": 1844845
+    },
+    "identity": "ghostty",
+    "keep": false,
+    "labels": {
+     "where": "alpha / main"
+    },
+    "name": "worker1",
+    "notify": true,
+    "parent": "t3",
+    "pid": 1844845,
+    "reason": null,
+    "reported": false,
+    "rm": false,
+    "rows": 120,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": null,
+    "status_ms": null,
+    "template": null,
+    "title": "user@host:/tmp/w1/work/repo",
+    "turn": 0
+   }
+  ]
+ }
+}

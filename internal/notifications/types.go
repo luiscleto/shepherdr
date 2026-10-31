@@ -24,6 +24,7 @@ const (
 type EventSettings struct {
 	Working              bool `json:"working"`
 	Blocked              bool `json:"blocked"`
+	Error                bool `json:"error"`
 	Idle                 bool `json:"idle"`
 	Done                 bool `json:"done"`
 	Unknown              bool `json:"unknown"`
@@ -35,7 +36,7 @@ type EventSettings struct {
 
 func DefaultEventSettings() EventSettings {
 	return EventSettings{
-		Blocked: true, Done: true, TrustedSignInAdded: true, TrustedSignInRemoved: true,
+		Blocked: true, Error: true, Done: true, TrustedSignInAdded: true, TrustedSignInRemoved: true,
 	}
 }
 
@@ -43,6 +44,7 @@ func (s *EventSettings) UnmarshalJSON(data []byte) error {
 	var value struct {
 		Working              bool  `json:"working"`
 		Blocked              bool  `json:"blocked"`
+		Error                *bool `json:"error"`
 		Idle                 bool  `json:"idle"`
 		Done                 bool  `json:"done"`
 		Unknown              bool  `json:"unknown"`
@@ -63,7 +65,12 @@ func (s *EventSettings) UnmarshalJSON(data []byte) error {
 	*s = EventSettings{
 		Working: value.Working, Blocked: value.Blocked, Idle: value.Idle, Done: value.Done,
 		Unknown: value.Unknown, WorkspaceOpened: value.WorkspaceOpened, WorkspaceClosed: value.WorkspaceClosed,
-		TrustedSignInAdded: true, TrustedSignInRemoved: true,
+		Error: true, TrustedSignInAdded: true, TrustedSignInRemoved: true,
+	}
+	// Settings saved before the Herdr app's error status existed start with
+	// error on, like blocked.
+	if value.Error != nil {
+		s.Error = *value.Error
 	}
 	if value.TrustedSignInAdded != nil {
 		s.TrustedSignInAdded = *value.TrustedSignInAdded
@@ -105,6 +112,7 @@ const (
 
 type Event struct {
 	Kind          EventKind
+	Herdr         herdr.Backend
 	Status        herdr.Status
 	WorkspaceName string
 	PaneID        string
@@ -130,6 +138,8 @@ func (e Event) selected(settings EventSettings) bool {
 			return settings.Working
 		case herdr.StatusBlocked:
 			return settings.Blocked
+		case herdr.StatusError:
+			return settings.Error
 		case herdr.StatusIdle:
 			return settings.Idle
 		case herdr.StatusDone:

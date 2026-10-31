@@ -1,0 +1,570 @@
+{
+ "doc.get": {
+  "value": {
+   "spaces": [
+    {
+     "folder": "/tmp/w1/work/repo",
+     "id": "sp4d15c560d9928dee4d7842adfe949cb6",
+     "name": "<img src=x onerror=alert(1)>",
+     "tabs": [
+      {
+       "id": "tba5ed0454645e0dac10d29a4b83da7df7",
+       "name": "main",
+       "root": {
+        "children": [
+         {
+          "content": {
+           "terminal": "t3"
+          },
+          "id": "pae1f676198932a54ce6f2139bf784204",
+          "size": {
+           "weight": 0.5
+          },
+          "type": "block"
+         },
+         {
+          "content": {
+           "terminal": "t4"
+          },
+          "id": "p20daff1ca339f27e18f44423f49f4290",
+          "size": {
+           "weight": 0.5
+          },
+          "type": "block"
+         }
+        ],
+        "id": "tba5ed0454645e0dac10d29a4b83da7df7",
+        "type": "row"
+       }
+      },
+      {
+       "id": "tb7c3a8ed2988a3811e31c1b41c81d4ba0",
+       "name": "\"><script>alert(2)</script>",
+       "root": {
+        "children": [
+         {
+          "content": {
+           "terminal": "t5"
+          },
+          "id": "p28ae454a565e5b4add407e0c392d9126",
+          "type": "block"
+         }
+        ],
+        "id": "tb7c3a8ed2988a3811e31c1b41c81d4ba0",
+        "type": "row"
+       }
+      }
+     ]
+    },
+    {
+     "folder": "/tmp/w1/work/repo/web",
+     "id": "spc240a9a46604c00dbc3b616dd243bddc",
+     "name": "",
+     "tabs": [
+      {
+       "id": "tbdc8eb027b46091d1a984e46cd625290a",
+       "name": "",
+       "root": {
+        "children": [
+         {
+          "content": {
+           "terminal": "t6"
+          },
+          "id": "pa7fdb8c2bd022bc54f74b006b6ea26f3",
+          "type": "block"
+         }
+        ],
+        "id": "tbdc8eb027b46091d1a984e46cd625290a",
+        "type": "row"
+       }
+      }
+     ]
+    },
+    {
+     "folder": "/home/user",
+     "id": "sp7505c737346ffd7748db790ab36a8360",
+     "name": "",
+     "tabs": [
+      {
+       "id": "tb21e1a929c2457ed22d4180ca8202c6c7",
+       "name": "",
+       "root": {
+        "children": [
+         {
+          "content": {
+           "terminal": "t7"
+          },
+          "id": "p8729330849df8138fb59deee22057952",
+          "type": "block"
+         }
+        ],
+        "id": "tb21e1a929c2457ed22d4180ca8202c6c7",
+        "type": "row"
+       }
+      }
+     ]
+    },
+    {
+     "folder": "/tmp/w1/work/agent",
+     "id": "spb17fd638bcba32c8d15f55eb124b61df",
+     "name": "agents",
+     "tabs": [
+      {
+       "id": "tb55281fd76638cc795772d5b8829d6f70",
+       "name": "claude",
+       "root": {
+        "children": [
+         {
+          "content": {
+           "terminal": "t10"
+          },
+          "id": "p159b3f1202941789f3e804aff59969bb",
+          "type": "block"
+         }
+        ],
+        "id": "tb55281fd76638cc795772d5b8829d6f70",
+        "type": "row"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  "version": 9
+ },
+ "hello": {
+  "core": {
+   "id": "cac4bb11530d086b9153628d8382a040",
+   "name": "host"
+  },
+  "features": [
+   "framed",
+   "attach",
+   "events",
+   "status",
+   "shell"
+  ],
+  "framed": false,
+  "generation": 1,
+  "methods": [
+   "hello",
+   "server.status",
+   "server.stop",
+   "server.restart",
+   "terminal.run",
+   "templates.list",
+   "terminal.list",
+   "terminal.get",
+   "terminal.kill",
+   "terminal.rm",
+   "terminal.keep",
+   "terminal.label",
+   "terminal.read",
+   "terminal.attach",
+   "terminal.send",
+   "terminal.wait",
+   "terminal.keys",
+   "terminal.interrupt",
+   "terminal.put",
+   "machine.exec",
+   "file.read",
+   "file.write",
+   "file.edit",
+   "doc.get",
+   "doc.set",
+   "events.subscribe",
+   "machine.add",
+   "machine.list",
+   "machine.connect",
+   "machine.rename",
+   "machine.rm",
+   "rpc.discover"
+  ],
+  "version": "0.1.15"
+ },
+ "terminal.list": {
+  "hidden_finished": 2,
+  "terminals": [
+   {
+    "address": "t3",
+    "argv": [
+     "/usr/bin/bash"
+    ],
+    "cols": 120,
+    "created_ms": 1793406400671,
+    "cwd": "/tmp/w1/work/repo",
+    "die_with_parent": false,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "/usr/bin/bash"
+     ],
+     "cwd": "/tmp/w1/work/repo",
+     "name": "bash",
+     "pid": 1867543
+    },
+    "identity": "ghostty",
+    "keep": true,
+    "labels": {
+     "herdr.space": "sp4d15c560d9928dee4d7842adfe949cb6",
+     "herdr.tab": "tba5ed0454645e0dac10d29a4b83da7df7",
+     "where": "<img src=x onerror=alert(1)> / main"
+    },
+    "name": null,
+    "notify": true,
+    "parent": null,
+    "pid": 1867543,
+    "reason": null,
+    "reported": true,
+    "rm": false,
+    "rows": 40,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": {
+     "app": "demo-agent",
+     "state": "working"
+    },
+    "status_ms": 1793407492847,
+    "template": null,
+    "title": "user@host:/tmp/w1/work/repo",
+    "turn": 0
+   },
+   {
+    "address": "t4",
+    "argv": [
+     "/usr/bin/bash"
+    ],
+    "cols": 120,
+    "created_ms": 1793406414763,
+    "cwd": "/tmp/w1/work/repo",
+    "die_with_parent": false,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "/usr/bin/bash"
+     ],
+     "cwd": "/tmp/w1/work/repo",
+     "name": "bash",
+     "pid": 1867547
+    },
+    "identity": "ghostty",
+    "keep": true,
+    "labels": {
+     "herdr.space": "sp4d15c560d9928dee4d7842adfe949cb6",
+     "herdr.tab": "tba5ed0454645e0dac10d29a4b83da7df7",
+     "where": "<img src=x onerror=alert(1)> / main"
+    },
+    "name": null,
+    "notify": true,
+    "parent": null,
+    "pid": 1867547,
+    "reason": null,
+    "reported": false,
+    "rm": false,
+    "rows": 40,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": null,
+    "status_ms": null,
+    "template": null,
+    "title": "user@host:/tmp/w1/work/repo",
+    "turn": 0
+   },
+   {
+    "address": "t5",
+    "argv": [
+     "/usr/bin/bash"
+    ],
+    "cols": 120,
+    "created_ms": 1793406414784,
+    "cwd": "/tmp/w1/work/repo",
+    "die_with_parent": false,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "/usr/bin/bash"
+     ],
+     "cwd": "/tmp/w1/work/repo",
+     "name": "bash",
+     "pid": 1867551
+    },
+    "identity": "ghostty",
+    "keep": true,
+    "labels": {
+     "herdr.space": "sp4d15c560d9928dee4d7842adfe949cb6",
+     "herdr.tab": "tb7c3a8ed2988a3811e31c1b41c81d4ba0",
+     "where": "<img src=x onerror=alert(1)> / \"><script>alert(2)</script>"
+    },
+    "name": null,
+    "notify": true,
+    "parent": null,
+    "pid": 1867551,
+    "reason": null,
+    "reported": false,
+    "rm": false,
+    "rows": 40,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": null,
+    "status_ms": 1793407169372,
+    "template": null,
+    "title": "user@host:/tmp/w1/work/repo",
+    "turn": 1
+   },
+   {
+    "address": "t6",
+    "argv": [
+     "/usr/bin/bash"
+    ],
+    "cols": 120,
+    "created_ms": 1793406415806,
+    "cwd": "/tmp/w1/work/repo/web",
+    "die_with_parent": false,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "/usr/bin/bash"
+     ],
+     "cwd": "/tmp/w1/work/repo/web",
+     "name": "bash",
+     "pid": 1867555
+    },
+    "identity": "ghostty",
+    "keep": true,
+    "labels": {
+     "herdr.space": "spc240a9a46604c00dbc3b616dd243bddc",
+     "herdr.tab": "tbdc8eb027b46091d1a984e46cd625290a",
+     "where": "repo / 1"
+    },
+    "name": null,
+    "notify": true,
+    "parent": null,
+    "pid": 1867555,
+    "reason": null,
+    "reported": false,
+    "rm": false,
+    "rows": 40,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": null,
+    "status_ms": null,
+    "template": null,
+    "title": "user@host:/tmp/w1/work/repo/web",
+    "turn": 0
+   },
+   {
+    "address": "t7",
+    "argv": [
+     "/usr/bin/bash"
+    ],
+    "cols": 120,
+    "created_ms": 1793406416827,
+    "cwd": "/home/user",
+    "die_with_parent": false,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "/usr/bin/bash"
+     ],
+     "cwd": "/home/user",
+     "name": "bash",
+     "pid": 1867559
+    },
+    "identity": "ghostty",
+    "keep": true,
+    "labels": {
+     "herdr.space": "sp7505c737346ffd7748db790ab36a8360",
+     "herdr.tab": "tb21e1a929c2457ed22d4180ca8202c6c7",
+     "where": "~ / 1"
+    },
+    "name": null,
+    "notify": true,
+    "parent": null,
+    "pid": 1867559,
+    "reason": null,
+    "reported": false,
+    "rm": false,
+    "rows": 40,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": null,
+    "status_ms": null,
+    "template": null,
+    "title": "user@host:~",
+    "turn": 0
+   },
+   {
+    "address": "t10",
+    "argv": [
+     "/usr/bin/bash"
+    ],
+    "cols": 55,
+    "created_ms": 1793407049674,
+    "cwd": "/tmp/w1/work/agent",
+    "die_with_parent": false,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "/usr/bin/bash"
+     ],
+     "cwd": "/tmp/w1/work/agent",
+     "name": "bash",
+     "pid": 1867563
+    },
+    "identity": "ghostty",
+    "keep": true,
+    "labels": {
+     "herdr.space": "spb17fd638bcba32c8d15f55eb124b61df",
+     "herdr.tab": "tb55281fd76638cc795772d5b8829d6f70",
+     "where": "agents / claude"
+    },
+    "name": null,
+    "notify": true,
+    "parent": null,
+    "pid": 1867563,
+    "reason": null,
+    "reported": false,
+    "rm": false,
+    "rows": 14,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": null,
+    "status_ms": 1793407280356,
+    "template": null,
+    "title": "user@host:/tmp/w1/work/agent",
+    "turn": 2
+   },
+   {
+    "address": "t11",
+    "argv": [
+     "bash"
+    ],
+    "cols": 200,
+    "created_ms": 1793407577657,
+    "cwd": "/tmp/w1/work/repo",
+    "die_with_parent": true,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "bash"
+     ],
+     "cwd": "/tmp/w1/work/repo",
+     "name": "bash",
+     "pid": 1871323
+    },
+    "identity": "ghostty",
+    "keep": false,
+    "labels": {
+     "where": "<img src=x onerror=alert(1)> / main"
+    },
+    "name": "worker2",
+    "notify": true,
+    "parent": "t3",
+    "pid": 1871323,
+    "reason": null,
+    "reported": false,
+    "rm": false,
+    "rows": 120,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": null,
+    "status_ms": null,
+    "template": null,
+    "title": "user@host:/tmp/w1/work/repo",
+    "turn": 0
+   },
+   {
+    "address": "t12",
+    "argv": [
+     "bash"
+    ],
+    "cols": 200,
+    "created_ms": 1793407577658,
+    "cwd": "/tmp/w1/work",
+    "die_with_parent": false,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "bash"
+     ],
+     "cwd": "/tmp/w1/work",
+     "name": "bash",
+     "pid": 1871327
+    },
+    "identity": "ghostty",
+    "keep": false,
+    "labels": {},
+    "name": "outside2",
+    "notify": true,
+    "parent": null,
+    "pid": 1871327,
+    "reason": null,
+    "reported": false,
+    "rm": false,
+    "rows": 120,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": null,
+    "status_ms": null,
+    "template": null,
+    "title": "user@host:/tmp/w1/work",
+    "turn": 0
+   },
+   {
+    "address": "t13",
+    "argv": [
+     "herdr"
+    ],
+    "cols": 200,
+    "created_ms": 1793407626209,
+    "cwd": "/tmp/w1/work",
+    "die_with_parent": false,
+    "exit_code": null,
+    "finished_ms": null,
+    "foreground": {
+     "argv": [
+      "herdr"
+     ],
+     "cwd": "/tmp/w1/work",
+     "name": "herdr",
+     "pid": 1872498
+    },
+    "identity": "ghostty",
+    "keep": false,
+    "labels": {},
+    "name": "tui",
+    "notify": true,
+    "parent": null,
+    "pid": 1872498,
+    "reason": null,
+    "reported": false,
+    "rm": false,
+    "rows": 120,
+    "screen": "exact",
+    "signal": null,
+    "state": "live",
+    "status": null,
+    "status_ms": null,
+    "template": null,
+    "title": "host: work",
+    "turn": 0
+   }
+  ]
+ }
+}

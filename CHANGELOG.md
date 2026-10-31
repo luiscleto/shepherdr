@@ -4,6 +4,15 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- Start with `-herdr-core` to use Shepherdr with the Herdr desktop app. Home lists the app's spaces and tabs with the app's names, and terminals that no space holds appear once under **Other terminals**. Home keeps working while the app window is closed.
+- With the Herdr app, an agent's **error** status shows on Home, **N error** opens an **Error** view, and a new **error** notification choice starts on.
+
+### Compatibility
+
+- Support herdr-core 0.1.15 with the Herdr app. Newer versions run best effort with a warning. With the app, opening a terminal is not available, and there are no space or terminal actions.
+
 ## [0.4.3] - 2026-10-16
 
 ### Changed

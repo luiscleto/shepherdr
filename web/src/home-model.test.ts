@@ -58,7 +58,7 @@ test("models every canonical terminal independently of agent decoration", () => 
 });
 
 test("blocked mode reuses only real blocked terminal rows without renumbering titles", () => {
-  const tabs = visibleTabs(home.workspaces[0], true);
+  const tabs = visibleTabs(home.workspaces[0], "blocked");
   assert.equal(tabs.length, 1);
   assert.deepEqual(tabs[0].terminals.map((terminal) => terminal.title), ["Review 1"]);
 });

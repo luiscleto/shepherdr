@@ -12,7 +12,8 @@ import type {
 import type { WorkspaceAction } from "./workspace-actions";
 
 const connections = new Set(["reconnecting", "live", "not_running", "incompatible"] as const);
-const agentStatuses = new Set<AgentStatus>(["working", "blocked", "idle", "done", "unknown"]);
+const agentStatuses = new Set<AgentStatus>(["working", "blocked", "error", "idle", "done", "unknown"]);
+const herdrs = new Set(["tui", "core"] as const);
 const workspaceActions = new Set<WorkspaceAction>([
   "create_worktree",
   "close_workspace",
@@ -86,7 +87,7 @@ function parseTab(value: unknown): Tab | undefined {
 
 function parseAgentCounts(value: unknown): AgentCounts | undefined {
   const counts = record(value);
-  const keys = ["working", "blocked", "idle", "done", "unknown"] as const;
+  const keys = ["working", "blocked", "error", "idle", "done", "unknown"] as const;
   if (!counts || !exactKeys(counts, [], keys)) return undefined;
   const result: AgentCounts = {};
   for (const key of keys) {
@@ -159,8 +160,8 @@ function parseWorkspace(value: unknown, topLevel: boolean): Workspace | undefine
 
 function parseHome(value: unknown): Home | undefined {
   const home = record(value);
-  if (!home || !exactKeys(home, ["blocked_count", "working_count", "workspaces"]) ||
-    !nonnegativeInteger(home.blocked_count) || !nonnegativeInteger(home.working_count) ||
+  if (!home || !exactKeys(home, ["blocked_count", "error_count", "working_count", "workspaces"]) ||
+    !nonnegativeInteger(home.blocked_count) || !nonnegativeInteger(home.error_count) || !nonnegativeInteger(home.working_count) ||
     !Array.isArray(home.workspaces)) return undefined;
   const workspaces: Workspace[] = [];
   for (const value of home.workspaces) {
@@ -168,7 +169,7 @@ function parseHome(value: unknown): Home | undefined {
     if (!workspace) return undefined;
     workspaces.push(workspace);
   }
-  return { blocked_count: home.blocked_count, working_count: home.working_count, workspaces };
+  return { blocked_count: home.blocked_count, error_count: home.error_count, working_count: home.working_count, workspaces };
 }
 
 const serverEpochPattern = /^[0-9a-f]{32}$/;
@@ -177,11 +178,12 @@ export function parseCompleteHomeState(value: unknown): HomeState | undefined {
   const state = record(value);
   if (!state || !exactKeys(
     state,
-    ["connection", "epoch", "gap", "has_home", "herdr_version", "home", "last_known"],
+    ["connection", "epoch", "gap", "has_home", "herdr", "herdr_version", "home", "last_known"],
     ["detail"],
   ) || typeof state.connection !== "string" || !connections.has(state.connection as HomeState["connection"]) ||
     typeof state.epoch !== "string" || !serverEpochPattern.test(state.epoch) || !nonnegativeInteger(state.gap) ||
-    typeof state.has_home !== "boolean" || typeof state.herdr_version !== "string" || typeof state.last_known !== "boolean" ||
+    typeof state.has_home !== "boolean" || typeof state.herdr !== "string" || !herdrs.has(state.herdr as HomeState["herdr"]) ||
+    typeof state.herdr_version !== "string" || typeof state.last_known !== "boolean" ||
     (Object.hasOwn(state, "detail") && typeof state.detail !== "string")) return undefined;
   const home = parseHome(state.home);
   if (!home) return undefined;
@@ -190,6 +192,7 @@ export function parseCompleteHomeState(value: unknown): HomeState | undefined {
     epoch: state.epoch,
     gap: state.gap,
     has_home: state.has_home,
+    herdr: state.herdr as HomeState["herdr"],
     herdr_version: state.herdr_version,
     home,
     last_known: state.last_known,

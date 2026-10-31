@@ -85,7 +85,7 @@ Implementation order and wave contents come later from approved architecture and
 - When sign-in is off, anyone who can reach Shepherdr has operator authority. A trusted private network includes only users and devices the human is willing to give access to the machine running Herdr.
 - Reaching Shepherdr must never be enough to trust a new device. Trust requires an already trusted authority or explicit local operator action. Do not choose the mechanism without human-approved architecture.
 - Treat Herdr output, agents, terminal content, repository files, attachments, and pasted content as untrusted. Displaying it must never grant Shepherdr application authority.
-- Use Herdr's status words unchanged: working, blocked, idle, done, and unknown.
+- Use Herdr's status words unchanged: working, blocked, idle, done, and unknown. With the Herdr app, error appears too.
 - Do not add team accounts, roles, organizations, lost-device recovery, provider-specific prompt handling, or public hosting without new human-approved direction.
 - Tests support confidence, but a real Herdr workflow through the production path is the acceptance gate.
 - Browser tests must use the repository's memory-capped test entry. Assertions compare primitive results rather than live DOM objects so a useful failure cannot exhaust the machine.

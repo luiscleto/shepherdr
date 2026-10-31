@@ -38,6 +38,10 @@ function notificationFor(value) {
   }
   const destination = safeDestination(value.destination);
   const workspaceName = usableWorkspaceName(value.workspace_name);
+  // Started for the Herdr app, Shepherdr says space, as the app does.
+  const core = value.herdr === "core";
+  const space = core ? "space" : "workspace";
+  const Space = core ? "Space" : "Workspace";
   if (value.kind === "trusted_sign_in_added" || value.kind === "trusted_sign_in_removed") {
     if (value.destination !== "/") return fallbackNotice();
     const label = usableTrustLabel(value.trust_label);
@@ -50,35 +54,37 @@ function notificationFor(value) {
   }
   if (value.kind === "workspace_opened") {
     return workspaceName
-      ? { title: "Workspace opened", body: workspaceName, destination: "/" }
-      : { title: "Shepherdr", body: "A workspace opened.", destination: "/" };
+      ? { title: `${Space} opened`, body: workspaceName, destination: "/" }
+      : { title: "Shepherdr", body: `A ${space} opened.`, destination: "/" };
   }
   if (value.kind === "workspace_closed") {
     return workspaceName
-      ? { title: "Workspace closed", body: workspaceName, destination: "/" }
-      : { title: "Shepherdr", body: "A workspace closed.", destination: "/" };
+      ? { title: `${Space} closed`, body: workspaceName, destination: "/" }
+      : { title: "Shepherdr", body: `A ${space} closed.`, destination: "/" };
   }
   if (value.kind !== "status" || !validOpaqueID(value.pane_id) || !validOpaqueID(value.terminal_id)) {
     return fallbackNotice();
   }
   if (!statusDestinationMatches(destination, value.pane_id, value.terminal_id)) return fallbackNotice();
   const bodies = {
-    blocked: "A workspace needs attention.",
-    done: "A workspace finished.",
-    idle: "A workspace is idle.",
-    unknown: "A workspace status changed.",
-    working: "A workspace is working.",
+    blocked: `A ${space} needs attention.`,
+    done: `A ${space} finished.`,
+    idle: `A ${space} is idle.`,
+    unknown: `A ${space} status changed.`,
+    working: `A ${space} is working.`,
   };
+  if (core) bodies.error = bodies.blocked;
   if (!Object.prototype.hasOwnProperty.call(bodies, value.status)) return fallbackNotice();
   const titles = {
     blocked: "Agent is blocked",
+    error: "Agent status is error",
     done: "Agent is done",
     idle: "Agent is idle",
     unknown: "Agent status is unknown",
     working: "Agent is working",
   };
   return workspaceName
-    ? { title: titles[value.status], body: `Workspace: ${workspaceName}`, destination }
+    ? { title: titles[value.status], body: `${Space}: ${workspaceName}`, destination }
     : { title: "Shepherdr", body: bodies[value.status], destination };
 }
 

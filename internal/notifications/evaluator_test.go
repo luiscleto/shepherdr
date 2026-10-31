@@ -1,6 +1,8 @@
 package notifications
 
 import (
+	"encoding/json"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -89,7 +91,7 @@ func TestSnapshotEvaluatorDoesNotTreatNewAgentAsTransition(t *testing.T) {
 
 func TestDefaultSelectionsIncludeAccessChanges(t *testing.T) {
 	want := EventSettings{
-		Blocked: true, Done: true, TrustedSignInAdded: true, TrustedSignInRemoved: true,
+		Blocked: true, Error: true, Done: true, TrustedSignInAdded: true, TrustedSignInRemoved: true,
 	}
 	if got := DefaultEventSettings(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("defaults = %+v, want %+v", got, want)
@@ -116,5 +118,47 @@ func notificationSnapshot(status string, workspaceIDs ...string) herdr.Snapshot 
 			AgentStatus: herdr.Status(status), PaneID: "w1:p1", TabID: "w1:t1", TerminalID: "term-1", WorkspaceID: "w1",
 		}},
 		Workspaces: workspaces,
+	}
+}
+
+func TestErrorFromTheHerdrAppStartsOnAndIsItsOwnChoice(t *testing.T) {
+	var older EventSettings
+	if err := json.Unmarshal([]byte(`{"blocked":false,"done":true}`), &older); err != nil {
+		t.Fatal(err)
+	}
+	if !older.Error {
+		t.Fatalf("settings saved before error existed did not start with error on: %+v", older)
+	}
+	var off EventSettings
+	if err := json.Unmarshal([]byte(`{"blocked":true,"error":false}`), &off); err != nil || off.Error {
+		t.Fatalf("explicit error choice = %+v, %v", off, err)
+	}
+	event := Event{Kind: EventStatus, Status: herdr.StatusError}
+	if !event.selected(EventSettings{Error: true}) || event.selected(EventSettings{Blocked: true}) {
+		t.Fatal("error notices do not follow the error choice")
+	}
+
+	evaluator := snapshotEvaluator{}
+	evaluator.Observe(notificationSnapshot("working", "w1"), true)
+	events := evaluator.Observe(notificationSnapshot("error", "w1"), false)
+	if len(events) != 1 || events[0].Status != herdr.StatusError || events[0].WorkspaceName != "Workspace w1" {
+		t.Fatalf("working to error produced %+v", events)
+	}
+}
+
+func TestManagerMarksNoticesWithTheHerdrApp(t *testing.T) {
+	manager := NewManager(UnavailableStore(errors.New("not needed")), nil)
+	manager.SetHerdr(herdr.BackendCore)
+	manager.ObserveSnapshot(notificationSnapshot("working", "w1"), true)
+	manager.ObserveSnapshot(notificationSnapshot("blocked", "w1", "w2"), false)
+	for range 2 {
+		event := <-manager.events
+		if event.Herdr != herdr.BackendCore {
+			t.Fatalf("event = %+v", event)
+		}
+	}
+	payload, err := eventPayload(Event{Kind: EventWorkspaceOpened, Herdr: herdr.BackendCore, WorkspaceName: "alpha", Destination: "/"})
+	if err != nil || string(payload) != `{"destination":"/","herdr":"core","kind":"workspace_opened","workspace_name":"alpha"}` {
+		t.Fatalf("payload = %s, %v", payload, err)
 	}
 }

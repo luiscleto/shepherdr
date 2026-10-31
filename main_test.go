@@ -123,3 +123,39 @@ func TestTrustedSignInLabelKeepsLegacyFallbackHonest(t *testing.T) {
 		t.Fatalf("legacy fallback = %q", got)
 	}
 }
+
+func TestHerdrCoreStartFlags(t *testing.T) {
+	set := func(value string) optionalStringFlag { return optionalStringFlag{set: true, value: value} }
+	for _, test := range []struct {
+		name           string
+		core           bool
+		coreSocket     optionalStringFlag
+		herdrSocketSet bool
+		runtime        string
+		want           string
+		err            string
+	}{
+		{name: "Herdr TUI", runtime: "/run/user/1"},
+		{name: "default core socket", core: true, runtime: "/run/user/1", want: "/run/user/1/herdr-core/default.sock"},
+		{name: "chosen core socket", core: true, coreSocket: set("/tmp/core/w1.sock"), want: "/tmp/core/w1.sock"},
+		{name: "chosen socket without runtime folder", core: true, coreSocket: set("/tmp/core/w1.sock"), want: "/tmp/core/w1.sock"},
+		{name: "no runtime folder", core: true, err: "-herdr-core-socket must be set when XDG_RUNTIME_DIR is not"},
+		{name: "with Herdr TUI socket", core: true, herdrSocketSet: true, runtime: "/run/user/1", err: "-herdr-core cannot be combined with -herdr-socket"},
+		{name: "core socket alone", coreSocket: set("/tmp/core/w1.sock"), err: "-herdr-core-socket requires -herdr-core"},
+		{name: "relative core socket", core: true, coreSocket: set("core.sock"), err: "-herdr-core-socket must be an absolute path"},
+		{name: "empty core socket", core: true, coreSocket: set(""), runtime: "/run/user/1", err: "-herdr-core-socket must be an absolute path"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := selectHerdrCoreSocket(test.core, test.coreSocket, test.herdrSocketSet, test.runtime)
+			if test.err != "" {
+				if err == nil || err.Error() != test.err {
+					t.Fatalf("error = %v, want %q", err, test.err)
+				}
+				return
+			}
+			if err != nil || got != test.want {
+				t.Fatalf("socket = %q, %v; want %q", got, err, test.want)
+			}
+		})
+	}
+}

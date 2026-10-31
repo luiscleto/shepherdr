@@ -1,0 +1,14 @@
+{"jsonrpc":"2.0","method":"event","params":{"data":{"records":{},"reported":true,"status":{"app":"claude-code","state":"working"}},"seq":67,"terminal":"t10","type":"status"}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{"title":"Greeting word choice question"},"seq":68,"terminal":"t10","type":"title"}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{"records":{},"reported":true,"status":{"app":"claude-code","kind":"question","msg":"answer: Should the greeting be \"hello\" or \"goodbye\"? (hello \u00b7 goodbye)","state":"blocked"}},"seq":69,"terminal":"t10","type":"status"}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{"state":"blocked","turn":1},"seq":70,"terminal":"t10","type":"turn"}}
+{"jsonrpc":"2.0","method":"heartbeat","params":{"seq":70}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{"records":{},"reported":true,"status":{"app":"claude-code","state":"done"}},"seq":72,"terminal":"t10","type":"status"}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{"records":{},"reported":true,"status":{"app":"demo-agent","state":"error"}},"seq":74,"terminal":"t5","type":"status"}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{"records":{},"reported":true,"status":null},"seq":81,"terminal":"t5","type":"status"}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{"exit_code":null,"finished_ms":null,"reason":"signaled","signal":9},"seq":82,"terminal":"t5","type":"lost"}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{"address":"t5","argv":["/usr/bin/bash"],"cols":55,"created_ms":1793406414784,"cwd":"/tmp/w1/work/repo","die_with_parent":false,"exit_code":null,"finished_ms":null,"identity":"ghostty","keep":true,"labels":{"herdr.space":"sp4d15c560d9928dee4d7842adfe949cb6","herdr.tab":"tb7c3a8ed2988a3811e31c1b41c81d4ba0","where":"alpha / 2"},"name":null,"notify":true,"parent":null,"pid":1865052,"reason":null,"reported":false,"rm":false,"rows":14,"screen":"exact","signal":null,"state":"live","status":null,"status_ms":1793407169372,"template":null,"title":"","turn":1},"seq":83,"terminal":"t5","type":"restarted"}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{"argv":["/usr/bin/bash"],"cwd":"/tmp/w1/work/repo","name":"bash","pid":1865052},"seq":84,"terminal":"t5","type":"foreground"}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{"name":"herdr-app","version":7},"seq":86,"type":"doc"}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{"labels":{"herdr.space":"sp4d15c560d9928dee4d7842adfe949cb6","herdr.tab":"tba5ed0454645e0dac10d29a4b83da7df7","where":"beta / main"}},"seq":87,"terminal":"t4","type":"labels"}}
+{"jsonrpc":"2.0","method":"event","params":{"data":{"cols":200,"rows":120},"seq":103,"terminal":"t5","type":"size"}}

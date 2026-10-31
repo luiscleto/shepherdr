@@ -1,6 +1,7 @@
 export interface NotificationEvents {
   blocked: boolean;
   done: boolean;
+  error: boolean;
   idle: boolean;
   trusted_sign_in_added: boolean;
   trusted_sign_in_removed: boolean;
@@ -57,6 +58,7 @@ const dismissedKey = "shepherdr.notifications.not-now";
 export const defaultNotificationEvents: NotificationEvents = {
   blocked: true,
   done: true,
+  error: true,
   idle: false,
   trusted_sign_in_added: true,
   trusted_sign_in_removed: true,
@@ -170,6 +172,7 @@ export class NotificationsController {
   #dialogOpen = false;
   #dismissedForVisit = false;
   #events = { ...defaultNotificationEvents };
+  #herdr: "tui" | "core" = "tui";
   #devicesAvailable = false;
   #devicesExpanded = false;
   #notificationsExpanded = false;
@@ -188,6 +191,14 @@ export class NotificationsController {
     this.#document = root.ownerDocument;
     this.#api = api;
     this.#platform = platform;
+  }
+
+  // setHerdr picks the Herdr app's words (space, error) when Shepherdr is
+  // started for the Herdr app.
+  setHerdr(herdr: "tui" | "core"): void {
+    if (this.#herdr === herdr) return;
+    this.#herdr = herdr;
+    if (!this.#busy) this.#render();
   }
 
   async init(): Promise<void> {
@@ -321,7 +332,7 @@ export class NotificationsController {
 
   async #save(form: HTMLFormElement): Promise<void> {
     if (!this.#subscription || this.#busy) return;
-    const next = eventsFromForm(form);
+    const next = eventsFromForm(form, this.#events, this.#herdr);
     this.#busy = true;
     this.#renderSettings("Saving notification settings…");
     try {
@@ -378,7 +389,7 @@ export class NotificationsController {
     const copy = element(this.#document, "div");
     copy.append(
       element(this.#document, "strong", undefined, "Stay close to the work"),
-      element(this.#document, "p", undefined, "Get an alert when a workspace needs attention or finishes."),
+      element(this.#document, "p", undefined, `Get an alert when a ${this.#herdr === "core" ? "space" : "workspace"} needs attention or finishes.`),
     );
     const actions = element(this.#document, "div", "notification-invitation-actions");
     actions.append(
@@ -472,7 +483,9 @@ export class NotificationsController {
         const form = element(this.#document, "form", "notification-form");
         const fields = element(this.#document, "fieldset");
         fields.append(element(this.#document, "legend", undefined, "Notify me when"));
-        for (const [name, label] of eventChoices) fields.append(eventCheckbox(this.#document, name, label, this.#events[name]));
+        for (const [name, label] of shownEventChoices(this.#herdr)) {
+          fields.append(eventCheckbox(this.#document, name, label, this.#events[name]));
+        }
         const buttons = element(this.#document, "div", "notification-form-actions");
         const save = action(this.#document, "Save", () => undefined, "notification-primary");
         save.type = "submit";
@@ -549,6 +562,7 @@ export class NotificationsController {
 const eventChoices: ReadonlyArray<[keyof NotificationEvents, string]> = [
   ["working", "working"],
   ["blocked", "blocked"],
+  ["error", "error"],
   ["idle", "idle"],
   ["done", "done"],
   ["unknown", "unknown"],
@@ -557,6 +571,17 @@ const eventChoices: ReadonlyArray<[keyof NotificationEvents, string]> = [
   ["trusted_sign_in_added", "Trusted sign-in added"],
   ["trusted_sign_in_removed", "Trusted sign-in removed"],
 ];
+
+// The Herdr TUI never reports error, so its choice shows only with the Herdr
+// app, which also says space instead of workspace.
+function shownEventChoices(herdr: "tui" | "core"): ReadonlyArray<[keyof NotificationEvents, string]> {
+  if (herdr !== "core") return eventChoices.filter(([name]) => name !== "error");
+  return eventChoices.map(([name, label]): [keyof NotificationEvents, string] => {
+    if (name === "workspace_opened") return [name, "Space opened"];
+    if (name === "workspace_closed") return [name, "Space closed"];
+    return [name, label];
+  });
+}
 
 function eventCheckbox(
   document: Document,
@@ -573,11 +598,12 @@ function eventCheckbox(
   return field;
 }
 
-function eventsFromForm(form: HTMLFormElement): NotificationEvents {
+function eventsFromForm(form: HTMLFormElement, previous: NotificationEvents, herdr: "tui" | "core"): NotificationEvents {
   const data = new FormData(form);
   return {
     blocked: data.has("blocked"),
     done: data.has("done"),
+    error: herdr === "core" ? data.has("error") : previous.error,
     idle: data.has("idle"),
     trusted_sign_in_added: data.has("trusted_sign_in_added"),
     trusted_sign_in_removed: data.has("trusted_sign_in_removed"),

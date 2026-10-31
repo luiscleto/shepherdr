@@ -9,9 +9,11 @@ function completeFrame(): Record<string, unknown> {
     epoch: "0123456789abcdef0123456789abcdef",
     gap: 0,
     has_home: true,
+    herdr: "tui",
     herdr_version: "0.8.0<script>",
     home: {
       blocked_count: 0,
+      error_count: 0,
       working_count: 1,
       workspaces: [{
         actions: ["create_worktree", "close_group"],
@@ -94,4 +96,31 @@ test("rejects missing, duplicate, unknown, misplaced, or extra additive Home fie
   const extra = completeFrame();
   (extra.home as Record<string, unknown>).patch = [];
   assert.equal(parseCompleteHomeState(extra), undefined);
+});
+
+test("parses the Herdr app's mode, error status, and error counts", () => {
+  const frame = completeFrame();
+  frame.herdr = "core";
+  const home = frame.home as Record<string, unknown>;
+  home.error_count = 1;
+  const workspace = (home.workspaces as Array<Record<string, unknown>>)[0];
+  workspace.agent_counts = { error: 1 };
+  const tab = (workspace.tabs as Array<Record<string, unknown>>)[0];
+  (tab.terminals as Array<Record<string, unknown>>)[0].agent = { kind: "claude-code", name: "Claude Code", status: "error" };
+
+  const parsed = parseCompleteHomeState(frame);
+  assert.equal(parsed?.herdr, "core");
+  assert.equal(parsed?.home.error_count, 1);
+  assert.equal(parsed?.home.workspaces[0].agent_counts?.error, 1);
+  assert.equal(parsed?.home.workspaces[0].tabs[0].terminals[0].agent?.status, "error");
+
+  for (const herdr of [undefined, "", "app", 1]) {
+    const invalid = completeFrame();
+    if (herdr === undefined) delete invalid.herdr;
+    else invalid.herdr = herdr;
+    assert.equal(parseCompleteHomeState(invalid), undefined, String(herdr));
+  }
+  const missingErrorCount = completeFrame();
+  delete (missingErrorCount.home as Record<string, unknown>).error_count;
+  assert.equal(parseCompleteHomeState(missingErrorCount), undefined);
 });

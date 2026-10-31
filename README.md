@@ -36,6 +36,8 @@ Shepherdr needs [Herdr](https://github.com/herdrdev/herdr) 0.9.0 or later runnin
 
 Use matching Herdr CLI and server versions for terminal reads and control.
 
+Using the Herdr desktop app instead? Shepherdr can show its spaces too. See [With the Herdr app](#with-the-herdr-app).
+
 Download the archive for this machine from the [latest release](https://github.com/luiscleto/shepherdr/releases/latest), plus its matching checksum file. The examples below use v0.4.3.
 
 | System | Archive |
@@ -110,6 +112,18 @@ shepherdr -no-sign-in
 ```
 
 Anyone who can reach Shepherdr has operator authority. The flag is not saved. Do not combine it with `-public-origin` or `-session-lifetime`.
+
+### With the Herdr app
+
+If you use the Herdr desktop app, add `-herdr-core` to any start:
+
+```sh
+shepherdr -herdr-core
+```
+
+Home then lists the app's spaces and tabs, in the app's order and with its names. Terminals that no space holds, such as ones started with `hc run` outside the app, appear once under **Other terminals**. Home keeps working while the app window is closed. An agent can also report **error**; it is counted like **blocked**, and notifications for it start on.
+
+With the app, Shepherdr shows Home and sends notifications. Opening a terminal is not available, and there are no space or terminal actions. `herdr` is not needed on `PATH`. herdr-core 0.1.15 is validated; newer versions run best effort with a warning.
 
 ## Keep it private
 
@@ -192,6 +206,8 @@ Files stay with the workspace across agent changes and restarts. After the works
 | `-listen` | `127.0.0.1:8787` | Loopback only. Match this port with `tailscale serve --bg`. |
 | `-session-lifetime` | `30d` | `1d`–`365d`, or `none`. Saved. Using Shepherdr does not extend it. |
 | `-herdr-socket` | `~/.config/herdr/herdr.sock` | Uses `$XDG_CONFIG_HOME/herdr/herdr.sock` when nonempty, including on macOS. Pass an absolute path to override. |
+| `-herdr-core` | off | Use the Herdr desktop app's terminals instead of the Herdr TUI. Not saved. Cannot be combined with `-herdr-socket`. |
+| `-herdr-core-socket` | `$XDG_RUNTIME_DIR/herdr-core/default.sock` | Only with `-herdr-core`. Required when `XDG_RUNTIME_DIR` is unset. Absolute path. |
 | `-log-level` | `info` | Runtime logging: `debug`, `info`, `warn`, or `error`. |
 | `-upload-parent` | system temp | Staging directory for selected files. |
 | `-upload-limit` | `50MiB` | Per send. Bytes, `KiB`/`MiB`/`GiB`, or `none`. |

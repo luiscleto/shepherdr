@@ -7,7 +7,9 @@ import {
   visibleTabs,
   workspaceSets,
   type AgentCounts,
+  type AgentStatus,
   type Home,
+  type HomeMode,
   type HomeState,
   type Tab,
   type TerminalAction,
@@ -35,7 +37,7 @@ import {
   type TerminalCloseFacts,
 } from "./terminal-actions";
 
-type HomeMode = "all" | "blocked";
+const statusOrder = ["working", "blocked", "error", "idle", "done", "unknown"] as const;
 
 interface HomeViewActions {
   isHomeActive: () => boolean;
@@ -46,6 +48,7 @@ interface HomeViewActions {
   onNotifications?: () => void;
   onShowAll: () => void;
   onShowBlocked: () => void;
+  onShowError?: () => void;
   prepareWorkspaceAction: (request: PrepareWorkspaceActionRequest) => Promise<PreparedWorkspaceActionResponse>;
   runWorkspaceAction: (request: RunWorkspaceActionRequest) => Promise<RunWorkspaceActionResponse>;
   prepareTerminalAction: (request: PrepareTerminalCloseRequest) => Promise<PreparedTerminalActionResponse>;
@@ -195,6 +198,7 @@ export class HomeView {
   readonly #app: HTMLElement;
   readonly #attention: HTMLElement;
   readonly #attentionBlocked: HTMLButtonElement;
+  readonly #attentionError: HTMLButtonElement;
   readonly #attentionShowAll: HTMLButtonElement;
   readonly #attentionWorking: HTMLElement;
   readonly #connectionDot: HTMLElement;
@@ -287,11 +291,12 @@ export class HomeView {
     this.#attention.setAttribute("aria-label", "Current attention");
     this.#attentionWorking = element(this.#document, "strong");
     this.#attentionBlocked = this.#button("", actions.onShowBlocked);
+    this.#attentionError = this.#button("", () => actions.onShowError?.());
     this.#attentionShowAll = this.#button("Show all terminals", actions.onShowAll);
-    this.#attention.append(this.#attentionWorking, this.#attentionBlocked, this.#attentionShowAll);
+    this.#attention.append(this.#attentionWorking, this.#attentionBlocked, this.#attentionError, this.#attentionShowAll);
 
     this.#expandAction = this.#button("", () => {
-      const home = this.#lastRender?.state.home ?? { blocked_count: 0, working_count: 0, workspaces: [] };
+      const home = this.#lastRender?.state.home ?? { blocked_count: 0, error_count: 0, working_count: 0, workspaces: [] };
       const sets = workspaceSets(home);
       const expand = sets.some((workspace) => !this.#expandedSets.get(workspace.id));
       for (const workspace of sets) {
@@ -425,10 +430,14 @@ export class HomeView {
     const view = this.#document.defaultView;
     const oldScroll = model.restore?.scroll ?? view?.scrollY ?? 0;
     setClass(this.#app, "home");
-    setText(this.#headerHeading, model.mode === "blocked" ? "Blocked" : "Home");
+    setText(this.#headerHeading, model.mode === "blocked" ? "Blocked" : model.mode === "error" ? "Error" : "Home");
     setHidden(this.#headerHeading, model.mode === "all");
     setHidden(this.#accessNotice, !model.signInOff);
     const live = model.reachability === "current" && model.state.connection === "live" && !model.state.last_known;
+    const core = model.state.herdr === "core";
+    const filterCopy = core ? "Filter spaces and terminals" : "Filter workspaces and terminals";
+    setAttribute(this.#filterInput, "placeholder", filterCopy);
+    setAttribute(this.#filterInput, "aria-label", filterCopy);
     setText(this.#herdrVersion, live && model.state.herdr_version !== "" ? `Herdr ${model.state.herdr_version}` : "");
 
     const desired: Node[] = [this.#header];
@@ -458,9 +467,9 @@ export class HomeView {
       const total = allTerminals(model.state.home).length;
       if (live && total === 0 && allWorkspaceValues.length === 0) desired.push(this.#empty);
 
-      if (model.mode === "blocked") {
+      if (model.mode !== "all") {
         for (const workspace of allWorkspaceValues) {
-          const section = this.#renderWorkspace(workspace, true, model.actionsAvailable, false);
+          const section = this.#renderWorkspace(workspace, model.mode, model.actionsAvailable, false);
           if (section) desired.push(section);
         }
       } else {
@@ -475,7 +484,7 @@ export class HomeView {
         reconcileChildren(this.#homeTools, [
           this.#filterLabel,
           this.#expandAction,
-          ...(managementAvailable ? [this.#newSpaceAction] : []),
+          ...(managementAvailable && !core ? [this.#newSpaceAction] : []),
         ]);
         desired.push(this.#homeTools);
         if (sets.length > 0 && !filterActive) {
@@ -496,7 +505,7 @@ export class HomeView {
           }
           const section = this.#renderWorkspace(
             workspace,
-            false,
+            undefined,
             model.actionsAvailable,
             managementAvailable,
           );
@@ -505,10 +514,13 @@ export class HomeView {
       }
 
       setText(this.#attentionWorking, `${model.state.home.working_count} working`);
-      const showAll = model.mode === "blocked";
+      const showAll = model.mode !== "all";
       const showBlocked = !showAll && model.state.home.blocked_count > 0;
+      const showError = !showAll && core && model.state.home.error_count > 0;
       setText(this.#attentionBlocked, `${model.state.home.blocked_count} blocked`);
       setHidden(this.#attentionBlocked, !showBlocked);
+      setText(this.#attentionError, `${model.state.home.error_count} error`);
+      setHidden(this.#attentionError, !showError);
       setHidden(this.#attentionShowAll, !showAll);
       desired.push(this.#attention);
     }
@@ -575,15 +587,15 @@ export class HomeView {
 
   #renderWorkspace(
     workspace: Workspace,
-    blockedOnly: boolean,
+    only: AgentStatus | undefined,
     actionsAvailable: boolean,
     managementAvailable: boolean,
     hideTitle = false,
     includeWorkspaceActions = true,
     summaryCounts?: AgentCounts,
   ): HTMLElement | undefined {
-    const tabs = visibleTabs(workspace, blockedOnly);
-    if (blockedOnly && tabs.length === 0) return undefined;
+    const tabs = visibleTabs(workspace, only);
+    if (only && tabs.length === 0) return undefined;
     const nodes = this.#workspace(workspace);
     this.#updateWorkspace(
       nodes,
@@ -617,7 +629,7 @@ export class HomeView {
     const parent = parentTerminalCount > 0
       ? this.#renderWorkspace(
           workspace,
-          false,
+          undefined,
           actionsAvailable,
           managementAvailable,
           true,
@@ -652,7 +664,7 @@ export class HomeView {
     for (const worktree of workspace.worktrees ?? []) {
       const section = this.#renderWorkspace(
         worktree,
-        false,
+        undefined,
         actionsAvailable,
         managementAvailable,
       );
@@ -702,9 +714,8 @@ export class HomeView {
     counts: AgentCounts,
     leading?: HTMLElement,
   ): void {
-    const statuses = ["working", "blocked", "idle", "done", "unknown"] as const;
     const parts: Node[] = leading ? [leading] : [];
-    for (const status of statuses) {
+    for (const status of statusOrder) {
       const count = counts[status] ?? 0;
       if (count > 0) {
         let badge = summaryStatuses.get(status);
@@ -720,8 +731,7 @@ export class HomeView {
   }
 
   #groupSummaryLabel(counts: AgentCounts): string {
-    const statuses = ["working", "blocked", "idle", "done", "unknown"] as const;
-    return statuses
+    return statusOrder
       .filter((status) => (counts[status] ?? 0) > 0)
       .map((status) => `${counts[status]} ${status}`)
       .join(", ");
@@ -774,7 +784,7 @@ export class HomeView {
 
     setClass(nodes.section, "workspace");
     if (fullTerminalCount === 1) {
-      const singleGroup = tabs[0] ?? visibleTabs(fullWorkspace, false)[0];
+      const singleGroup = tabs[0] ?? visibleTabs(fullWorkspace)[0];
       const terminal = singleGroup.terminals[0];
       const entry = { workspace: fullWorkspace, tab: singleGroup.tab, terminal };
       setClass(nodes.heading, "visually-hidden");
@@ -893,7 +903,7 @@ export class HomeView {
     }
     const workspace = this.#workspaceValues.get(this.#pickerWorkspaceID);
     if (!workspace || terminalCount(workspace) <= 1) {
-      const remaining = workspace ? visibleTabs(workspace, false)[0]?.terminals[0] : undefined;
+      const remaining = workspace ? visibleTabs(workspace)[0]?.terminals[0] : undefined;
       const closed = {
         paneID: remaining?.pane_id,
         returnFocus: this.#pickerReturnFocus,
@@ -908,7 +918,7 @@ export class HomeView {
 
     setText(this.#picker.title, workspace.label);
     setText(this.#picker.count, `${terminalCount(workspace)} terminals`);
-    const tabs = visibleTabs(workspace, false);
+    const tabs = visibleTabs(workspace);
     const tabsShown = showTabHeadings(workspace);
     const children: Node[] = [];
     let workspaceTabs = usedTabs.get(workspace.id);
@@ -1344,7 +1354,7 @@ export class HomeView {
     }
 
     setClass(nodes.row, actionsAvailable ? "terminal-row" : "terminal-row terminal-row-stale");
-    if (actionsAvailable) setAttribute(nodes.row, "aria-label", accessibleTerminalName(entry, tabsShown));
+    if (actionsAvailable) setAttribute(nodes.row, "aria-label", accessibleTerminalName(entry, tabsShown, this.#lastRender?.state.herdr));
     setText(nodes.name, entry.terminal.title);
     if (entry.terminal.agent) {
       const secondary = [

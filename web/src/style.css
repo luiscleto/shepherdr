@@ -648,7 +648,8 @@ h3 {
   color: var(--working);
 }
 
-.workspace-summary-blocked {
+.workspace-summary-blocked,
+.workspace-summary-error {
   color: var(--blocked);
 }
 
@@ -1174,7 +1175,8 @@ button.terminal-row:hover {
   margin-right: 0.38rem;
 }
 
-.status-blocked {
+.status-blocked,
+.status-error {
   color: var(--blocked);
 }
 

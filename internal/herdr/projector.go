@@ -19,11 +19,21 @@ const (
 	ConnectionIncompatible Connection = "incompatible"
 )
 
+// Backend names which Herdr serves Home: the Herdr TUI or herdr-core, the
+// runtime behind the Herdr app. It is chosen at start and never changes.
+type Backend string
+
+const (
+	BackendTUI  Backend = "tui"
+	BackendCore Backend = "core"
+)
+
 type State struct {
 	Connection   Connection `json:"connection"`
 	Detail       string     `json:"detail,omitempty"`
 	Gap          uint64     `json:"gap"`
 	HasHome      bool       `json:"has_home"`
+	Herdr        Backend    `json:"herdr"`
 	HerdrVersion string     `json:"herdr_version"`
 	Home         Home       `json:"home"`
 	LastKnown    bool       `json:"last_known"`
@@ -39,8 +49,10 @@ type PublishedSnapshotObserver interface {
 }
 
 type Projector struct {
-	client  *Client
-	refresh chan struct{}
+	client     *Client
+	core       *CoreClient
+	homeFolder string
+	refresh    chan struct{}
 
 	mu        sync.RWMutex
 	state     State
@@ -62,11 +74,24 @@ func (p *Projector) SetPublishedSnapshotObserver(observer PublishedSnapshotObser
 }
 
 func NewProjector(client *Client) *Projector {
+	return newProjector(BackendTUI, client, nil, "")
+}
+
+// NewCoreProjector serves Home from herdr-core. homeFolder is shown as "~",
+// as the Herdr app does.
+func NewCoreProjector(core *CoreClient, homeFolder string) *Projector {
+	return newProjector(BackendCore, nil, core, homeFolder)
+}
+
+func newProjector(backend Backend, client *Client, core *CoreClient, homeFolder string) *Projector {
 	return &Projector{
-		client:  client,
-		refresh: make(chan struct{}, 1),
+		client:     client,
+		core:       core,
+		homeFolder: homeFolder,
+		refresh:    make(chan struct{}, 1),
 		state: State{
 			Connection: ConnectionReconnecting,
+			Herdr:      backend,
 			Home:       Home{Workspaces: []Workspace{}},
 		},
 		listeners: make(map[chan State]struct{}),
@@ -105,6 +130,10 @@ func (p *Projector) Subscribe() (<-chan State, func()) {
 }
 
 func (p *Projector) Run(ctx context.Context) {
+	if p.core != nil {
+		p.runCore(ctx)
+		return
+	}
 	retry := time.NewTimer(0)
 	defer retry.Stop()
 	var subscriptionBasis Snapshot
@@ -277,10 +306,14 @@ func (p *Projector) publishError(err error) {
 	}
 	state.LastKnown = state.HasHome
 	var compatibility *CompatibilityError
+	var coreCompatibility *CoreCompatibilityError
 	switch {
 	case IsNotRunning(err):
 		state.Connection = ConnectionNotRunning
 		state.Detail = ""
+	case errors.As(err, &coreCompatibility):
+		state.Connection = ConnectionIncompatible
+		state.Detail = coreCompatibility.Error()
 	case errors.As(err, &compatibility):
 		state.Connection = ConnectionIncompatible
 		state.Detail = compatibility.Error()
@@ -302,6 +335,11 @@ func (p *Projector) publishLiveObserved(snapshot Snapshot, baseline bool) bool {
 		p.publishError(err)
 		return false
 	}
+	p.publishHome(snapshot, home, baseline)
+	return true
+}
+
+func (p *Projector) publishHome(snapshot Snapshot, home Home, baseline bool) {
 	p.observeSnapshot(snapshot, baseline)
 	p.mu.Lock()
 	state := p.state
@@ -315,7 +353,6 @@ func (p *Projector) publishLiveObserved(snapshot Snapshot, baseline bool) bool {
 	p.publishLocked(state)
 	p.mu.Unlock()
 	p.observePublishedSnapshot(snapshot, baseline)
-	return true
 }
 
 func (p *Projector) observeSnapshot(snapshot Snapshot, baseline bool) {
@@ -358,6 +395,7 @@ func (p *Projector) publishLocked(state State) {
 func samePublishedState(left, right State) bool {
 	return left.Connection == right.Connection &&
 		left.Detail == right.Detail &&
+		left.Herdr == right.Herdr &&
 		left.Gap == right.Gap &&
 		left.HasHome == right.HasHome &&
 		left.HerdrVersion == right.HerdrVersion &&

@@ -15,9 +15,9 @@ Write for a person checking Herdr workspaces, terminals, and agents from a phone
 - Security language is quiet and direct.
 - Internal names stay off the screen unless the person needs an exact value to act.
 
-Use familiar words: **workspace**, **terminal**, **agent**, **worktree**, **group**, **device**, and **notification**. Keep internal words such as source, pane, route, and session off the screen. **Linked workspace** may appear only when someone needs to understand the additional work an action affects.
+Use familiar words: **workspace**, **terminal**, **agent**, **worktree**, **group**, **device**, and **notification**. When Shepherdr is started for the Herdr app (herdr-core), say **space** and **tab** instead of workspace, matching the app. Keep internal words such as source, pane, route, and session off the screen. **Linked workspace** may appear only when someone needs to understand the additional work an action affects.
 
-Use Herdr's status words unchanged: **working**, **blocked**, **idle**, **done**, and **unknown**. Supporting text may say a blocked agent “needs you,” but that is not another status. Show paths and raw errors only when they help someone act. Do not show internal IDs.
+Use Herdr's status words unchanged: **working**, **blocked**, **idle**, **done**, and **unknown**, plus **error** from the Herdr app. Treat **error** like **blocked** for attention: when nonzero, **N error** follows **N blocked** and opens a temporary **Error** view. Supporting text may say a blocked agent “needs you,” but that is not another status. Show paths and raw errors only when they help someone act. Do not show internal IDs.
 
 ## Screens and settings
 
@@ -67,6 +67,10 @@ When Herdr confirms a worktree relationship, show one group with only nonzero ag
 Groups with working or blocked agents start expanded. Later choices win for the visit. Show **Expand all** or **Collapse all** only when useful. The attention area shows the working count and no zero-blocked text. **N blocked** opens **Blocked**; **Show all terminals** restores the prior Home expansion, scroll, and focus.
 
 Keep one row per workspace on Home. One terminal opens directly. When a workspace has several terminals, the same terminal control carries a small count badge and opens a terminal picker: a bottom sheet on a phone and a compact dialog on a larger screen. List every terminal there with its status, open action, and three-dot menu. Do not add another inline expand/collapse level for terminals.
+
+### With the Herdr app
+
+Home lists the app's spaces and tabs in the app's order and with the app's names. Terminals that no space contains appear once in a last group, **Other terminals**. The app has no worktree groups, so none appear, and there are no space or terminal actions. Terminal offers **Control** and **Release** but no **Take over**: the phone and the app window can both type, and the size follows whoever typed last. **Send keys** shows only keys Herdr can send.
 
 ## Connection and Home updates
 

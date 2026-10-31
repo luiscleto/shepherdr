@@ -25,7 +25,7 @@ The daily return path stays short: open Shepherdr, see who needs attention, and 
 
 ## Home and attention
 
-Home shows every real Herdr workspace and terminal exactly once. Agent identity and status are optional terminal information; an ordinary terminal still exists and has no invented status. Shepherdr uses Herdr's words unchanged: **working**, **blocked**, **idle**, **done**, and **unknown**.
+Home shows every real Herdr workspace and terminal exactly once. Agent identity and status are optional terminal information; an ordinary terminal still exists and has no invented status. Shepherdr uses Herdr's words unchanged: **working**, **blocked**, **idle**, **done**, and **unknown**. With the Herdr app, **error** appears too.
 
 Home has one filter over the names already shown. Filtering leaves the global attention counts unchanged and does not overwrite the person's expansion choices.
 

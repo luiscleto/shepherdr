@@ -146,9 +146,60 @@ function state(value = flatHome(), connection: HomeState["connection"] = "live")
     connection,
     gap: 2,
     has_home: true,
+    herdr: "tui",
     herdr_version: "0.8.0",
     home: value,
     last_known: connection !== "live",
+  };
+}
+
+function coreHome(): Home {
+  const terminal = (pane: string, title: string, status?: "blocked" | "error" | "idle") => ({
+    actions: [],
+    ...(status ? { agent: { kind: "claude-code", name: title, status } } : {}),
+    pane_id: pane,
+    terminal_id: `core:${pane}`,
+    title,
+  });
+  return {
+    blocked_count: 1,
+    error_count: 1,
+    working_count: 0,
+    workspaces: [
+      {
+        actions: [],
+        agent_counts: { blocked: 1, error: 1, idle: 1 },
+        id: "sp-alpha",
+        label: "alpha <img src=x onerror=alert(1)>",
+        number: 1,
+        tabs: [
+          {
+            current: false,
+            id: "tb-main",
+            label: "main",
+            number: 1,
+            terminals: [
+              terminal("t1", "Shell"),
+              terminal("t2", "Asks a question", "blocked"),
+            ],
+          },
+          {
+            current: false,
+            id: "tb-two",
+            label: "2",
+            number: 2,
+            terminals: [terminal("t3", "Failed run", "error"), terminal("t4", "Waiting", "idle")],
+          },
+        ],
+      },
+      {
+        actions: [],
+        id: "other",
+        label: "Other terminals",
+        number: 2,
+        tabs: [{ current: false, id: "other", label: "Other terminals", number: 1, terminals: [terminal("t9", "outside")] }],
+      },
+    ],
   };
 }
 
@@ -162,6 +213,7 @@ function makeView(window: Window, actions: Partial<ConstructorParameters<typeof 
     onOpenCreated: actions.onOpenCreated ?? (() => undefined),
     onShowAll: actions.onShowAll ?? (() => undefined),
     onShowBlocked: actions.onShowBlocked ?? (() => undefined),
+    onShowError: actions.onShowError,
     prepareWorkspaceAction: actions.prepareWorkspaceAction ?? (async () => ({
       outcome: "refused",
       reason: "not_applicable",
@@ -704,5 +756,53 @@ test("Home place restoration keeps a surviving row anchor without inventing focu
   });
   assert.equal(window.scrollY, 220);
   assert.equal(window.document.activeElement === row, false);
+  window.close();
+});
+
+test("With the Herdr app, Home says space, offers N error and Error, and has no space actions", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const shown: string[] = [];
+  const { app, view } = makeView(window, { onShowError: () => shown.push("error"), onShowBlocked: () => shown.push("blocked") });
+  const current = { ...state(coreHome()), herdr: "core" as const };
+
+  render(view, current);
+  const filter = requiredElement(app, ".home-filter input");
+  assert.equal(filter.getAttribute("placeholder"), "Filter spaces and terminals");
+  assert.equal(filter.getAttribute("aria-label"), "Filter spaces and terminals");
+  assert.equal(app.querySelectorAll(".new-space-action, .workspace-menu, .terminal-menu").length, 0);
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".attention-bar > :not([hidden])"), (node) => node.textContent),
+    ["0 working", "1 blocked", "1 error"],
+  );
+  assert.deepEqual(
+    Array.from(requiredWorkspaceRow(view, "sp-alpha").querySelectorAll(".workspace-summary-status"), (node) => node.textContent),
+    ["1 blocked", "1 error", "1 idle"],
+  );
+  assert.equal(requiredWorkspaceRow(view, "sp-alpha").querySelector("img"), null);
+  assert.equal(requiredElement(app, ".attention-bar button:not([hidden])").textContent, "1 blocked");
+  Array.from(app.querySelectorAll<HTMLElement>(".attention-bar button")).find((node) => node.textContent === "1 error")?.click();
+  assert.deepEqual(shown, ["error"]);
+
+  render(view, current, { mode: "error" });
+  assert.equal(requiredElement(app, "h1").textContent, "Error");
+  assert.deepEqual(Array.from(app.querySelectorAll(".terminal-row .terminal-name"), (node) => node.textContent), ["alpha <img src=x onerror=alert(1)>"]);
+  assert.equal(requiredWorkspaceRow(view, "sp-alpha").querySelector(".terminal-count-badge")?.textContent, "4");
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".attention-bar > :not([hidden])"), (node) => node.textContent),
+    ["0 working", "Show all terminals"],
+  );
+  window.close();
+});
+
+test("The Herdr TUI keeps workspace words and never shows an error count", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window);
+  const home = coreHome();
+  render(view, state(home));
+  assert.equal(requiredElement(app, ".home-filter input").getAttribute("placeholder"), "Filter workspaces and terminals");
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".attention-bar > :not([hidden])"), (node) => node.textContent),
+    ["0 working", "1 blocked"],
+  );
   window.close();
 });

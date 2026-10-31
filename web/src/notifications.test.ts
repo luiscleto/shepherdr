@@ -536,3 +536,76 @@ test("lifecycle click opens Home", async () => {
   assert.equal(worker.opened(), "https://shepherdr.example/");
   assert.equal(worker.matched(), 0);
 });
+
+async function submitSettings(window: Window, root: ParentNode): Promise<void> {
+  const nodeFormData = globalThis.FormData;
+  globalThis.FormData = window.FormData as unknown as typeof FormData;
+  try {
+    root.querySelector<HTMLFormElement>("form")!.requestSubmit();
+    await settle();
+  } finally {
+    globalThis.FormData = nodeFormData;
+  }
+}
+
+test("with the Herdr app, settings say space and offer error, which starts on", async () => {
+  const { api, controller, root, window } = notificationView();
+  api.configValue = { contact: "mailto:operator@example.com", public_key: "public", setup: true };
+  controller.setHerdr("core");
+  await controller.init();
+  assert.match(root.textContent ?? "", /Get an alert when a space needs attention or finishes\./);
+  buttonWithText(root, "Turn on notifications").click();
+  await settle();
+
+  assert.equal(api.saved[0]?.events.error, true);
+  assert.equal(root.querySelector<HTMLInputElement>('input[name="error"]')?.checked, true);
+  const labels = Array.from(root.querySelectorAll(".notification-choice span"), (node) => node.textContent);
+  assert.deepEqual(labels.slice(0, 7), ["working", "blocked", "error", "idle", "done", "unknown", "Space opened"]);
+  assert.equal(labels[7], "Space closed");
+
+  root.querySelector<HTMLInputElement>('input[name="error"]')!.checked = false;
+  await submitSettings(window, root);
+  assert.equal(api.saved.at(-1)?.events.error, false);
+});
+
+test("with the Herdr TUI, settings keep workspace words and keep the hidden error choice", async () => {
+  const { api, controller, platform, root, window } = notificationView();
+  api.configValue = { contact: "mailto:operator@example.com", public_key: "public", setup: true };
+  api.events = { ...defaultNotificationEvents, error: false };
+  api.enabled = true;
+  platform.permissionValue = "granted";
+  platform.subscription = new FakeSubscription();
+  controller.setHerdr("tui");
+  await controller.init();
+  controller.openSettings();
+  await settle();
+  buttonWithText(root, "Notifications").click();
+  await settle();
+
+  assert.equal(root.querySelectorAll('input[name="error"]').length, 0);
+  const labels = Array.from(root.querySelectorAll(".notification-choice span"), (node) => node.textContent);
+  assert.equal(labels.includes("Workspace opened"), true);
+  await submitSettings(window, root);
+  assert.equal(api.saved.at(-1)?.events.error, false);
+});
+
+test("with the Herdr app, pushes say space and error uses the blocked wording", async () => {
+  const worker = serviceWorkerHarness();
+  const destination = "/#terminal=t3&terminal_id=core%3At3";
+  await worker.push({ destination: "/", herdr: "core", kind: "workspace_opened", workspace_name: "alpha" });
+  assert.equal(worker.shownTitle(), "Space opened");
+  assert.equal(worker.shownBody(), "alpha");
+  await worker.push({ destination: "/", herdr: "core", kind: "workspace_closed" });
+  assert.equal(worker.shownBody(), "A space closed.");
+  for (const [status, title] of [["blocked", "Agent is blocked"], ["error", "Agent status is error"]] as const) {
+    await worker.push({ destination, herdr: "core", kind: "status", pane_id: "t3", status, terminal_id: "core:t3", workspace_name: "alpha" });
+    assert.equal(worker.shownTitle(), title);
+    assert.equal(worker.shownBody(), "Space: alpha");
+    await worker.push({ destination, herdr: "core", kind: "status", pane_id: "t3", status, terminal_id: "core:t3" });
+    assert.equal(worker.shownBody(), "A space needs attention.");
+  }
+
+  await worker.push({ destination, kind: "status", pane_id: "t3", status: "error", terminal_id: "core:t3", workspace_name: "alpha" });
+  assert.equal(worker.shownTitle(), "Shepherdr");
+  assert.equal(worker.shownBody(), "A workspace changed.");
+});

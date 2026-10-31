@@ -26,6 +26,7 @@ type Manager struct {
 	events    chan Event
 	authority TrustAuthority
 
+	herdr       herdr.Backend
 	evaluatorMu sync.Mutex
 	evaluator   snapshotEvaluator
 	pending     sync.WaitGroup
@@ -55,11 +56,18 @@ func (m *Manager) Start(ctx context.Context) {
 	}
 }
 
+// SetHerdr names the Herdr that serves Home, so notices use its words. Call it
+// before Start.
+func (m *Manager) SetHerdr(backend herdr.Backend) {
+	m.herdr = backend
+}
+
 func (m *Manager) ObserveSnapshot(snapshot herdr.Snapshot, baseline bool) {
 	m.evaluatorMu.Lock()
 	events := m.evaluator.Observe(snapshot, baseline)
 	m.evaluatorMu.Unlock()
 	for _, event := range events {
+		event.Herdr = m.herdr
 		m.logger.Debug("Notification candidate observed", notificationLogFields(event)...)
 		m.enqueue(event)
 	}

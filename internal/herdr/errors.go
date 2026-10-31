@@ -43,3 +43,8 @@ func (e *CompatibilityError) Error() string {
 	}
 	return fmt.Sprintf("Herdr %s is older than the supported Herdr range; %s", e.Version, supportedRange)
 }
+
+// CoreCompatibilityError explains why this Herdr core can't serve Shepherdr.
+type CoreCompatibilityError struct{ Detail string }
+
+func (e *CoreCompatibilityError) Error() string { return e.Detail }

@@ -1,6 +1,8 @@
 import type { WorkspaceAction } from "./workspace-actions";
 
-export type AgentStatus = "working" | "blocked" | "idle" | "done" | "unknown";
+export type AgentStatus = "working" | "blocked" | "error" | "idle" | "done" | "unknown";
+export type Herdr = "tui" | "core";
+export type HomeMode = "all" | "blocked" | "error";
 export type Connection = "reconnecting" | "live" | "not_running" | "incompatible";
 export type TerminalAction = "split_terminal" | "rename_terminal" | "close_terminal";
 
@@ -42,6 +44,7 @@ export interface Workspace {
 export interface AgentCounts {
   working?: number;
   blocked?: number;
+  error?: number;
   idle?: number;
   done?: number;
   unknown?: number;
@@ -49,6 +52,7 @@ export interface AgentCounts {
 
 export interface Home {
   blocked_count: number;
+  error_count: number;
   working_count: number;
   workspaces: Workspace[];
 }
@@ -59,6 +63,7 @@ export interface HomeState {
   epoch?: string;
   gap: number;
   has_home: boolean;
+  herdr: Herdr;
   herdr_version: string;
   home: Home;
   last_known: boolean;
@@ -77,11 +82,17 @@ export interface HomePlace {
 }
 
 export function automaticAllTerminalsPlace(
-  mode: "all" | "blocked",
-  blockedCount: number,
+  mode: HomeMode,
+  viewCount: number,
   allTerminalsPlace: HomePlace,
 ): HomePlace | undefined {
-  return mode === "blocked" && blockedCount === 0 ? allTerminalsPlace : undefined;
+  return mode !== "all" && viewCount === 0 ? allTerminalsPlace : undefined;
+}
+
+export function viewCount(mode: HomeMode, home: Home): number {
+  if (mode === "blocked") return home.blocked_count;
+  if (mode === "error") return home.error_count;
+  return 0;
 }
 
 export function allTerminals(home: Home): TerminalEntry[] {
@@ -110,17 +121,21 @@ export function showTabHeadings(workspace: Workspace): boolean {
   return workspace.tabs.filter((tab) => tab.terminals.length > 0).length > 1;
 }
 
-export function visibleTabs(workspace: Workspace, blockedOnly: boolean): Array<{ tab: Tab; terminals: Terminal[] }> {
+export function visibleTabs(workspace: Workspace, only?: AgentStatus): Array<{ tab: Tab; terminals: Terminal[] }> {
   return workspace.tabs
     .map((tab) => ({
       tab,
-      terminals: blockedOnly ? tab.terminals.filter((terminal) => terminal.agent?.status === "blocked") : tab.terminals,
+      terminals: only ? tab.terminals.filter((terminal) => terminal.agent?.status === only) : tab.terminals,
     }))
     .filter(({ terminals }) => terminals.length > 0);
 }
 
-export function accessibleTerminalName(entry: TerminalEntry, tabsShown: boolean): string {
-  const parts = [`Open ${entry.terminal.title}`, `workspace ${entry.workspace.label}`];
+export function spaceWord(herdr: Herdr): string {
+  return herdr === "core" ? "space" : "workspace";
+}
+
+export function accessibleTerminalName(entry: TerminalEntry, tabsShown: boolean, herdr: Herdr = "tui"): string {
+  const parts = [`Open ${entry.terminal.title}`, `${spaceWord(herdr)} ${entry.workspace.label}`];
   if (tabsShown) parts.push(`tab ${entry.tab.label}`);
   if (entry.terminal.agent) {
     if (entry.terminal.agent.name !== entry.terminal.title) parts.push(entry.terminal.agent.name);

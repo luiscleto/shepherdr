@@ -19,6 +19,8 @@ import {
   automaticAllTerminalsPlace,
   findTerminal,
   terminalCount,
+  viewCount,
+  type HomeMode,
   type HomePlace,
   type HomeState,
   type TerminalEntry,
@@ -59,8 +61,9 @@ let state: HomeState = {
   connection: "reconnecting",
   gap: 0,
   has_home: false,
+  herdr: "tui",
   herdr_version: "",
-  home: { blocked_count: 0, working_count: 0, workspaces: [] },
+  home: { blocked_count: 0, error_count: 0, working_count: 0, workspaces: [] },
   last_known: false,
 };
 const homeConnections = new HomeConnectionOwner<WebSocket>();
@@ -78,7 +81,7 @@ let lastFocusedHomeWorkspace: string | undefined;
 let allTerminalsScroll = 0;
 let allTerminalsFocusPane: string | undefined;
 let allTerminalsFocusWorkspace: string | undefined;
-let homeMode: "all" | "blocked" = "all";
+let homeMode: HomeMode = "all";
 let restoreHomePlace = false;
 let publishedStateSignature = "";
 let renderedTerminalPane: string | undefined;
@@ -116,7 +119,8 @@ const homeView = new HomeView(app, {
   onOpenCreated: openCreatedTerminal,
   onNotifications: () => notifications.openSettings(),
   onShowAll: showAllTerminals,
-  onShowBlocked: showBlockedTerminals,
+  onShowBlocked: () => showStatusTerminals("blocked"),
+  onShowError: () => showStatusTerminals("error"),
   prepareWorkspaceAction: (request) => workspaceActions.prepare(request),
   runWorkspaceAction: (request) => workspaceActions.run(request),
   prepareTerminalAction: (request) => terminalActions.prepare(request),
@@ -179,6 +183,7 @@ function activateHomeSocket(socket: WebSocket): void {
         state.connection !== next.connection || state.last_known !== next.last_known;
       state = next;
       publishedStateSignature = raw;
+      notifications.setHerdr(state.herdr);
       if (changed || !wasCurrent) render();
       scheduleHomeCheck();
     } catch {
@@ -312,7 +317,7 @@ function render(): void {
 function renderHome(): void {
   terminalPage?.destroy();
   terminalPage = undefined;
-  const automaticPlace = automaticAllTerminalsPlace(homeMode, state.home.blocked_count, {
+  const automaticPlace = automaticAllTerminalsPlace(homeMode, viewCount(homeMode, state.home), {
     focusPane: allTerminalsFocusPane,
     focusWorkspace: allTerminalsFocusWorkspace,
     scroll: allTerminalsScroll,
@@ -411,8 +416,9 @@ function accessSignedOut(): void {
     connection: "reconnecting",
     gap: 0,
     has_home: false,
+    herdr: "tui",
     herdr_version: "",
-    home: { blocked_count: 0, working_count: 0, workspaces: [] },
+    home: { blocked_count: 0, error_count: 0, working_count: 0, workspaces: [] },
     last_known: false,
   };
   publishedStateSignature = "";
@@ -447,12 +453,12 @@ function currentFocusedWorkspace(): string | undefined {
   return document.activeElement instanceof HTMLElement ? document.activeElement.dataset.workspaceKey : undefined;
 }
 
-function showBlockedTerminals(): void {
+function showStatusTerminals(status: "blocked" | "error"): void {
   allTerminalsScroll = window.scrollY;
   allTerminalsFocusPane = currentFocusedPane() ?? lastFocusedHomePane;
   allTerminalsFocusWorkspace = currentFocusedWorkspace() ?? lastFocusedHomeWorkspace;
-  const firstBlocked = allTerminals(state.home).find(({ terminal }) => terminal.agent?.status === "blocked");
-  homeMode = "blocked";
+  const firstBlocked = allTerminals(state.home).find(({ terminal }) => terminal.agent?.status === status);
+  homeMode = status;
   homeScroll = 0;
   homeFocusPane = firstBlocked && terminalCount(firstBlocked.workspace) === 1
     ? firstBlocked.terminal.pane_id
@@ -507,6 +513,11 @@ function openCreatedTerminal(target: TerminalActionTarget): void {
 function renderTerminal(paneID: string, expectedTerminalID?: string): void {
   document.body.classList.add("terminal-active");
   window.scrollTo(0, 0);
+  if (state.herdr === "core") {
+    // Terminal on the Herdr app's core is not available yet.
+    renderTerminalUnavailable(false);
+    return;
+  }
   const current = findTerminal(state.home, paneID);
   const selected = selectedTerminal?.terminal.pane_id === paneID ? selectedTerminal : undefined;
   const outcome = terminalRouteOutcome({
@@ -557,14 +568,14 @@ function renderTerminalWaiting(): void {
   app.replaceChildren(panel);
 }
 
-function renderTerminalUnavailable(): void {
+function renderTerminalUnavailable(gone = true): void {
   terminalPage?.destroy();
   terminalPage = undefined;
   app.className = "terminal-state-screen";
   const panel = element("section", "state-panel terminal-unavailable");
   panel.append(
     element("strong", undefined, "Terminal unavailable"),
-    element("p", undefined, "This terminal is no longer here."),
+    ...(gone ? [element("p", undefined, "This terminal is no longer here.")] : []),
     settingsAction(document, () => notifications.openSettings(), "terminal-notifications"),
     button("Home", leaveTerminal),
   );

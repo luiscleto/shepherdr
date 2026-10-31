@@ -16,6 +16,8 @@ const (
 	StatusIdle    Status = "idle"
 	StatusDone    Status = "done"
 	StatusUnknown Status = "unknown"
+	// StatusError comes only from the Herdr app's core; the Herdr TUI never reports it.
+	StatusError Status = "error"
 )
 
 func (s Status) Valid() bool {
@@ -186,6 +188,7 @@ type Workspace struct {
 type AgentCounts struct {
 	Working int `json:"working,omitempty"`
 	Blocked int `json:"blocked,omitempty"`
+	Error   int `json:"error,omitempty"`
 	Idle    int `json:"idle,omitempty"`
 	Done    int `json:"done,omitempty"`
 	Unknown int `json:"unknown,omitempty"`
@@ -193,6 +196,7 @@ type AgentCounts struct {
 
 type Home struct {
 	BlockedCount int         `json:"blocked_count"`
+	ErrorCount   int         `json:"error_count"`
 	WorkingCount int         `json:"working_count"`
 	Workspaces   []Workspace `json:"workspaces"`
 }
@@ -304,6 +308,8 @@ func Project(snapshot Snapshot) (Home, error) {
 			home.WorkingCount++
 		case StatusBlocked:
 			home.BlockedCount++
+		case StatusError:
+			home.ErrorCount++
 		}
 	}
 
@@ -441,7 +447,7 @@ func groupWorktrees(workspaces []Workspace, sources []WorkspaceInfo) []Workspace
 }
 
 func (c AgentCounts) nonzero() bool {
-	return c.Working != 0 || c.Blocked != 0 || c.Idle != 0 || c.Done != 0 || c.Unknown != 0
+	return c.Working != 0 || c.Blocked != 0 || c.Error != 0 || c.Idle != 0 || c.Done != 0 || c.Unknown != 0
 }
 
 func countAgents(workspaces []Workspace) AgentCounts {
@@ -457,6 +463,8 @@ func countAgents(workspaces []Workspace) AgentCounts {
 					counts.Working++
 				case StatusBlocked:
 					counts.Blocked++
+				case StatusError:
+					counts.Error++
 				case StatusIdle:
 					counts.Idle++
 				case StatusDone:
