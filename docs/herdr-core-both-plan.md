@@ -46,7 +46,7 @@ Terms used below: **side** means one Herdr: `tui` (the Herdr TUI) or `core` (her
 |---|---|---|
 | Snapshot observer (notifications) | `notificationManager.Observer(BackendTUI)` | `notificationManager.Observer(BackendCore)` |
 | Published-snapshot observer (uploads) | the existing upload manager (`uploads.json`) | none in 1b; its own manager in wave 2 (section 5) |
-| Workspace and terminal actions | existing action client; refresh = TUI projector | none (core has no actions, plan 3.5) |
+| Workspace and terminal actions | existing action client; refresh = TUI projector | none (core has no actions, plan 3.5; `docs/herdr-core-actions-plan.md` adds core actions) |
 | Terminal bridge, exact target, Reader read | existing bridge, targets = TUI projector | none in 1b; core bridge in wave 2 |
 | File-send state source | TUI projector | wave 2 |
 
@@ -132,7 +132,7 @@ The formats differ in practice, but TUI ids are opaque (discovery: "IDs must be 
 - **Notification links and payloads:** the destination carries `&herdr=<side>`, and the payload always carries `"herdr": "tui" | "core"` (section 6).
 - **Uploads:** one records file per side (section 5), so TUI `w1` and a core space can never share a record, whatever their ids.
 - **Exact-target checks:** each bridge checks targets only against its own projector: TUI against the TUI projector (unchanged code), core against the core projector (wave 2). In wave 2 the terminal endpoints (`/api/terminal`, `/api/terminal/read`, `/api/terminal/files`) take a **required** `herdr` parameter that picks the bridge. The browser and server ship together, so a page left open from an older build gets the existing failure state rather than a guess.
-- **Workspace and terminal actions:** TUI only. Core Homes have no actions, so nothing can be sent for core.
+- **Workspace and terminal actions:** TUI only. Core Homes have no actions, so nothing can be sent for core. (Note: `docs/herdr-core-actions-plan.md` adds core actions.)
 
 ---
 
