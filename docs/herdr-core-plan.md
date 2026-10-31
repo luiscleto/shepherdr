@@ -117,8 +117,8 @@ Each Herdr has its own badge state; Home shows the state of the Herdr it is show
 | Situation | Badge | Detail (logged; shown where detail is shown today) |
 |---|---|---|
 | Socket missing or refused | **Herdr is not running** | as today |
-| hello generation ≠ 1, or a required method or feature missing | **Cannot use this Herdr** | "This Herdr core can't serve Shepherdr: it doesn't offer <method>." |
-| Core version < 0.1.15 | **Cannot use this Herdr** | "Herdr core <v> is older than the supported range; Shepherdr supports Herdr core 0.1.15 through 0.1.15." |
+| hello generation ≠ 1, or a required method or feature missing | **Cannot use this Herdr** | "This Herdr Core can't serve Shepherdr: it doesn't offer <method>." |
+| Core version < 0.1.15 | **Cannot use this Herdr** | "Herdr Core <v> is older than the supported range; Shepherdr supports Herdr Core 0.1.15 through 0.1.15." |
 | Core version > 0.1.15 | **Live** + the existing best-effort warning in the log | as for the TUI |
 | `herdr-app` document present but not the expected shape (section 3.1) | **Cannot use this Herdr** | "The Herdr app's layout could not be read." |
 | Live, then the socket drops | **Reconnecting**, then **Offline** after 45 s | unchanged loop |
@@ -389,7 +389,7 @@ Each wave starts from the approved integrated commit of the one before. Wave 1 s
 
 ### Wave 1b: both at once
 
-- **Base:** `e0e7446` (or the human's chosen integrated commit).
+- **Base:** `0bf96fb`.
 - **Scope:** sections 1–8 of `docs/herdr-core-both-plan.md`, except the wave 2 parts (the core bridge, the core uploads manager, and `herdr` on terminal endpoints); rereview finding A; and the doc edits in its section 9.
 - **Likely files:**
   - `main.go`, `main_test.go`;
@@ -458,7 +458,7 @@ Wave 2 starts from the approved integrated wave 1b commit. With both Herdrs foll
   - `/api/terminal`, `/api/terminal/read` and `/api/terminal/files` take a required `herdr` parameter. The server routes to the TUI bridge or the new core bridge, each checking targets against its own projector.
   - Terminal routes are registered when either bridge exists. The core bridge needs no `herdr` binary.
   - The second upload manager (`uploads-core.json`), wired only to the core projector, with the **Other terminals** rule (decision D5 of `docs/herdr-core-both-plan.md`). File-send agent presence for core = a non-null status, as plan 4 already says. `Status.Valid()` currently rejects `error`; the review note stands.
-  - Delete the 1b `core` route → **Terminal unavailable** branch.
+  - Core's `can_open_terminals` becomes true when the core bridge exists, as the TUI's already is with its bridge.
   - README and CHANGELOG drop "not available yet".
 - **Added acceptance:**
   - With both running, a TUI terminal and a core terminal are open in two tabs at once, each controlling its own. Notification taps from each side open the right one.
@@ -466,7 +466,6 @@ Wave 2 starts from the approved integrated wave 1b commit. With both Herdrs foll
   - Other terminals files stay while the group is listed, survive a Shepherdr restart while it still is, and are removed once it's gone.
   - The existing wave 2 checks apply to core; TUI Terminal acceptance is unchanged.
 - **Release:** still not before wave 2 is integrated and the human has accepted both side by side on a real phone.
-
 
 - **Scope:** section 4 and the terminal copy in section 5.
 - **Likely files:**

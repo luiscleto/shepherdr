@@ -268,7 +268,7 @@ func TestProjectCoreDocumentEdges(t *testing.T) {
 	if err != nil || len(home.Workspaces[0].Tabs[0].Terminals) != 7 {
 		t.Fatalf("remote terminal shown: %q, %v", homeRows(home), err)
 	}
-	// Any status word other than Herdr core's five fails the read.
+	// Any status word other than Herdr Core's five fails the read.
 	for _, word := range []string{"unknown", "Blocked", "waiting"} {
 		_, err := project("null", func(candidate *CoreRead) {
 			candidate.Terminals[0].Status = &CoreStatus{App: "x", State: word}

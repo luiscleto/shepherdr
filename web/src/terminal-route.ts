@@ -1,8 +1,8 @@
+import type { Herdr } from "./home-model";
+
 export function returningToHome(previousPane: string | undefined, nextPane: string | undefined): boolean {
   return previousPane !== undefined && nextPane === undefined;
 }
-
-import type { Herdr } from "./home-model";
 
 export interface TerminalRoute {
   // herdr names the Herdr that holds the terminal. A link without it is from

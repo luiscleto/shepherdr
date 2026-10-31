@@ -314,7 +314,7 @@ func TestNotificationLifecycleDiagnosticsRespectLogLevel(t *testing.T) {
 					t.Errorf("log message %q present = %t, want %t: %s", message, present, test.want, got)
 				}
 				if test.want {
-					requireLogEntry(t, got, message, "level=DEBUG", "event_kind=status", `workspace_name="Workspace w1"`, "herdr_status=blocked")
+					requireLogEntry(t, got, message, "level=DEBUG", "event_kind=status", "herdr=tui", `workspace_name="Workspace w1"`, "herdr_status=blocked")
 				}
 			}
 		})
@@ -358,9 +358,9 @@ func TestDeliveryDiagnosticsReportStatusFieldsWithoutPrivateData(t *testing.T) {
 		message string
 		fields  []string
 	}{
-		{"Notification candidate observed", []string{"event_kind=status", `workspace_name="Workspace w1"`, "herdr_status=blocked"}},
-		{"Notification candidate enqueued", []string{"event_kind=status", `workspace_name="Workspace w1"`, "herdr_status=blocked"}},
-		{"Notification candidate dropped", []string{"event_kind=status", `workspace_name="Workspace w1"`, "herdr_status=done"}},
+		{"Notification candidate observed", []string{"event_kind=status", "herdr=tui", `workspace_name="Workspace w1"`, "herdr_status=blocked"}},
+		{"Notification candidate enqueued", []string{"event_kind=status", "herdr=tui", `workspace_name="Workspace w1"`, "herdr_status=blocked"}},
+		{"Notification candidate dropped", []string{"event_kind=status", "herdr=tui", `workspace_name="Workspace w1"`, "herdr_status=done"}},
 		{"Push service accepted notification", []string{"event_kind=status", `workspace_name="Private workspace"`, "herdr_status=blocked"}},
 		{"Notification push failed", []string{"event_kind=status", `workspace_name="Private workspace"`, "herdr_status=blocked"}},
 		{"Push service reports subscription gone", []string{"event_kind=status", `workspace_name="Private workspace"`, "herdr_status=blocked"}},

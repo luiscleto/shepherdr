@@ -262,6 +262,9 @@ func (m *Manager) deliverEvent(ctx context.Context, event Event) {
 
 func notificationLogFields(event Event) []any {
 	fields := []any{"event_kind", string(event.Kind)}
+	if event.Herdr != "" {
+		fields = append(fields, "herdr", string(event.Herdr))
+	}
 	switch event.Kind {
 	case EventStatus:
 		fields = append(fields,

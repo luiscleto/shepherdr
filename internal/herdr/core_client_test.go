@@ -171,7 +171,7 @@ func TestCoreClientWarnsOnceForANewerCore(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if strings.Count(logs.String(), "Herdr core 0.1.16 is outside Shepherdr's supported Herdr core range 0.1.15 through 0.1.15; continuing best-effort") != 1 {
+	if strings.Count(logs.String(), "Herdr Core 0.1.16 is outside Shepherdr's supported Herdr Core range 0.1.15 through 0.1.15; continuing best-effort") != 1 {
 		t.Fatalf("logs = %q", logs.String())
 	}
 }
@@ -302,5 +302,5 @@ func TestRealHerdrCoreRead(t *testing.T) {
 	if len(seen) != local {
 		t.Fatalf("Home shows %d terminals for %d live local terminals", len(seen), local)
 	}
-	t.Logf("Herdr core %s: %d spaces and groups, %d live terminals exactly once, %d working, %d blocked, %d error", read.Version, len(projected.Workspaces), local, projected.WorkingCount, projected.BlockedCount, projected.ErrorCount)
+	t.Logf("Herdr Core %s: %d spaces and groups, %d live terminals exactly once, %d working, %d blocked, %d error", read.Version, len(projected.Workspaces), local, projected.WorkingCount, projected.BlockedCount, projected.ErrorCount)
 }

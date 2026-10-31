@@ -47,7 +47,7 @@ func run() error {
 		return err
 	}
 	listenAddress := flag.String("listen", "127.0.0.1:8787", "localhost address to listen on")
-	socketPath := flag.String("herdr-socket", defaultSocket, "Unix socket for the one Herdr session")
+	socketPath := flag.String("herdr-socket", defaultSocket, "Unix socket for the Herdr TUI")
 	var herdrCoreSocket optionalStringFlag
 	flag.Var(&herdrCoreSocket, "herdr-core-socket", "Unix socket for herdr-core (default $XDG_RUNTIME_DIR/herdr-core/default.sock)")
 	terminalLabEnabled := flag.Bool("terminal-lab", false, "enable the development-only terminal comparison lab")

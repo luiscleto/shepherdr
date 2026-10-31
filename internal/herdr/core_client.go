@@ -100,7 +100,7 @@ func (c *CoreClient) open(ctx context.Context) (*coreConnection, coreHello, erro
 	dialer := net.Dialer{Timeout: requestTimeout}
 	conn, err := dialer.DialContext(ctx, "unix", c.socketPath)
 	if err != nil {
-		return nil, coreHello{}, fmt.Errorf("connect to Herdr core: %w", err)
+		return nil, coreHello{}, fmt.Errorf("connect to Herdr Core: %w", err)
 	}
 	_ = conn.SetDeadline(time.Now().Add(requestTimeout))
 	connection := &coreConnection{client: c, conn: conn, decoder: json.NewDecoder(conn)}
@@ -125,7 +125,7 @@ func (c *CoreClient) checkHello(hello coreHello) error {
 		return coreCannotServe("protocol generation 1")
 	}
 	if hello.Core.ID == "" {
-		return errors.New("Herdr core did not report its identity")
+		return errors.New("Herdr Core did not report its identity")
 	}
 	for _, feature := range coreRequiredFeatures {
 		if !contains(hello.Features, feature) {
@@ -150,13 +150,13 @@ func (c *CoreClient) checkHello(hello coreHello) error {
 func checkCoreVersion(version string) (string, error) {
 	parsed, ok := parseSemanticVersion(version)
 	if !ok {
-		return fmt.Sprintf("Herdr core reported version %q, which Shepherdr could not verify; Shepherdr supports Herdr core %s through %s; continuing best-effort", version, minimumSupportedCoreVersion, maximumSupportedCoreVersion), nil
+		return fmt.Sprintf("Herdr Core reported version %q, which Shepherdr could not verify; Shepherdr supports Herdr Core %s through %s; continuing best-effort", version, minimumSupportedCoreVersion, maximumSupportedCoreVersion), nil
 	}
 	if semver.Compare(parsed, "v"+minimumSupportedCoreVersion) < 0 {
 		return "", &CoreCompatibilityError{Detail: fmt.Sprintf("Herdr Core %s is older than the supported range; Shepherdr supports Herdr Core %s through %s.", version, minimumSupportedCoreVersion, maximumSupportedCoreVersion)}
 	}
 	if semver.Compare(parsed, "v"+maximumSupportedCoreVersion) > 0 || semver.Prerelease(parsed) != "" {
-		return fmt.Sprintf("Herdr core %s is outside Shepherdr's supported Herdr core range %s through %s; continuing best-effort", version, minimumSupportedCoreVersion, maximumSupportedCoreVersion), nil
+		return fmt.Sprintf("Herdr Core %s is outside Shepherdr's supported Herdr Core range %s through %s; continuing best-effort", version, minimumSupportedCoreVersion, maximumSupportedCoreVersion), nil
 	}
 	return "", nil
 }
@@ -178,23 +178,23 @@ func (connection *coreConnection) call(method string, params any, result any) er
 	id := connection.client.nextID.Add(1)
 	request := map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}
 	if err := json.NewEncoder(connection.conn).Encode(request); err != nil {
-		return fmt.Errorf("write Herdr core %s request: %w", method, err)
+		return fmt.Errorf("write Herdr Core %s request: %w", method, err)
 	}
 	var response coreResponse
 	if err := connection.decoder.Decode(&response); err != nil {
-		return fmt.Errorf("read Herdr core %s response: %w", method, err)
+		return fmt.Errorf("read Herdr Core %s response: %w", method, err)
 	}
 	if string(response.ID) != fmt.Sprint(id) {
-		return fmt.Errorf("Herdr core response id %s did not match request %d", response.ID, id)
+		return fmt.Errorf("Herdr Core response id %s did not match request %d", response.ID, id)
 	}
 	if response.Error != nil {
 		return &APIError{Code: response.Error.Data.Kind, Message: response.Error.Message}
 	}
 	if len(response.Result) == 0 {
-		return fmt.Errorf("Herdr core %s response omitted its result", method)
+		return fmt.Errorf("Herdr Core %s response omitted its result", method)
 	}
 	if err := json.Unmarshal(response.Result, result); err != nil {
-		return fmt.Errorf("decode Herdr core %s response: %w", method, err)
+		return fmt.Errorf("decode Herdr Core %s response: %w", method, err)
 	}
 	return nil
 }
@@ -242,7 +242,7 @@ func (c *CoreClient) Subscribe(ctx context.Context) (*CoreSubscription, error) {
 	}
 	if started.Seq == nil {
 		connection.conn.Close()
-		return nil, errors.New("Herdr core returned an unexpected subscription response")
+		return nil, errors.New("Herdr Core returned an unexpected subscription response")
 	}
 	return &CoreSubscription{conn: connection.conn, decoder: connection.decoder}, nil
 }
