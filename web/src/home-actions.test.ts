@@ -1359,3 +1359,25 @@ test("a confirmed Close terminal whose target is gone names what the person conf
     "This workspace is no longer here.",
   ]);
 });
+
+test("opening Close terminal on a terminal that is gone names the terminal on Herdr Core only", async () => {
+  const cases = [
+    { herdr: "core" as const, home: coreHome(), menu: "Actions for Outside <i>" },
+    { herdr: "tui" as const, home: terminalHome(), menu: "Actions for Build <script>" },
+  ];
+  const messages: string[] = [];
+  for (const { herdr, home, menu } of cases) {
+    const window = new Window({ url: "http://localhost/" });
+    const { app } = makeView(window, {
+      herdr,
+      prepareTerminal: async () => ({ outcome: "refused", reason: "not_found" }),
+    }, home);
+    if (herdr === "tui") requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
+    requiredMatchingElement<HTMLButtonElement>(app, ".workspace-menu-trigger", (node) => node.getAttribute("aria-label") === menu).click();
+    requiredMatchingElement<HTMLButtonElement>(app, '[role="menuitem"]', (node) => node.textContent === "Close terminal").click();
+    await settle();
+    messages.push(requiredElement(app, ".home-action-copy").textContent ?? "");
+    window.close();
+  }
+  assert.deepEqual(messages, ["This terminal is no longer here.", "This workspace is no longer here."]);
+});

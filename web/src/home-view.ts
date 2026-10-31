@@ -1637,7 +1637,7 @@ export class HomeView {
       return;
     }
     if (response.outcome === "refused") {
-      this.#showRefusal(response, herdr);
+      this.#showRefusal(response, herdr, herdr === "core" ? "This terminal is no longer here." : undefined);
       return;
     }
     this.#openTerminalCloseConfirmation(response.expected, herdr);
