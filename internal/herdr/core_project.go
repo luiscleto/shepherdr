@@ -269,13 +269,10 @@ func coreTerminal(coreID string, source CoreTerminal) Terminal {
 		if name == "" {
 			name = source.Status.App
 		}
-		if name == "" {
-			name = "Agent"
-		}
 		terminal.Agent = &Agent{Kind: source.Status.App, Name: name, Status: Status(source.Status.State)}
 	}
 	switch {
-	case terminal.Agent != nil && terminal.Agent.Name != "Agent":
+	case terminal.Agent != nil && terminal.Agent.Name != "":
 		terminal.Title = terminal.Agent.Name
 	case source.Name != nil && *source.Name != "":
 		terminal.Title = *source.Name

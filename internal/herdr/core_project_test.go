@@ -305,3 +305,32 @@ func TestProjectCoreNestedWorkersFollowTheirTopParentInStartOrder(t *testing.T) 
 		t.Fatalf("order = %v, want %v", got, want)
 	}
 }
+
+func TestCoreTerminalNamesFollowTheAgentThenTheTerminal(t *testing.T) {
+	name := func(value string) *string { return &value }
+	for _, test := range []struct {
+		label     string
+		source    CoreTerminal
+		agentName string
+		title     string
+	}{
+		{label: "agent title", source: CoreTerminal{Name: name("build"), Title: "Agent", Status: &CoreStatus{App: "claude", State: "idle"}}, agentName: "Agent", title: "Agent"},
+		{label: "agent app", source: CoreTerminal{Name: name("build"), Status: &CoreStatus{App: "claude", State: "idle"}}, agentName: "claude", title: "claude"},
+		{label: "agent without a name", source: CoreTerminal{Name: name("build"), Status: &CoreStatus{State: "idle"}}, agentName: "", title: "build"},
+		{label: "core name", source: CoreTerminal{Name: name("build"), Title: "zsh"}, title: "build"},
+		{label: "terminal title", source: CoreTerminal{Title: "zsh"}, title: "zsh"},
+		{label: "nothing", source: CoreTerminal{}, title: "Terminal"},
+	} {
+		t.Run(test.label, func(t *testing.T) {
+			test.source.Address = "t1"
+			terminal := coreTerminal("core", test.source)
+			agentName := ""
+			if terminal.Agent != nil {
+				agentName = terminal.Agent.Name
+			}
+			if (terminal.Agent != nil) != (test.source.Status != nil) || agentName != test.agentName || terminal.Title != test.title {
+				t.Fatalf("agent = %v %q, title = %q; want %q, %q", terminal.Agent != nil, agentName, terminal.Title, test.agentName, test.title)
+			}
+		})
+	}
+}
