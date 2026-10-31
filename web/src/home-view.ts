@@ -1702,7 +1702,9 @@ export class HomeView {
     this.#actionRunning = false;
     this.#renderAgain();
     if (response.outcome === "refused") {
-      this.#showRefusal(response, request.herdr);
+      // A confirmed Close terminal names the terminal; a confirmed Close space keeps the space's words.
+      const terminalGone = request.herdr === "core" && request.action === "close_terminal" && !request.expected.workspace_expected;
+      this.#showRefusal(response, request.herdr, terminalGone ? "This terminal is no longer here." : undefined);
       return;
     }
     if (response.outcome === "unknown") {
@@ -1916,7 +1918,7 @@ export class HomeView {
     this.#showResult("Result unknown", message);
   }
 
-  #showRefusal(refusal: RefusedWorkspaceAction, herdr: Herdr): void {
+  #showRefusal(refusal: RefusedWorkspaceAction, herdr: Herdr, notFound = `This ${spaceWord(herdr)} is no longer here.`): void {
     const word = spaceWord(herdr);
     if (refusal.reason === "checkout_has_changes") {
       this.#showResult(
@@ -1927,7 +1929,7 @@ export class HomeView {
     }
     const messages: Record<Exclude<RefusedWorkspaceAction["reason"], "checkout_has_changes">, string> = {
       invalid_request: "Shepherdr could not use this request.",
-      not_found: `This ${word} is no longer here.`,
+      not_found: notFound,
       not_applicable: "This action is no longer available.",
       busy: `Another ${word} action is running. Try again when it finishes.`,
       stale: `This ${word} changed. Open the action again to check the latest details.`,

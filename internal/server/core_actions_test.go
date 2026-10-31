@@ -181,7 +181,7 @@ func TestCoreCloseOfASpacesLastTerminalConfirmsAndClosesTheSpace(t *testing.T) {
 	}
 }
 
-func TestCoreCloseSpaceKillsEveryTerminalInHomeOrderAndSkipsEndedWorkers(t *testing.T) {
+func TestCoreCloseSpaceKillsWorkersFirstAndSkipsTerminalsAlreadyEnded(t *testing.T) {
 	core := newFakeCore(t)
 	working, blocked, failed := "working", "blocked", "error"
 	core.change(func(read *herdr.CoreRead) {
@@ -203,13 +203,84 @@ func TestCoreCloseSpaceKillsEveryTerminalInHomeOrderAndSkipsEndedWorkers(t *test
 	if !reflect.DeepEqual(facts, want) {
 		t.Fatalf("facts = %+v", facts)
 	}
+	// t5 exits on its own while t9 closes, so it is not killed.
+	core.kill = func(address string) (string, error) {
+		core.end(address)
+		if address == "t9" {
+			core.end("t5")
+		}
+		return "finished", nil
+	}
 	assertOutcome(t, performSideActionRequest(t, handler, "/api/workspace-actions", confirm), http.StatusOK, "succeeded", "")
-	// t9 ended with t3, so it is not killed again.
-	if got := core.killed(); !reflect.DeepEqual(got, []string{"t3", "t4", "t5"}) {
+	// t9 is t3's worker, so it ends before t3.
+	if got := core.killed(); !reflect.DeepEqual(got, []string{"t9", "t3", "t4"}) {
 		t.Fatalf("kills = %q", got)
 	}
 	if refresh.count.Load() != 1 {
 		t.Fatalf("refreshes = %d", refresh.count.Load())
+	}
+}
+
+func TestCoreCloseSpaceEndsOnlyItsOwnDescendantsDeepestFirst(t *testing.T) {
+	core := newFakeCore(t)
+	t4, t9 := "t4", "t9"
+	core.change(func(read *herdr.CoreRead) {
+		read.Terminals = append(read.Terminals,
+			// t11 is t9's worker, two levels below t3.
+			herdr.CoreTerminal{Address: "t11", Parent: &t9, DieWithParent: true, CreatedMS: 1793406425400},
+			// t10 outlives t4 but is shown with it.
+			herdr.CoreTerminal{Address: "t10", Parent: &t4, CreatedMS: 1793406425500},
+		)
+		for index := range read.Terminals {
+			if read.Terminals[index].Address == "t7" {
+				// The app placed t7, a sub-agent of t4, in another space.
+				read.Terminals[index].Parent = &t4
+			}
+		}
+	})
+	handler := coreActionHandler(core, nil)
+	_, confirm := prepareCore(t, handler, "/api/workspace-actions", `{"herdr":"core","action":"close_workspace","workspace_id":"`+coreAlpha+`"}`)
+	assertOutcome(t, performSideActionRequest(t, handler, "/api/workspace-actions", confirm), http.StatusOK, "succeeded", "")
+	if got := core.killed(); !reflect.DeepEqual(got, []string{"t11", "t9", "t10", "t3", "t4", "t5"}) {
+		t.Fatalf("kills = %q", got)
+	}
+	// t7 and t8, under Other terminals, are left running.
+	read, _ := core.Read(context.Background())
+	if !coreTerminalLive(read.Terminals, "t7") || !coreTerminalLive(read.Terminals, "t8") {
+		t.Fatalf("live after = %+v", read.Terminals)
+	}
+}
+
+func TestCoreCloseTerminalCountsAWorkerThatMovesToOtherTerminalsAsGone(t *testing.T) {
+	core := newFakeCore(t)
+	t5, t6 := "t5", "t6"
+	core.change(func(read *herdr.CoreRead) {
+		read.Terminals = append(read.Terminals,
+			// Both outlive their parent; Home shows them with it until it ends.
+			herdr.CoreTerminal{Address: "t16", Parent: &t6, CreatedMS: 1793406425400},
+			herdr.CoreTerminal{Address: "t17", Parent: &t5, CreatedMS: 1793406425500},
+		)
+	})
+	refresh := &countingHomeRefresher{}
+	handler := coreActionHandler(core, refresh)
+
+	// t5 is the only terminal its tab places, so the tab closes.
+	expected, _ := prepareCore(t, handler, "/api/terminal-actions",
+		`{"herdr":"core","action":"close_terminal",`+coreTarget(coreAlpha, coreSecond, "t5")+`}`)
+	if string(expected["closes_tab"]) != "true" || expected["closes_workers"] != nil || expected["workspace_expected"] != nil {
+		t.Fatalf("tab facts = %v", expected)
+	}
+
+	// t6 is the only terminal the space places, so the space closes.
+	expected, confirm := prepareCore(t, handler, "/api/terminal-actions",
+		`{"herdr":"core","action":"close_terminal",`+coreTarget(coreRepo, coreRepoTab, "t6")+`}`)
+	if string(expected["workspace_action"]) != `"close_workspace"` || string(expected["closes_tab"]) != "false" {
+		t.Fatalf("space facts = %v", expected)
+	}
+	assertOutcome(t, performSideActionRequest(t, handler, "/api/terminal-actions", confirm), http.StatusOK, "succeeded", "")
+	// The person confirmed Close space, which ends every terminal shown in it.
+	if got := core.killed(); !reflect.DeepEqual(got, []string{"t16", "t6"}) {
+		t.Fatalf("kills = %q", got)
 	}
 }
 
@@ -305,14 +376,14 @@ func TestCoreKillErrorsMapToNotSentRefusedOrUnknown(t *testing.T) {
 	handler := coreActionHandler(core, nil)
 	_, confirm := prepareCore(t, handler, "/api/workspace-actions", `{"herdr":"core","action":"close_workspace","workspace_id":"`+coreAlpha+`"}`)
 	core.kill = func(address string) (string, error) {
-		if address == "t3" {
+		if address == "t9" {
 			core.end(address)
 			return "finished", nil
 		}
 		return "", &herdr.APIError{Code: "not_found", Message: "not_found"}
 	}
 	assertOutcome(t, performSideActionRequest(t, handler, "/api/workspace-actions", confirm), http.StatusBadGateway, "unknown", "")
-	if got := core.killed(); !reflect.DeepEqual(got, []string{"t3", "t4"}) {
+	if got := core.killed(); !reflect.DeepEqual(got, []string{"t9", "t3"}) {
 		t.Fatalf("kills = %q", got)
 	}
 }

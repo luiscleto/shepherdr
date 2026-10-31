@@ -1304,3 +1304,58 @@ test("Herdr Core Close terminal on a space's last terminal confirms Close space"
   assert.equal(requiredElement(panel, ".home-action-title").textContent, "Space closed");
   window.close();
 });
+
+test("a confirmed Close terminal whose target is gone names what the person confirmed", async () => {
+  const terminalFacts = {
+    target: { workspace_id: "other", tab_id: "other", pane_id: "t8", terminal_id: "core:t8" },
+    workspace_label: "Other terminals",
+    tab_label: "Other terminals",
+    terminal_title: "Outside <i>",
+    closes_tab: false,
+  };
+  const spaceFacts = {
+    ...terminalFacts,
+    workspace_action: "close_workspace" as const,
+    workspace_expected: {
+      workspace_label: "Other terminals",
+      scope_workspace_ids: ["other"],
+      agent_total: 0,
+      interruption_counts: { working: 0, blocked: 0, error: 0, unknown: 0 },
+    },
+  };
+  const tuiFacts = {
+    target: { workspace_id: "terminal-workspace", tab_id: "terminal-tab-main", pane_id: "pane:anchor", terminal_id: "terminal:anchor" },
+    workspace_label: "Terminal workspace",
+    tab_label: "Main",
+    terminal_title: "Build <script>",
+    closes_tab: false,
+  };
+  const cases = [
+    { herdr: "core" as const, facts: terminalFacts, home: coreHome(), menu: "Actions for Outside <i>" },
+    { herdr: "core" as const, facts: spaceFacts, home: coreHome(), menu: "Actions for Outside <i>" },
+    { herdr: "tui" as const, facts: tuiFacts, home: terminalHome(), menu: "Actions for Build <script>" },
+  ];
+  const messages: string[] = [];
+  for (const { herdr, facts, home, menu } of cases) {
+    const window = new Window({ url: "http://localhost/" });
+    const { app } = makeView(window, {
+      herdr,
+      prepareTerminal: async () => ({ outcome: "prepared", action: "close_terminal", expected: facts }),
+      runTerminal: async () => ({ outcome: "refused", reason: "not_found" }),
+    }, home);
+    if (herdr === "tui") requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
+    requiredMatchingElement<HTMLButtonElement>(app, ".workspace-menu-trigger", (node) => node.getAttribute("aria-label") === menu).click();
+    requiredMatchingElement<HTMLButtonElement>(app, '[role="menuitem"]', (node) => node.textContent === "Close terminal").click();
+    await settle();
+    const panel = requiredElement(app, ".home-action-panel");
+    requiredElement<HTMLButtonElement>(panel, ".home-action-primary").click();
+    await settle();
+    messages.push(requiredElement(panel, ".home-action-copy").textContent ?? "");
+    window.close();
+  }
+  assert.deepEqual(messages, [
+    "This terminal is no longer here.",
+    "This space is no longer here.",
+    "This workspace is no longer here.",
+  ]);
+});

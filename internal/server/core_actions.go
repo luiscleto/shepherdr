@@ -198,45 +198,42 @@ func (c *coreActionCoordinator) runTerminal(writer http.ResponseWriter, request 
 	c.succeeded(writer)
 }
 
-// closeSpace kills every live terminal Home shows in the space, workers
-// included, in Home order. A worker that already ended with its parent is
-// skipped. It succeeds only when one complete read afterwards shows nothing
-// live left in the space.
+// closeSpace kills every live terminal Home shows in the space, in
+// coreSpaceCloseOrder. A terminal no longer live is skipped. It succeeds only
+// when one complete read afterwards shows nothing live left in the space.
 func (c *coreActionCoordinator) closeSpace(writer http.ResponseWriter, request *http.Request, current coreView, workspaceID string) {
 	workspace, _ := findCoreWorkspace(current.home, workspaceID)
 	killed, finished := false, true
-	for _, tab := range workspace.Tabs {
-		for _, terminal := range tab.Terminals {
-			if killed {
-				fresh, err := c.client.Read(context.Background())
-				if err != nil {
-					c.unknown(writer, http.StatusBadGateway)
-					return
-				}
-				if !coreTerminalLive(fresh.Terminals, terminal.PaneID) {
-					continue
-				}
-			}
-			var state string
-			err := withCommitAuthority(request, func() error {
-				var killErr error
-				state, killErr = c.client.Kill(context.Background(), terminal.PaneID)
-				return killErr
-			})
+	for _, address := range coreSpaceCloseOrder(current.read.Terminals, workspace) {
+		if killed {
+			fresh, err := c.client.Read(context.Background())
 			if err != nil {
-				if killed && !errors.Is(err, access.ErrUnauthorized) {
-					c.unknown(writer, unknownStatus(err))
-					return
-				}
-				if killed {
-					c.refreshHome()
-				}
-				c.finishError(writer, err)
+				c.unknown(writer, http.StatusBadGateway)
 				return
 			}
-			killed = true
-			finished = finished && state == "finished"
+			if !coreTerminalLive(fresh.Terminals, address) {
+				continue
+			}
 		}
+		var state string
+		err := withCommitAuthority(request, func() error {
+			var killErr error
+			state, killErr = c.client.Kill(context.Background(), address)
+			return killErr
+		})
+		if err != nil {
+			if killed && !errors.Is(err, access.ErrUnauthorized) {
+				c.unknown(writer, unknownStatus(err))
+				return
+			}
+			if killed {
+				c.refreshHome()
+			}
+			c.finishError(writer, err)
+			return
+		}
+		killed = true
+		finished = finished && state == "finished"
 	}
 	after, err := c.view(context.Background())
 	if _, present := findCoreWorkspace(after.home, workspaceID); err != nil || !finished || present {
@@ -401,19 +398,19 @@ func coreTerminalFacts(current coreView, target terminalActionTarget) (terminalC
 	if workspace.ID == herdr.OtherTerminalsID {
 		return facts, http.StatusOK, ""
 	}
-	spaceLeft, tabLeft := 0, 0
-	for _, spaceTab := range workspace.Tabs {
-		for _, candidate := range spaceTab.Terminals {
-			if _, ends := ending[candidate.PaneID]; ends {
-				continue
-			}
-			spaceLeft++
-			if spaceTab.ID == target.TabID {
-				tabLeft++
-			}
-		}
+	// What remains is what Home shows once the kill lands: a worker that
+	// outlives its placed parent moves to Other terminals and keeps nothing here.
+	after := current.read
+	after.Terminals = slices.DeleteFunc(slices.Clone(current.read.Terminals), func(terminal herdr.CoreTerminal) bool {
+		_, ends := ending[terminal.Address]
+		return ends
+	})
+	_, afterHome, err := herdr.ProjectCore(after, "")
+	if err != nil {
+		return terminalCloseFacts{}, http.StatusServiceUnavailable, "herdr_unavailable"
 	}
-	if spaceLeft == 0 {
+	remaining, spaceRemains := findCoreWorkspace(afterHome, workspace.ID)
+	if !spaceRemains {
 		spaceFacts, status, reason := coreSpaceFacts(current.home, workspace.ID)
 		if reason != "" {
 			return terminalCloseFacts{}, status, reason
@@ -423,7 +420,7 @@ func coreTerminalFacts(current coreView, target terminalActionTarget) (terminalC
 		facts.WorkspaceExpected = &spaceFacts
 		return facts, http.StatusOK, ""
 	}
-	facts.ClosesTab = tabLeft == 0
+	facts.ClosesTab = !slices.ContainsFunc(remaining.Tabs, func(tab herdr.Tab) bool { return tab.ID == target.TabID })
 	return facts, http.StatusOK, ""
 }
 
@@ -434,6 +431,44 @@ func findCoreWorkspace(home herdr.Home, workspaceID string) (herdr.Workspace, bo
 		}
 	}
 	return herdr.Workspace{}, false
+}
+
+// coreSpaceCloseOrder lists the terminals Home shows in the space so that each
+// ends after the workers it started, deepest first, and otherwise in Home
+// order. Only terminals shown in this space count: a sub-agent the app placed
+// elsewhere, or one under Other terminals, is never listed.
+func coreSpaceCloseOrder(terminals []herdr.CoreTerminal, workspace herdr.Workspace) []string {
+	parents := make(map[string]string, len(terminals))
+	for _, terminal := range terminals {
+		if terminal.Parent != nil {
+			parents[terminal.Address] = *terminal.Parent
+		}
+	}
+	var order []string
+	shown := map[string]struct{}{}
+	for _, tab := range workspace.Tabs {
+		for _, terminal := range tab.Terminals {
+			order = append(order, terminal.PaneID)
+			shown[terminal.PaneID] = struct{}{}
+		}
+	}
+	// A terminal's depth counts its ancestors shown in this space, so a worker
+	// is always deeper than the terminal that started it.
+	depth := make(map[string]int, len(order))
+	for _, address := range order {
+		seen := map[string]struct{}{address: {}}
+		for parent, ok := parents[address]; ok; parent, ok = parents[parent] {
+			if _, loop := seen[parent]; loop {
+				break
+			}
+			seen[parent] = struct{}{}
+			if _, inSpace := shown[parent]; inSpace {
+				depth[address]++
+			}
+		}
+	}
+	slices.SortStableFunc(order, func(a, b string) int { return depth[b] - depth[a] })
+	return order
 }
 
 func coreTerminalLive(terminals []herdr.CoreTerminal, address string) bool {
