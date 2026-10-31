@@ -168,7 +168,7 @@ The existing two-step flow is reused: **prepare** (a fresh complete core read, t
 **Close terminal: mutation.** One `terminal.kill {terminal: address}`. The address only, never a name.
 
 **Close space: mutation.**
-- Kill every live terminal that Home shows in the space, workers included, in Home order (one `terminal.kill` each, one after another).
+- Kill every live terminal that Home shows in the space, workers included (one `terminal.kill` each, one after another). Workers go first, deepest first across the space, so each ends before the terminal that started it; otherwise the order is Home order. Only terminals Home shows in this space are killed: a sub-agent the app placed in another space, or one under **Other terminals**, is left running.
 - A child that has already ended with its parent is skipped when the next fresh check finds it finished. Kill returns finished records anyway, so this is harmless.
 
 **Close space: confirmation.** It reuses the workspace confirmation facts: `workspace_label`, `scope_workspace_ids: [space id]`, `agent_total`, `interruption_counts`. In core mode the counts add `error`; the Herdr TUI always sends 0 for it.
@@ -424,7 +424,7 @@ CHANGELOG: one entry per wave, added before merge as usual.
      - a worker started with `outlive_parent` is killed too.
   4. A Claude Code agent reporting `error` (or a unit test from the recorded event) appears in the warning.
   5. **Stale and races:**
-     - the person closes the terminal or space in the app between prepare and confirm → "This space is no longer here." or "This space changed…";
+     - the person closes the terminal or space in the app between prepare and confirm → "This terminal is no longer here." (Close terminal), "This space is no longer here." (Close space) or "This space changed…";
      - the person adds a tab during Close space → unknown, then the true Home.
   6. A kept terminal closed by Shepherdr does not restart.
   7. Stopping core during an action gives unknown (or "Herdr is not available" if nothing was sent), with no retry and a fresh Home after reconnect.

@@ -203,7 +203,7 @@ Only live terminals (`terminal.list` without `all`) and only this machine's (an 
 
 Shown, through core, whenever core Home is live (the app window open or closed):
 - **Close terminal**: `terminal.kill` on the exact address. The confirmation is the TUI's, plus "N terminals it started will also close." when workers end with it. If it is the space's last terminal, the confirmation is Close space's.
-- **Close space**: `terminal.kill` on every live terminal Home shows in the space, workers included. The confirmation is the TUI's Close workspace one in space words, never naming linked workspaces, with `error` in the interruption warning. **Other terminals** has no space actions.
+- **Close space**: `terminal.kill` on every live terminal Home shows in the space, workers included: workers first, deepest first, each before the terminal that started it, otherwise in Home order. The confirmation is the TUI's Close workspace one in space words, never naming linked workspaces, with `error` in the interruption warning. **Other terminals** has no space actions.
 
 Hidden in core mode:
 - worktree groups, **New worktree** and **Delete checkout** (core and the app expose no worktree command);
