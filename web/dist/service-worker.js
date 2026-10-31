@@ -66,12 +66,14 @@ function notificationFor(value) {
     return fallbackNotice();
   }
   if (!statusDestinationMatches(destination, value.pane_id, value.terminal_id)) return fallbackNotice();
+  // A Herdr app terminal under Other terminals is in no space.
+  const place = core && value.other_terminals === true ? "terminal" : space;
   const bodies = {
-    blocked: `A ${space} needs attention.`,
-    done: `A ${space} finished.`,
-    idle: `A ${space} is idle.`,
-    unknown: `A ${space} status changed.`,
-    working: `A ${space} is working.`,
+    blocked: `A ${place} needs attention.`,
+    done: `A ${place} finished.`,
+    idle: `A ${place} is idle.`,
+    unknown: `A ${place} status changed.`,
+    working: `A ${place} is working.`,
   };
   if (core) bodies.error = bodies.blocked;
   if (!Object.prototype.hasOwnProperty.call(bodies, value.status)) return fallbackNotice();

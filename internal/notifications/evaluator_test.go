@@ -26,7 +26,7 @@ func TestSnapshotEvaluatorUsesOnlyContiguousCompleteDifferences(t *testing.T) {
 	if status.Kind != EventStatus || status.Status != herdr.StatusBlocked || status.WorkspaceName != "Workspace w1" || status.PaneID != "w1:p1" || status.TerminalID != "term-1" {
 		t.Fatalf("status event = %+v", status)
 	}
-	if status.Destination != "/#terminal=w1%3Ap1&terminal_id=term-1" {
+	if status.Destination != "/#terminal=w1%3Ap1\u0026terminal_id=term-1" {
 		t.Fatalf("status destination = %q", status.Destination)
 	}
 	if events[1] != (Event{Kind: EventWorkspaceOpened, Destination: "/"}) {
@@ -160,5 +160,40 @@ func TestManagerMarksNoticesWithTheHerdrApp(t *testing.T) {
 	payload, err := eventPayload(Event{Kind: EventWorkspaceOpened, Herdr: herdr.BackendCore, WorkspaceName: "alpha", Destination: "/"})
 	if err != nil || string(payload) != `{"destination":"/","herdr":"core","kind":"workspace_opened","workspace_name":"alpha"}` {
 		t.Fatalf("payload = %s, %v", payload, err)
+	}
+}
+
+func TestStatusNoticesMarkHerdrAppTerminalsInNoSpace(t *testing.T) {
+	inOther := func(status string) herdr.Snapshot {
+		snapshot := notificationSnapshot(status, "sp1")
+		snapshot.Agents[0].WorkspaceID = herdr.OtherTerminalsID
+		return snapshot
+	}
+	for _, test := range []struct {
+		name    string
+		backend herdr.Backend
+		want    string
+	}{
+		{name: "Herdr app", backend: herdr.BackendCore, want: `{"destination":"/#terminal=w1%3Ap1\u0026terminal_id=term-1","herdr":"core","kind":"status","other_terminals":true,"pane_id":"w1:p1","status":"blocked","terminal_id":"term-1"}`},
+		{name: "Herdr TUI", want: `{"destination":"/#terminal=w1%3Ap1\u0026terminal_id=term-1","kind":"status","pane_id":"w1:p1","status":"blocked","terminal_id":"term-1"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manager := NewManager(UnavailableStore(errors.New("not needed")), nil)
+			manager.SetHerdr(test.backend)
+			manager.ObserveSnapshot(inOther("working"), true)
+			manager.ObserveSnapshot(inOther("blocked"), false)
+			payload, err := eventPayload(<-manager.events)
+			if err != nil || string(payload) != test.want {
+				t.Fatalf("payload = %s, %v; want %s", payload, err, test.want)
+			}
+		})
+	}
+
+	manager := NewManager(UnavailableStore(errors.New("not needed")), nil)
+	manager.SetHerdr(herdr.BackendCore)
+	manager.ObserveSnapshot(notificationSnapshot("working", "w1"), true)
+	manager.ObserveSnapshot(notificationSnapshot("blocked", "w1"), false)
+	if event := <-manager.events; event.OtherTerminals || event.WorkspaceName != "Workspace w1" {
+		t.Fatalf("space notice = %+v", event)
 	}
 }

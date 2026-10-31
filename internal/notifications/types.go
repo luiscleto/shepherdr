@@ -115,11 +115,14 @@ type Event struct {
 	Herdr         herdr.Backend
 	Status        herdr.Status
 	WorkspaceName string
-	PaneID        string
-	TerminalID    string
-	Destination   string
-	TrustLabel    string
-	pending       *sync.WaitGroup
+	// OtherTerminals marks a status notice for a Herdr app terminal that is
+	// in no space.
+	OtherTerminals bool
+	PaneID         string
+	TerminalID     string
+	Destination    string
+	TrustLabel     string
+	pending        *sync.WaitGroup
 }
 
 func (e Event) selected(settings EventSettings) bool {
@@ -152,6 +155,7 @@ func (e Event) selected(settings EventSettings) bool {
 }
 
 type snapshotEvaluator struct {
+	herdr    herdr.Backend
 	previous *herdr.Snapshot
 }
 
@@ -179,12 +183,13 @@ func (e *snapshotEvaluator) Observe(snapshot herdr.Snapshot, baseline bool) []Ev
 		}
 		destination := "/#terminal=" + url.QueryEscape(agent.PaneID) + "&terminal_id=" + url.QueryEscape(agent.TerminalID)
 		events = append(events, Event{
-			Kind:          EventStatus,
-			Status:        agent.AgentStatus,
-			WorkspaceName: notificationWorkspaceName(currentWorkspaces[agent.WorkspaceID].Label),
-			PaneID:        agent.PaneID,
-			TerminalID:    agent.TerminalID,
-			Destination:   destination,
+			Kind:           EventStatus,
+			Status:         agent.AgentStatus,
+			WorkspaceName:  notificationWorkspaceName(currentWorkspaces[agent.WorkspaceID].Label),
+			OtherTerminals: e.herdr == herdr.BackendCore && agent.WorkspaceID == herdr.OtherTerminalsID,
+			PaneID:         agent.PaneID,
+			TerminalID:     agent.TerminalID,
+			Destination:    destination,
 		})
 	}
 

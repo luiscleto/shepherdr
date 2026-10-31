@@ -609,3 +609,24 @@ test("with the Herdr app, pushes say space and error uses the blocked wording", 
   assert.equal(worker.shownTitle(), "Shepherdr");
   assert.equal(worker.shownBody(), "A workspace changed.");
 });
+
+test("with the Herdr app, pushes for a terminal in no space say terminal", async () => {
+  const worker = serviceWorkerHarness();
+  const destination = "/#terminal=t4&terminal_id=core%3At4";
+  const bodies = Object.entries({
+    blocked: "A terminal needs attention.",
+    error: "A terminal needs attention.",
+    done: "A terminal finished.",
+    idle: "A terminal is idle.",
+    working: "A terminal is working.",
+  });
+  for (const [status, body] of bodies) {
+    await worker.push({ destination, herdr: "core", kind: "status", other_terminals: true, pane_id: "t4", status, terminal_id: "core:t4" });
+    assert.equal(worker.shownTitle(), "Shepherdr");
+    assert.equal(worker.shownBody(), body);
+  }
+
+  const tui = "/#terminal=w1%3Ap1&terminal_id=term-1";
+  await worker.push({ destination: tui, kind: "status", other_terminals: true, pane_id: "w1:p1", status: "blocked", terminal_id: "term-1" });
+  assert.equal(worker.shownBody(), "A workspace needs attention.");
+});

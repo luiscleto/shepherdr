@@ -769,6 +769,7 @@ test("With the Herdr app, Home says space, offers N error and Error, and has no 
   const filter = requiredElement(app, ".home-filter input");
   assert.equal(filter.getAttribute("placeholder"), "Filter spaces and terminals");
   assert.equal(filter.getAttribute("aria-label"), "Filter spaces and terminals");
+  assert.equal(requiredElement(app, ".herdr-version").textContent, "Herdr core 0.8.0");
   assert.equal(app.querySelectorAll(".new-space-action, .workspace-menu, .terminal-menu").length, 0);
   assert.deepEqual(
     Array.from(app.querySelectorAll(".attention-bar > :not([hidden])"), (node) => node.textContent),
@@ -800,6 +801,7 @@ test("The Herdr TUI keeps workspace words and never shows an error count", () =>
   const home = coreHome();
   render(view, state(home));
   assert.equal(requiredElement(app, ".home-filter input").getAttribute("placeholder"), "Filter workspaces and terminals");
+  assert.equal(requiredElement(app, ".herdr-version").textContent, "Herdr 0.8.0");
   assert.deepEqual(
     Array.from(app.querySelectorAll(".attention-bar > :not([hidden])"), (node) => node.textContent),
     ["0 working", "1 blocked"],

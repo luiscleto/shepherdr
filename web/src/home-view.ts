@@ -438,7 +438,7 @@ export class HomeView {
     const filterCopy = core ? "Filter spaces and terminals" : "Filter workspaces and terminals";
     setAttribute(this.#filterInput, "placeholder", filterCopy);
     setAttribute(this.#filterInput, "aria-label", filterCopy);
-    setText(this.#herdrVersion, live && model.state.herdr_version !== "" ? `Herdr ${model.state.herdr_version}` : "");
+    setText(this.#herdrVersion, live && model.state.herdr_version !== "" ? `${core ? "Herdr core" : "Herdr"} ${model.state.herdr_version}` : "");
 
     const desired: Node[] = [this.#header];
     const connection = this.#connectionCopy(model);

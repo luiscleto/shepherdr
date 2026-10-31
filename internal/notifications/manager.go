@@ -60,6 +60,9 @@ func (m *Manager) Start(ctx context.Context) {
 // before Start.
 func (m *Manager) SetHerdr(backend herdr.Backend) {
 	m.herdr = backend
+	m.evaluatorMu.Lock()
+	m.evaluator.herdr = backend
+	m.evaluatorMu.Unlock()
 }
 
 func (m *Manager) ObserveSnapshot(snapshot herdr.Snapshot, baseline bool) {
@@ -261,10 +264,14 @@ func notificationLogFields(event Event) []any {
 	fields := []any{"event_kind", string(event.Kind)}
 	switch event.Kind {
 	case EventStatus:
-		return append(fields,
+		fields = append(fields,
 			"workspace_name", event.WorkspaceName,
 			"herdr_status", string(event.Status),
 		)
+		if event.OtherTerminals {
+			fields = append(fields, "other_terminals", true)
+		}
+		return fields
 	case EventWorkspaceOpened, EventWorkspaceClosed:
 		return append(fields, "workspace_name", event.WorkspaceName)
 	case EventTrustedSignInAdded, EventTrustedSignInRemoved:
