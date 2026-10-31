@@ -97,9 +97,6 @@ export class TerminalPage {
     this.paneID = target.paneID;
     this.terminalID = target.terminalID;
     this.herdr = target.herdr;
-    // Herdr Core terminals open observing: Control is an active attach, which
-    // sets the terminal's size, so it waits for the person to ask.
-    this.#desiredControl = target.herdr !== "core";
     this.#workspaceID = target.workspaceID;
     this.#mobile = terminalReaderForDevice();
     // Mobile scroll gestures navigate Herdr history. Local frame scrollback is

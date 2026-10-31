@@ -217,8 +217,8 @@ The browser keeps its WebSocket protocol, and the server holds the core channel.
 
 | Browser need | Core |
 |---|---|
-| Open, mode `observe` | `terminal.attach {terminal, cols, rows, observe:true, history:0}` |
-| **Control** (mode `control`) | Close the observe channel, then `terminal.attach {observe:false}` with the browser's cols and rows. Core treats the attach itself as activity, so this size applies. It is never "occupied". |
+| Open, mode `control` | `terminal.attach {terminal, cols, rows, observe:false, history:0}` with the browser's cols and rows, as a Herdr TUI terminal opens. Core treats the attach itself as activity, so the terminal takes this size until someone types in the app window. It is never "occupied". (Decided by the human 2026-10-31; before, it opened observing.) |
+| **Control** (mode `control`), after **Release** | Close the observe channel, then `terminal.attach {observe:false}` with the browser's cols and rows. This size applies, as when opening. |
 | **Release** | Close the active channel, then reattach with `observe:true`. Observing never resizes. |
 | mode `takeover` | Rejected (400) in core mode. The browser never sends it, because ownership is never "occupied". |
 | Reader older output (today's `pane read --source recent --lines N`) | A short separate observe attach with `history: N`. Read DATA up to and including the first `CSI ?9001h` or `CSI ?9001l`, which ends the first paint, then CLOSE. Wait no longer than the existing request timeout; on time-out Reader shows its existing "Could not read terminal output". Reader gets the paint without its title and status strings, its character set choices, its clears, and the blank lines that push history into scrollback. The line break that ends the last history line stays, so each row is one Reader line. Never `terminal.read`. (Amended 2026-10-31, see the note below.) |
@@ -485,7 +485,7 @@ Wave 2 starts from the approved integrated wave 1b commit. With both Herdrs foll
   - tests and a `web/dist` rebuild.
 - **First step:** confirm on a disposable core how the first paint arrives (one DATA frame?). Stop and report if it doesn't.
 - **Acceptance gate:**
-  1. Reader shows history with colors, then live output. An OSC 8 link printed after opening opens through **Open link?** in full Terminal. Opening never changes the app's terminal size, and typing in the app is unaffected.
+  1. Reader shows history with colors, then live output. An OSC 8 link printed after opening opens through **Open link?** in full Terminal. Opening controls the terminal, so it takes the phone's size until someone types in the app window, and typing in the app is unaffected. (Amended 2026-10-31: core terminals open in control.)
   2. **Control**: Message sends text and Enter into Claude Code. Send keys sends Esc, Ctrl+C, the arrows, F5, Tab, an uppercase letter (as Shift) and a Super combination. Unsupported characters are not offered. The size follows the phone while it types and returns when the app window is used.
   3. **Release** goes back to observing, and the size is no longer the phone's once the app types. No **Take over** appears anywhere.
   4. Files: exact bytes are staged and their paths inserted, for a terminal with status. **Add files** is absent for a shell and for an agent on its trust prompt.

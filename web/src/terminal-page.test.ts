@@ -199,25 +199,26 @@ function pageBrowser(t: test.TestContext, mobile: boolean, savedShortcuts?: stri
   return { host, browser, sockets, events: () => events, page, historyIntersection: () => historyIntersection() };
 }
 
-test("a Herdr Core terminal opens observing, offers Control without Take over, and hides keys core can't send", async t => {
+test("a Herdr Core terminal opens controlling, releases to observing without Take over, and hides keys core can't send", async t => {
   const { host, sockets, events } = pageBrowser(t, false, '[{"base":"esc"},{"base":"+","ctrl":true},{"base":"A"}]', "core");
   await tick();
   const url = new URL(sockets[0].url);
-  assert.equal(`${url.pathname} ${url.searchParams.get("herdr")} ${url.searchParams.get("mode")}`, "/api/terminal core observe");
+  assert.equal(`${url.pathname} ${url.searchParams.get("herdr")} ${url.searchParams.get("mode")}`, "/api/terminal core control");
   sockets[0].frame();
   const control = host.querySelector<HTMLButtonElement>(".terminal-control-action")!;
-  assert.equal(`${control.hidden} ${control.textContent}`, "false Control");
+  assert.equal(`${control.hidden} ${control.textContent}`, "false Release");
   const shortcuts = Array.from(host.querySelectorAll(".terminal-saved-shortcuts button")).map(button => button.textContent).join(",");
   assert.equal(shortcuts, "Esc,Enter,A");
-  control.click();
-  await tick();
-  assert.equal(new URL(sockets[1].url).searchParams.get("mode"), "control");
-  sockets[1].frame();
-  assert.equal(control.textContent, "Release");
   assert.equal(host.textContent?.includes("Take over"), false);
   // Herdr Core has no scroll command: the wheel stays local while controlling.
   assert.equal(events().onScroll?.({ direction: "up", lines: 3, column: 1, row: 1, modifiers: 0 }), false);
-  assert.equal(sockets[1].commands.some(command => command.type === "terminal.scroll"), false);
+  assert.equal(sockets[0].commands.some(command => command.type === "terminal.scroll"), false);
+  control.click();
+  await tick();
+  assert.equal(new URL(sockets[1].url).searchParams.get("mode"), "observe");
+  sockets[1].frame();
+  assert.equal(control.textContent, "Control");
+  assert.equal(host.textContent?.includes("Take over"), false);
 });
 
 test("Reader history banner opens the same Terminal view and remembers it without stream commands", async t => {

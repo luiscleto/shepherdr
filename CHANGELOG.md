@@ -9,7 +9,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Shepherdr also follows herdr-core, the runtime behind the Herdr desktop app, whenever it runs. When the Herdr TUI and Herdr Core are both running, a switch on Home picks which one to show, and each browser remembers its choice. For Herdr Core, Home lists the app's spaces and tabs with the app's names, and terminals that no space holds appear once under **Other terminals**. Home keeps working while the app window is closed.
 - Notifications come from both, whichever one Home shows.
 - With the Herdr app, an agent's **error** status shows on Home, **N error** opens an **Error** view, and a new **error** notification choice starts on.
-- Herdr Core terminals open from Home, with Reader, the full terminal, **Message**, **Send keys** and files. They open observing; **Control** lets you type and **Release** goes back to observing.
+- Herdr Core terminals open from Home, with Reader, the full terminal, **Message**, **Send keys** and files. They open in control, so you can type at once; **Release** goes back to observing and **Control** takes control again.
 
 ### Changed
 
