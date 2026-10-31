@@ -24,18 +24,33 @@ func TestRealProductionHome(t *testing.T) {
 	defer homeSocket.Close()
 	_ = homeSocket.SetReadDeadline(time.Now().Add(8 * time.Second))
 
+	// With an expected Herdr Core version set, Home must also report the Core
+	// side Live with its Home at that version before the read deadline.
+	expectCoreVersion := os.Getenv("SHEPHERDR_REAL_EXPECT_CORE_VERSION")
 	var homeMessage struct {
 		Epoch string      `json:"epoch"`
 		TUI   herdr.State `json:"tui"`
 		Core  herdr.State `json:"core"`
 	}
-	state := homeMessage.TUI
-	for state.Connection != herdr.ConnectionLive {
+	ready := func() bool {
+		if homeMessage.TUI.Connection != herdr.ConnectionLive {
+			return false
+		}
+		if expectCoreVersion == "" {
+			return true
+		}
+		core := homeMessage.Core
+		return core.Connection == herdr.ConnectionLive && core.HasHome && core.HerdrVersion == expectCoreVersion
+	}
+	for !ready() {
 		if err := homeSocket.ReadJSON(&homeMessage); err != nil {
+			if expectCoreVersion != "" {
+				t.Fatalf("Home did not report the Herdr TUI side Live and the Herdr Core side Live with Home at version %q; last saw TUI %s, Core %s, has Home %t, version %q: %v", expectCoreVersion, homeMessage.TUI.Connection, homeMessage.Core.Connection, homeMessage.Core.HasHome, homeMessage.Core.HerdrVersion, err)
+			}
 			t.Fatal(err)
 		}
-		state = homeMessage.TUI
 	}
+	state := homeMessage.TUI
 	if homeMessage.Epoch == "" {
 		t.Fatal("Home publication did not identify its server epoch")
 	}

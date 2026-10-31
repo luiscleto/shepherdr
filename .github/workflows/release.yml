@@ -240,7 +240,8 @@ jobs:
           # socket paths, holder sockets included, that the OS cannot bind.
           core_root="$smoke_root/hc"
           core_socket="$core_root/run/herdr-core/smoke.sock"
-          mkdir -p -m 0700 "$core_root" "$core_root/config" "$core_root/run" "$core_root/state"
+          mkdir -m 0700 "$core_root"
+          mkdir -m 0700 "$core_root/config" "$core_root/run" "$core_root/state"
           run_core() {
             HC_SESSION=smoke \
               XDG_CONFIG_HOME="$core_root/config" \
@@ -426,19 +427,9 @@ jobs:
             exit 1
           fi
           grep -F "herdr_core_socket=$core_socket" "$smoke_root/sign-in-off.log"
-          # The Home check waits for the Herdr TUI side to be Live and logs the
-          # Herdr Core side it saw with it. Core's first read can land a moment
-          # later, so the check reruns, bounded, until Core is Live too.
-          core_live=false
-          for _ in $(seq 1 10); do
-            SHEPHERDR_REAL_URL=http://127.0.0.1:18787 go test ./internal/server -run '^TestRealProductionHome$' -count=1 -v | tee "$smoke_root/home-check.log"
-            if grep -F 'Herdr Core side: live, has Home true, version "0.1.15"' "$smoke_root/home-check.log"; then
-              core_live=true
-              break
-            fi
-            sleep 1
-          done
-          test "$core_live" = "true"
+          # The Home check waits, bounded, until Home reports the Herdr TUI side
+          # Live and the Herdr Core side Live with its Home at version 0.1.15.
+          SHEPHERDR_REAL_URL=http://127.0.0.1:18787 SHEPHERDR_REAL_EXPECT_CORE_VERSION=0.1.15 go test ./internal/server -run '^TestRealProductionHome$' -count=1 -v
           kill -TERM "$shepherdr_pid"
           wait_bounded "$shepherdr_pid" "sign-in-off Shepherdr" 15 false
           shepherdr_pid=
@@ -597,14 +588,50 @@ jobs:
             exit 1
           fi
 
+          # Asset changes address the checked release by its ID, never by tag,
+          # and each one first confirms that the release is still a draft.
+          release_path="repos/$GITHUB_REPOSITORY/releases/$release_id"
+          require_draft() {
+            if [[ "$(gh api "$release_path" --jq '.draft')" != "true" ]]; then
+              echo "release $release_id is no longer a draft; refusing to change its assets" >&2
+              exit 1
+            fi
+          }
+          require_draft
+          upload_url=$(gh api "$release_path" --jq '.upload_url')
+          upload_url=${upload_url%%\{*}
+          if [[ "$upload_url" != https://*"/repos/$GITHUB_REPOSITORY/releases/$release_id/assets" ]]; then
+            echo "draft release returned an unexpected upload URL" >&2
+            exit 1
+          fi
+          gh api --paginate "$release_path/assets?per_page=100" > "$RUNNER_TEMP/release-assets.json"
           for name in \
             shepherdr_0.4.3_linux_amd64.tar.gz \
             shepherdr_0.4.3_linux_arm64.tar.gz \
             shepherdr_0.4.3_darwin_amd64.tar.gz \
             shepherdr_0.4.3_darwin_arm64.tar.gz \
             shepherdr_0.4.3_checksums.txt; do
-            if gh api "repos/$GITHUB_REPOSITORY/releases/$release_id/assets" --jq '.[].name' | grep -Fxq "$name"; then
-              gh release delete-asset "$RELEASE_TAG" "$name" --yes
+            asset_id=$(jq -rs --arg name "$name" '[.[][] | select(.name == $name) | .id] | join(" ")' "$RUNNER_TEMP/release-assets.json")
+            if [[ -z "$asset_id" ]]; then
+              continue
             fi
+            if [[ ! "$asset_id" =~ ^[1-9][0-9]*$ ]]; then
+              echo "draft release asset lookup returned an invalid asset ID for $name" >&2
+              exit 1
+            fi
+            require_draft
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" >/dev/null
           done
-          gh release upload "$RELEASE_TAG" release-assets/*
+          for asset in release-assets/*; do
+            name=${asset##*/}
+            case "$name" in
+              *.tar.gz) content_type=application/x-gtar ;;
+              *.txt) content_type=text/plain ;;
+              *)
+                echo "unexpected release asset $name" >&2
+                exit 1
+                ;;
+            esac
+            require_draft
+            gh api --method POST "$upload_url?name=$name" -H "Content-Type: $content_type" --input "$asset" >/dev/null
+          done
