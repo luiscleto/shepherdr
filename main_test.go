@@ -184,75 +184,102 @@ func (p *recordingProjector) publish(snapshot herdr.Snapshot, baseline bool) {
 	}
 }
 
-// Upload records hold Herdr TUI workspace ids. herdr-core reads, whose spaces
-// have other ids, run beside Herdr TUI reads and must never remove files staged
-// for a Herdr TUI workspace; Herdr TUI reads still clean up closed workspaces.
-func TestHerdrCoreReadsKeepFilesStagedForHerdrTUI(t *testing.T) {
+// Each Herdr keeps its own upload records and observes only its own reads, so
+// closing a space or workspace on one side never removes the other side's
+// files. Other terminals keeps its files while Home lists the group. Every
+// case stages with one manager and observes with a new one, as after a
+// Shepherdr restart.
+func TestEachHerdrKeepsItsOwnFileRecords(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	coreRead := herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "sp1"}}}
 	tuiOpen := herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "w1"}}}
 	tuiClosed := herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "w2"}}}
+	spacePane := herdr.PaneInfo{WorkspaceID: "sp1", PaneID: "t1", TabID: "tb1", TerminalID: "c:t1"}
+	otherPane := herdr.PaneInfo{WorkspaceID: herdr.OtherTerminalsID, PaneID: "t2", TabID: herdr.OtherTerminalsID, TerminalID: "c:t2"}
+	coreBoth := herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "sp1"}}, Panes: []herdr.PaneInfo{spacePane, otherPane}}
+	coreNoSpace := herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{}, Panes: []herdr.PaneInfo{otherPane}}
+	coreNoOther := herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "sp1"}}, Panes: []herdr.PaneInfo{spacePane}}
 	for _, test := range []struct {
-		name     string
-		reads    func(tui, core *recordingProjector)
-		wantKept bool
+		name  string
+		reads func(tui, core *recordingProjector)
+		kept  map[string]bool
 	}{
-		{name: "herdr-core reads, restarts and an empty core", reads: func(tui, core *recordingProjector) {
-			core.publish(coreRead, true)
-			core.publish(coreRead, false)
-			core.publish(coreRead, true)
-			core.publish(herdr.Snapshot{}, false)
-		}, wantKept: true},
-		{name: "both, with the workspace open", reads: func(tui, core *recordingProjector) {
+		{name: "both open, through core restarts", reads: func(tui, core *recordingProjector) {
+			core.publish(coreBoth, true)
 			tui.publish(tuiOpen, true)
-			core.publish(coreRead, true)
-			tui.publish(tuiOpen, false)
-			core.publish(herdr.Snapshot{}, false)
-		}, wantKept: true},
-		{name: "both, after the workspace closed", reads: func(tui, core *recordingProjector) {
-			core.publish(coreRead, true)
-			tui.publish(tuiClosed, true)
-		}, wantKept: false},
+			core.publish(coreBoth, true)
+			core.publish(coreBoth, false)
+		}, kept: map[string]bool{"tui:w1": true, "core:sp1": true, "core:other": true}},
+		{name: "the core space closes", reads: func(tui, core *recordingProjector) {
+			tui.publish(tuiOpen, true)
+			core.publish(coreBoth, true)
+			core.publish(coreNoSpace, false)
+		}, kept: map[string]bool{"tui:w1": true, "core:sp1": false, "core:other": true}},
+		{name: "the Herdr TUI workspace closes", reads: func(tui, core *recordingProjector) {
+			core.publish(coreBoth, true)
+			tui.publish(tuiOpen, true)
+			tui.publish(tuiClosed, false)
+		}, kept: map[string]bool{"tui:w1": false, "core:sp1": true, "core:other": true}},
+		{name: "Other terminals is gone", reads: func(tui, core *recordingProjector) {
+			tui.publish(tuiOpen, true)
+			core.publish(coreBoth, true)
+			core.publish(coreNoOther, false)
+		}, kept: map[string]bool{"tui:w1": true, "core:sp1": true, "core:other": false}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			base := t.TempDir()
 			if err := os.Mkdir(filepath.Join(base, "state"), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			uploadParent, statePath := filepath.Join(base, "uploads"), filepath.Join(base, "state", "uploads.json")
-			earlier, err := uploads.Open(uploadParent, statePath, logger)
-			if err != nil {
-				t.Fatal(err)
+			uploadParent := filepath.Join(base, "uploads")
+			statePaths := map[string]string{
+				"tui": filepath.Join(base, "state", "uploads.json"), "core": filepath.Join(base, "state", "uploads-core.json"),
 			}
-			var staged string
-			_, err = earlier.StageAndForward(context.Background(), "w1", "alpha", []uploads.File{{Name: "notes.txt", Data: []byte("notes")}},
-				func() error { return nil }, func(paths []string, _ func() error) (uploads.ForwardResult, error) {
-					staged = paths[0]
-					return uploads.Forwarded, nil
-				})
-			earlier.Close()
-			if err != nil || staged == "" {
-				t.Fatalf("stage = %q, %v", staged, err)
+			staged := map[string]string{}
+			for side, workspaces := range map[string][]string{"tui": {"w1"}, "core": {"sp1", herdr.OtherTerminalsID}} {
+				earlier, err := uploads.Open(uploadParent, statePaths[side], logger)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, workspace := range workspaces {
+					_, err = earlier.StageAndForward(context.Background(), workspace, "label", []uploads.File{{Name: "notes.txt", Data: []byte("notes")}},
+						func() error { return nil }, func(paths []string, _ func() error) (uploads.ForwardResult, error) {
+							staged[side+":"+workspace] = paths[0]
+							return uploads.Forwarded, nil
+						})
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				earlier.Close()
 			}
 
-			manager, err := uploads.Open(uploadParent, statePath, logger)
-			if err != nil {
-				t.Fatal(err)
+			managers := map[string]*uploads.Manager{}
+			for side, path := range statePaths {
+				manager, err := uploads.Open(uploadParent, path, logger)
+				if err != nil {
+					t.Fatal(err)
+				}
+				managers[side] = manager
 			}
 			tui, core := &recordingProjector{}, &recordingProjector{}
-			observeHerdrs(tui, core, notifications.NewManager(notifications.UnavailableStore(errors.New("not needed")), logger), manager)
+			observeHerdrs(tui, core, notifications.NewManager(notifications.UnavailableStore(errors.New("not needed")), logger), managers["tui"], managers["core"])
 			test.reads(tui, core)
-			manager.Close()
-			_, statErr := os.Stat(staged)
-			if kept := statErr == nil; kept != test.wantKept {
-				t.Fatalf("staged file kept = %v (%v), want %v", kept, statErr, test.wantKept)
+			for _, manager := range managers {
+				manager.Close()
 			}
-			records, err := os.ReadFile(statePath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if recorded := strings.Contains(string(records), `"w1"`); recorded != test.wantKept {
-				t.Fatalf("record for w1 kept = %v, want %v: %s", recorded, test.wantKept, records)
+			for key, wantKept := range test.kept {
+				_, statErr := os.Stat(staged[key])
+				if kept := statErr == nil; kept != wantKept {
+					t.Errorf("%s staged file kept = %v (%v), want %v", key, kept, statErr, wantKept)
+				}
+				side, workspace, _ := strings.Cut(key, ":")
+				records, err := os.ReadFile(statePaths[side])
+				if err != nil {
+					t.Fatal(err)
+				}
+				if recorded := strings.Contains(string(records), `"`+workspace+`"`); recorded != wantKept {
+					t.Errorf("%s record kept = %v, want %v: %s", key, recorded, wantKept, records)
+				}
 			}
 		})
 	}

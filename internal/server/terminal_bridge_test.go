@@ -159,7 +159,7 @@ func (writer *failingBatchWriter) Write(data []byte) (int, error) {
 }
 
 func TestSharedTerminalBatchClassifiesPreForwardAndPostForwardFailure(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files?herdr=tui", nil)
 	commands := []any{map[string]string{"type": "terminal.input", "text": "paste"}, map[string]string{"type": "terminal.input", "text": "\r"}}
 	first := &failingBatchWriter{failAt: 1}
 	outcome, err := forwardTerminalBatch(request, nil, first, commands, nil)
@@ -187,7 +187,7 @@ func TestShortTerminalBatchUsesExactTargetAndReportsOccupied(t *testing.T) {
 	source := newFakeTerminalStateSource(liveTerminalState("pane-1", "term-send", 1))
 	bridge := testTerminalBridge(source)
 	defer bridge.Close()
-	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files", nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files?herdr=tui", nil)
 	outcome, err := bridge.SendBatch(request, "pane-1", "term-send", false, func() error { return nil }, []string{"paste", "\r"})
 	if outcome != terminalBatchForwarded || err != nil {
 		t.Fatalf("send outcome = %d, %v", outcome, err)
@@ -347,7 +347,7 @@ func TestProductionObserverClosesBeforeReplacementOutput(t *testing.T) {
 	endpoint.Scheme = "ws"
 	endpoint.Path = "/api/terminal"
 	endpoint.RawQuery = url.Values{
-		"pane": {"pane-1"}, "terminal": {"term-1"}, "mode": {"observe"}, "cols": {"80"}, "rows": {"24"},
+		"herdr": {"tui"}, "pane": {"pane-1"}, "terminal": {"term-1"}, "mode": {"observe"}, "cols": {"80"}, "rows": {"24"},
 	}.Encode()
 	connection, _, err := websocket.DefaultDialer.Dial(endpoint.String(), nil)
 	if err != nil {
@@ -377,7 +377,7 @@ func TestProductionHistoryIsDiscardedWhenTargetChanges(t *testing.T) {
 	source := newFakeTerminalStateSource(liveTerminalState("pane-block", "term-1", 1))
 	bridge := testTerminalBridge(source)
 	defer bridge.Close()
-	request := httptest.NewRequest(http.MethodGet, "/api/terminal/read?pane=pane-block&terminal=term-1&lines=20&source=recent-unwrapped", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/terminal/read?herdr=tui&pane=pane-block&terminal=term-1&lines=20&source=recent-unwrapped", nil)
 	response := httptest.NewRecorder()
 	done := make(chan struct{})
 	go func() {

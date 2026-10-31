@@ -151,6 +151,7 @@ func (validator *terminalFrameValidator) Accept(line []byte) (string, error) {
 type terminalBrowserCommand struct {
 	isKey         bool
 	key           string
+	keySelection  terminalKey
 	childCommands []any
 	release       bool
 	requestID     uint64

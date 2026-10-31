@@ -335,24 +335,27 @@ test("file-only and combined sends use base64 JSON and only deliberate takeover 
   t.after(() => browser.close());
   const file = new browser.File([new Uint8Array([0, 1, 255])], "opaque.bin", { type: "application/octet-stream" }) as unknown as File;
   const requests: Array<Record<string, unknown>> = [];
+  const urls: string[] = [];
   const replies = [
     { message: "Controlled elsewhere.", result: "occupied" },
     { message: "Terminal input was sent.", result: "forwarded" },
   ];
-  const fetcher = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  const fetcher = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    urls.push(String(input));
     requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
     return new Response(JSON.stringify(replies.shift()), { headers: { "Content-Type": "application/json" }, status: requests.length === 1 ? 409 : 200 });
   };
-  const target = { paneID: "pane-1", terminalID: "term-1", workspaceID: "workspace-1" };
+  const target = { herdr: "tui" as const, paneID: "pane-1", terminalID: "term-1", workspaceID: "workspace-1" };
   const first = await sendTerminalFiles(target, "", [file], false, new AbortController().signal, fetcher);
   assert.equal(first.result, "occupied");
   assert.equal(requests.length, 1, "occupied response must not retry automatically");
   assert.equal(requests[0].text, "");
   assert.deepEqual(requests[0].files, [{ data: "AAH/", name: "opaque.bin" }]);
 
-  const second = await sendTerminalFiles(target, "Compare this", [file], true, new AbortController().signal, fetcher);
+  const second = await sendTerminalFiles({ ...target, herdr: "core" }, "Compare this", [file], true, new AbortController().signal, fetcher);
   assert.equal(second.result, "forwarded");
   assert.equal(requests.length, 2);
+  assert.deepEqual(urls, ["/api/terminal/files?herdr=tui", "/api/terminal/files?herdr=core"]);
   assert.equal(requests[1].takeover, true);
   assert.equal(requests[1].text, "Compare this");
 });
@@ -361,7 +364,7 @@ test("file send distinguishes definite server failure from an unconfirmed connec
   const browser = new Window({ url: "http://localhost/" });
   t.after(() => browser.close());
   const file = new browser.File(["small"], "small.txt") as unknown as File;
-  const target = { paneID: "pane-1", terminalID: "term-1", workspaceID: "workspace-1" };
+  const target = { herdr: "tui" as const, paneID: "pane-1", terminalID: "term-1", workspaceID: "workspace-1" };
   const definite = await sendTerminalFiles(target, "", [file], false, new AbortController().signal, async () =>
     new Response(JSON.stringify({ message: "Files were not sent.", result: "not_sent" }), { status: 409 }));
   assert.equal(definite.result, "not_sent");
@@ -380,7 +383,7 @@ test("malformed gateway response leaves file delivery unconfirmed", async (t) =>
   t.after(() => browser.close());
   const file = new browser.File(["small"], "small.txt") as unknown as File;
   const outcome = await sendTerminalFiles(
-    { paneID: "pane-1", terminalID: "term-1", workspaceID: "workspace-1" },
+    { herdr: "tui", paneID: "pane-1", terminalID: "term-1", workspaceID: "workspace-1" },
     "",
     [file],
     false,

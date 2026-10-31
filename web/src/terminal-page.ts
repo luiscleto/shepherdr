@@ -1,5 +1,5 @@
 import { terminalSubmission } from "./terminal-input";
-import { keyLabel, type KeySelection } from "./terminal/keys";
+import { coreCanSend, keyLabel, type KeySelection } from "./terminal/keys";
 import { KeysSheet } from "./terminal/keys-sheet";
 import { LinkSheet } from "./terminal/link-sheet";
 import { settingsAction } from "./settings-action";
@@ -16,6 +16,7 @@ import { XTermAdapter } from "./terminal/xterm-adapter";
 
 export interface TerminalPageTarget {
   agentStatus?: string;
+  herdr: "tui" | "core";
   paneID: string;
   terminalID: string;
   title: string;
@@ -44,6 +45,7 @@ function action(text: string, run: () => void, className?: string): HTMLButtonEl
 export class TerminalPage {
   readonly paneID: string;
   readonly terminalID: string;
+  readonly herdr: "tui" | "core";
   #agentStatus: string | undefined;
   #workspaceID: string;
   #host: HTMLElement;
@@ -94,6 +96,10 @@ export class TerminalPage {
     this.#agentStatus = target.agentStatus;
     this.paneID = target.paneID;
     this.terminalID = target.terminalID;
+    this.herdr = target.herdr;
+    // Herdr Core terminals open observing: Control is an active attach, which
+    // sets the terminal's size, so it waits for the person to ask.
+    this.#desiredControl = target.herdr !== "core";
     this.#workspaceID = target.workspaceID;
     this.#mobile = terminalReaderForDevice();
     // Mobile scroll gestures navigate Herdr history. Local frame scrollback is
@@ -188,7 +194,7 @@ export class TerminalPage {
         if (!accepted) this.#readerTextQueued = false;
         return accepted;
       },
-    }, { collapsibleComposer: true, endpoint: "/api/terminal/read" });
+    }, { collapsibleComposer: true, endpoint: "/api/terminal/read", herdr: this.herdr });
     this.#reader = reader;
     const input = new ReaderInputQueue({
       onFailed: (message) => reader.inputFailed(message, () => { void input.retry(false); }),
@@ -239,6 +245,7 @@ export class TerminalPage {
         this.#shortcuts = [enter];
         this.#savedShortcuts.replaceChildren();
         for (const key of keys) {
+          if (this.herdr === "core" && !coreCanSend(key)) continue;
           const label = keyLabel(key);
           const shortcut = action(key.base === "backspace" ? label.replace("Backspace", "⌫") : label, () => this.#sendKey(key));
           if (key.base === "backspace") shortcut.setAttribute("aria-label", label);
@@ -249,6 +256,7 @@ export class TerminalPage {
         this.#render();
       },
       dismiss: () => this.#readerInput?.dismissUncertain(),
+      core: this.herdr === "core",
     });
   }
 
@@ -274,7 +282,7 @@ export class TerminalPage {
       onResize: (dimensions) => {
         this.#lastDimensions = dimensions;
         if (this.#ownership === "controlling") this.#session?.resize(dimensions);
-        if (!this.#hasConnected && this.#ready) void this.#connect("control");
+        if (!this.#hasConnected && this.#ready) void this.#connect(this.#desiredControl ? "control" : "observe");
       },
       onScroll: (scroll) => this.#canType() && this.#session?.scroll(scroll) === true,
       onLink: (uri) => this.#linkSheet.open(uri),
@@ -291,7 +299,7 @@ export class TerminalPage {
     }
     this.#viewportChanged();
     this.#present();
-    if (this.#lastDimensions && !this.#hasConnected) void this.#connect("control");
+    if (this.#lastDimensions && !this.#hasConnected) void this.#connect(this.#desiredControl ? "control" : "observe");
   }
 
   #layout(): void {
@@ -395,7 +403,7 @@ export class TerminalPage {
           this.#render();
           resolve(false);
         },
-      }, { endpoint: "/api/terminal", terminalID: this.terminalID });
+      }, { endpoint: "/api/terminal", herdr: this.herdr, terminalID: this.terminalID });
       this.#session = session;
       session.connect(this.paneID, this.#lastDimensions!);
     });
@@ -459,7 +467,7 @@ export class TerminalPage {
     this.#render();
     try {
       const outcome = await sendTerminalFiles({
-        paneID: this.paneID, terminalID: this.terminalID, workspaceID: this.#workspaceID, controller, intent,
+        herdr: this.herdr, paneID: this.paneID, terminalID: this.terminalID, workspaceID: this.#workspaceID, controller, intent,
       }, intent === "insert" ? "" : reader.draftText(), reader.pendingFiles(), false, abort.signal);
       if (this.#destroyed || attempt !== this.#uploadAttempt) return;
       if (outcome.result === "forwarded") {

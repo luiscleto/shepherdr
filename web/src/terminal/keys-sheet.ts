@@ -1,4 +1,4 @@
-import { commonKeys, defaultShortcuts, keyLabel, keyModifiers, modifierLabels, readShortcuts, saveShortcuts, validateKey, validCharacter, type KeySelection, type KeyResult } from "./keys";
+import { commonKeys, coreCanSend, defaultShortcuts, keyLabel, keyModifiers, modifierLabels, readShortcuts, saveShortcuts, validateKey, validCharacter, type KeySelection, type KeyResult } from "./keys";
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string, className?: string): HTMLElementTagNameMap[K] {
   const element = document.createElement(tag);
@@ -11,6 +11,14 @@ function button(label: string, run: () => void): HTMLButtonElement {
   element.type = "button";
   element.addEventListener("click", run);
   return element;
+}
+
+interface KeysSheetOptions {
+  send(key: KeySelection): boolean;
+  changed(keys: KeySelection[]): void;
+  dismiss(): void;
+  // Herdr Core can't send every key; the sheet offers only the ones it can.
+  core?: boolean;
 }
 
 export class KeysSheet {
@@ -33,14 +41,14 @@ export class KeysSheet {
   #composing = false;
   #uncertain = false;
   #reason = "";
-  #options: { send(key: KeySelection): boolean; changed(keys: KeySelection[]): void; dismiss(): void };
+  #options: KeysSheetOptions;
   #viewport = (): void => {
     const viewport = window.visualViewport;
     this.#dialog.style.top = `${(viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight)}px`;
     this.#dialog.style.maxHeight = `${Math.max(0, (viewport?.height ?? window.innerHeight) - 12)}px`;
   };
 
-  constructor(host: HTMLElement, options: { send(key: KeySelection): boolean; changed(keys: KeySelection[]): void; dismiss(): void }) {
+  constructor(host: HTMLElement, options: KeysSheetOptions) {
     this.#options = options;
     this.#heading.id = "send-keys-heading";
     this.#heading.tabIndex = -1;
@@ -111,7 +119,14 @@ export class KeysSheet {
   }
 
   #chosen(): KeySelection | undefined {
-    return this.#composing || this.#category === "Character" && !validCharacter(this.#selection.base) ? undefined : validateKey(this.#selection);
+    if (this.#composing || this.#category === "Character" && !validCharacter(this.#selection.base)) return undefined;
+    const key = validateKey(this.#selection);
+    return key && this.#options.core && !coreCanSend(key) ? undefined : key;
+  }
+
+  #unsendable(): boolean {
+    return this.#options.core === true && !this.#composing && this.#category === "Character" &&
+      validCharacter(this.#selection.base) && this.#chosen() === undefined;
   }
   #save(): void { saveShortcuts(this.#saved); this.#options.changed(this.#saved); }
 
@@ -124,6 +139,8 @@ export class KeysSheet {
     this.#pin.disabled = !key;
     this.#pin.textContent = this.#editIndex === undefined ? "Pin shortcut" : "Save shortcut";
     this.#dismiss.hidden = !this.#uncertain;
+    const coreNote = this.#body.querySelector<HTMLElement>(".keys-core-note");
+    if (coreNote) coreNote.hidden = !this.#unsendable();
     const superNote = this.#body.querySelector<HTMLElement>(".keys-super-note");
     if (superNote) superNote.hidden = !this.#selection.super;
     const reason = this.#body.querySelector<HTMLElement>(".keys-availability");
@@ -169,7 +186,8 @@ export class KeysSheet {
       input.addEventListener("compositionend", () => { this.#composing = false; this.#selection.base = input.value; this.#sync(); });
       input.addEventListener("input", () => { this.#selection.base = input.value; this.#sync(); });
       label.append(input);
-      this.#body.append(label, node("p", "Type one character, including a space or +.", "keys-help"));
+      const help = this.#options.core ? "Type one character, including a space." : "Type one character, including a space or +.";
+      this.#body.append(label, node("p", help, "keys-help"), node("p", "Herdr can't send this key.", "keys-help keys-core-note"));
     } else {
       const grid = node("div", undefined, "keys-grid");
       const keys: ReadonlyArray<readonly [string, string]> = this.#category === "Common" ? commonKeys : Array.from({ length: 12 }, (_, i) => [`f${i + 1}`, `F${i + 1}`]);

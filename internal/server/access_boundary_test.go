@@ -184,7 +184,7 @@ func TestProtectedTerminalReadInvalidationCancelsAndCollectsChildBeforeSuccess(t
 	application, manager, store, token := newProtectedTestServer(t, bridge)
 	defer manager.Close()
 	defer store.Close()
-	request := httptest.NewRequest(http.MethodGet, "https://shepherdr.private/api/terminal/read?pane=pane-block&terminal=term-1&lines=20&source=recent-unwrapped", nil)
+	request := httptest.NewRequest(http.MethodGet, "https://shepherdr.private/api/terminal/read?herdr=tui&pane=pane-block&terminal=term-1&lines=20&source=recent-unwrapped", nil)
 	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
 	response := httptest.NewRecorder()
 	finished := make(chan struct{})
@@ -351,7 +351,7 @@ func TestProtectedInvalidationClosesHomeAndTerminalSocketsAndCollectsChildren(t 
 			defer store.Close()
 			httpServer := httptest.NewServer(application.Handler())
 			defer httpServer.Close()
-			path := "/api/terminal?pane=pane-1&terminal=term-1&mode=" + mode + "&cols=80&rows=24"
+			path := "/api/terminal?herdr=tui&pane=pane-1&terminal=term-1&mode=" + mode + "&cols=80&rows=24"
 			connection := dialProtectedWebSocket(t, httpServer.URL, path, token)
 			defer connection.Close()
 			_ = connection.SetReadDeadline(time.Now().Add(time.Second))

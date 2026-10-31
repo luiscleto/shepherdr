@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -42,10 +43,55 @@ type uploadTarget struct {
 	workspace  string
 }
 
+// SetFileUploads keeps Herdr TUI file records in manager.
 func (s *Server) SetFileUploads(manager *uploads.Manager, limit uploads.Limit) {
 	s.fileUploads = manager
 	s.fileUploadLimit = limit
 	s.fileUploadState = s.projector
+}
+
+// SetCoreFileUploads keeps Herdr Core file records in their own manager.
+func (s *Server) SetCoreFileUploads(manager *uploads.Manager) {
+	s.coreFileUploads = manager
+}
+
+// uploadSide is what one Herdr's file sends use: its records, its Home, its
+// target rule and its terminal bridge.
+type uploadSide struct {
+	manager *uploads.Manager
+	state   TerminalStateSource
+	resolve func(herdr.State, string, string, string) (uploadTarget, bool)
+	send    func(request *http.Request, envelope terminalFileRequest, target uploadTarget, validate func() error, chunks []string) (terminalBatchOutcome, error)
+	logger  func() *slog.Logger
+}
+
+func (s *Server) uploadSide(name string) (uploadSide, bool) {
+	switch {
+	case name == "tui" && s.terminal != nil && s.fileUploads != nil && s.fileUploadState != nil:
+		return uploadSide{
+			manager: s.fileUploads, state: s.fileUploadState, resolve: resolveUploadTarget,
+			send: func(request *http.Request, envelope terminalFileRequest, target uploadTarget, validate func() error, chunks []string) (terminalBatchOutcome, error) {
+				if envelope.Controller != "" {
+					return s.terminal.sendControllerBatch(request, envelope.Controller, target.paneID, target.terminalID, validate, chunks)
+				}
+				return s.terminal.SendBatch(request, target.paneID, target.terminalID, envelope.Takeover, validate, chunks)
+			},
+			logger: func() *slog.Logger { return s.terminal.logger },
+		}, true
+	case name == "core" && s.coreTerminal != nil && s.coreFileUploads != nil:
+		return uploadSide{
+			manager: s.coreFileUploads, state: s.coreProjector, resolve: resolveCoreUploadTarget,
+			send: func(request *http.Request, envelope terminalFileRequest, target uploadTarget, validate func() error, chunks []string) (terminalBatchOutcome, error) {
+				if envelope.Controller == "" {
+					return terminalBatchNotSent, errors.New("Herdr Core files need the controlling connection")
+				}
+				return s.coreTerminal.sendControllerBatch(request, envelope.Controller, target.paneID, target.terminalID, validate, chunks)
+			},
+			logger: func() *slog.Logger { return s.coreTerminal.logger },
+		}, true
+	default:
+		return uploadSide{}, false
+	}
 }
 
 func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Request) {
@@ -64,6 +110,11 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 		writeUploadError(writer, http.StatusForbidden, "Files were not sent. This request cannot use Shepherdr.")
 		return
 	}
+	side, ok := s.uploadSide(request.URL.Query().Get("herdr"))
+	if !ok {
+		writeUploadError(writer, http.StatusBadRequest, "Files were not sent because the exact target or file list is invalid")
+		return
+	}
 	if !exactJSONContentType(request) {
 		writeUploadError(writer, http.StatusUnsupportedMediaType, "Files were not sent. Use application/json.")
 		return
@@ -77,19 +128,19 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 		writeUploadError(writer, status, err.Error())
 		return
 	}
-	initial, ok := resolveUploadTarget(s.fileUploadState.Current(), envelope.WorkspaceID, envelope.PaneID, envelope.TerminalID)
+	initial, ok := side.resolve(side.state.Current(), envelope.WorkspaceID, envelope.PaneID, envelope.TerminalID)
 	if !ok {
 		writeUploadResult(writer, http.StatusConflict, uploads.NotSent, "Files were not sent because this terminal no longer has a recognized agent.")
 		return
 	}
 	validate := func() error {
-		current, ok := resolveUploadTarget(s.fileUploadState.Current(), initial.workspace, initial.paneID, initial.terminalID)
+		current, ok := side.resolve(side.state.Current(), initial.workspace, initial.paneID, initial.terminalID)
 		if !ok || current.tabID != initial.tabID {
 			return errors.New("this terminal no longer has a recognized agent")
 		}
 		return nil
 	}
-	result, sendErr := s.fileUploads.StageAndForward(request.Context(), initial.workspace, initial.label, files, validate, func(paths []string, validateStaged func() error) (uploads.ForwardResult, error) {
+	result, sendErr := side.manager.StageAndForward(request.Context(), initial.workspace, initial.label, files, validate, func(paths []string, validateStaged func() error) (uploads.ForwardResult, error) {
 		validateBeforeWrite := func() error {
 			if err := validateStaged(); err != nil {
 				return err
@@ -109,12 +160,7 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 		if err != nil {
 			return uploads.NotSent, err
 		}
-		var outcome terminalBatchOutcome
-		if envelope.Controller != "" {
-			outcome, err = s.terminal.sendControllerBatch(request, envelope.Controller, initial.paneID, initial.terminalID, validateBeforeWrite, chunks)
-		} else {
-			outcome, err = s.terminal.SendBatch(request, initial.paneID, initial.terminalID, envelope.Takeover, validateBeforeWrite, chunks)
-		}
+		outcome, err := side.send(request, envelope, initial, validateBeforeWrite, chunks)
 		switch outcome {
 		case terminalBatchForwarded:
 			return uploads.Forwarded, err
@@ -140,7 +186,7 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 		message = "Files were not sent. Try again."
 	}
 	if sendErr != nil {
-		s.terminal.logger.Error("terminal file send stopped", "workspace", initial.workspace, "result", result, "error", sendErr)
+		side.logger().Error("terminal file send stopped", "workspace", initial.workspace, "result", result, "error", sendErr)
 	}
 	if err := withCommitAuthority(request, func() error {
 		writeUploadResult(writer, status, result, message)
@@ -233,6 +279,34 @@ func resolveUploadTarget(state herdr.State, workspaceID, paneID, terminalID stri
 	for _, agent := range state.Snapshot.Agents {
 		if agent.WorkspaceID == workspaceID && agent.TabID == tabID && agent.PaneID == paneID && agent.TerminalID == terminalID && agent.AgentStatus.Valid() {
 			return uploadTarget{label: label, paneID: paneID, tabID: tabID, terminalID: terminalID, workspace: workspaceID}, true
+		}
+	}
+	return uploadTarget{}, false
+}
+
+// resolveCoreUploadTarget is the Herdr Core file target rule. An agent is a
+// terminal with a current status, whatever the word, including error. Other
+// terminals is one group for files while Home lists it.
+func resolveCoreUploadTarget(state herdr.State, workspaceID, paneID, terminalID string) (uploadTarget, bool) {
+	if state.Connection != herdr.ConnectionLive || state.LastKnown {
+		return uploadTarget{}, false
+	}
+	label, found := "Other terminals", workspaceID == herdr.OtherTerminalsID
+	for _, workspace := range state.Snapshot.Workspaces {
+		if workspace.WorkspaceID == workspaceID {
+			label, found = workspace.Label, true
+		}
+	}
+	if !found {
+		return uploadTarget{}, false
+	}
+	for _, agent := range state.Snapshot.Agents {
+		if agent.WorkspaceID == workspaceID && agent.PaneID == paneID && agent.TerminalID == terminalID && agent.AgentStatus != "" {
+			for _, pane := range state.Snapshot.Panes {
+				if pane.WorkspaceID == workspaceID && pane.PaneID == paneID && pane.TerminalID == terminalID && pane.TabID == agent.TabID {
+					return uploadTarget{label: label, paneID: paneID, tabID: pane.TabID, terminalID: terminalID, workspace: workspaceID}, true
+				}
+			}
 		}
 	}
 	return uploadTarget{}, false

@@ -25,8 +25,8 @@ const (
 )
 
 var (
-	coreRequiredFeatures = []string{"events"}
-	coreRequiredMethods  = []string{"hello", "events.subscribe", "terminal.list", "doc.get"}
+	coreRequiredFeatures = []string{"events", "framed", "attach"}
+	coreRequiredMethods  = []string{"hello", "events.subscribe", "terminal.list", "doc.get", "terminal.attach", "terminal.keys"}
 )
 
 // CoreClient reads Home from herdr-core, the runtime behind the Herdr app.

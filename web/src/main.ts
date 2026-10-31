@@ -608,13 +608,14 @@ function renderTerminal(route: TerminalRoute): void {
   }
   selectedTerminal = entry;
   selectedTerminalHerdr = herdr;
-  if (terminalPage?.paneID === paneID && terminalPage.terminalID === entry.terminal.terminal_id) {
+  if (terminalPage?.herdr === herdr && terminalPage.paneID === paneID && terminalPage.terminalID === entry.terminal.terminal_id) {
     terminalPage.updateTarget(entry.terminal.title, entry.terminal.agent?.status);
     return;
   }
   terminalPage?.destroy();
   terminalPage = new TerminalPage(app, {
     agentStatus: entry.terminal.agent?.status,
+    herdr,
     paneID,
     terminalID: entry.terminal.terminal_id,
     title: entry.terminal.title,

@@ -145,7 +145,7 @@ test("xterm waits for both font outcomes and departure prevents delayed resource
   assert.equal(adapter.paste("probe"), false);
 });
 
-function pageBrowser(t: test.TestContext, mobile: boolean, savedShortcuts?: string) {
+function pageBrowser(t: test.TestContext, mobile: boolean, savedShortcuts?: string, herdr: "tui" | "core" = "tui") {
   const browser = new Window({ url: "http://localhost/" });
   if (savedShortcuts !== undefined) browser.localStorage.setItem("shepherdr.terminal.shortcuts", savedShortcuts);
   const originals = new Map<string, unknown>();
@@ -190,7 +190,7 @@ function pageBrowser(t: test.TestContext, mobile: boolean, savedShortcuts?: stri
   }
   const host = browser.document.createElement("div");
   browser.document.body.append(host);
-  const page = new TerminalPage(host, { paneID: "trial:p1", terminalID: "term-trial", workspaceID: "trial", title: "Trial", agentStatus: "idle" }, { onHome() {} });
+  const page = new TerminalPage(host, { herdr, paneID: "trial:p1", terminalID: "term-trial", workspaceID: "trial", title: "Trial", agentStatus: "idle" }, { onHome() {} });
   t.after(() => {
     page.destroy();
     for (const [key, value] of originals) (globalThis as Record<string, unknown>)[key] = value;
@@ -198,6 +198,27 @@ function pageBrowser(t: test.TestContext, mobile: boolean, savedShortcuts?: stri
   });
   return { host, browser, sockets, events: () => events, page, historyIntersection: () => historyIntersection() };
 }
+
+test("a Herdr Core terminal opens observing, offers Control without Take over, and hides keys core can't send", async t => {
+  const { host, sockets, events } = pageBrowser(t, false, '[{"base":"esc"},{"base":"+","ctrl":true},{"base":"A"}]', "core");
+  await tick();
+  const url = new URL(sockets[0].url);
+  assert.equal(`${url.pathname} ${url.searchParams.get("herdr")} ${url.searchParams.get("mode")}`, "/api/terminal core observe");
+  sockets[0].frame();
+  const control = host.querySelector<HTMLButtonElement>(".terminal-control-action")!;
+  assert.equal(`${control.hidden} ${control.textContent}`, "false Control");
+  const shortcuts = Array.from(host.querySelectorAll(".terminal-saved-shortcuts button")).map(button => button.textContent).join(",");
+  assert.equal(shortcuts, "Esc,Enter,A");
+  control.click();
+  await tick();
+  assert.equal(new URL(sockets[1].url).searchParams.get("mode"), "control");
+  sockets[1].frame();
+  assert.equal(control.textContent, "Release");
+  assert.equal(host.textContent?.includes("Take over"), false);
+  // Herdr Core has no scroll command: the wheel stays local while controlling.
+  assert.equal(events().onScroll?.({ direction: "up", lines: 3, column: 1, row: 1, modifiers: 0 }), false);
+  assert.equal(sockets[1].commands.some(command => command.type === "terminal.scroll"), false);
+});
 
 test("Reader history banner opens the same Terminal view and remembers it without stream commands", async t => {
   const { host, browser, sockets, historyIntersection } = pageBrowser(t, true);

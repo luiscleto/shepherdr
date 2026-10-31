@@ -55,6 +55,9 @@ export interface TerminalSessionLike {
 
 interface TerminalSessionOptions {
   endpoint: string;
+  // herdr names the Herdr that holds the terminal. Herdr Core has no scroll
+  // command, so wheel scrolling stays in the browser there.
+  herdr?: "tui" | "core";
   terminalID?: string;
 }
 
@@ -125,6 +128,7 @@ function parseNonFrameMessage(value: unknown): TerminalServerMessage {
 export class TerminalSession implements TerminalSessionLike {
   #controllerHandle: string | undefined;
   #endpoint: string;
+  #herdr: "tui" | "core" | undefined;
   #events: TerminalSessionEvents;
   #lastSize: string | undefined;
   #livenessTimer: number | undefined;
@@ -137,6 +141,7 @@ export class TerminalSession implements TerminalSessionLike {
     this.#mode = mode;
     this.#events = events;
     this.#endpoint = options.endpoint;
+    this.#herdr = options.herdr;
     this.#terminalID = options.terminalID;
   }
 
@@ -149,6 +154,7 @@ export class TerminalSession implements TerminalSessionLike {
       rows: String(dimensions.rows),
     });
     if (this.#terminalID) query.set("terminal", this.#terminalID);
+    if (this.#herdr) query.set("herdr", this.#herdr);
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${protocol}//${location.host}${this.#endpoint}?${query}`);
     const frames = new TerminalFrameSequence();
@@ -230,7 +236,7 @@ export class TerminalSession implements TerminalSessionLike {
   }
 
   scroll(scroll: TerminalScroll): boolean {
-    if (this.#mode === "observe") return false;
+    if (this.#mode === "observe" || this.#herdr === "core") return false;
     return this.#send({ type: "terminal.scroll", source: "wheel", ...scroll });
   }
 

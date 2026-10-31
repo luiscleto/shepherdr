@@ -35,6 +35,14 @@ export function validateKey(value: unknown): KeySelection | undefined {
   return key;
 }
 
+// Herdr Core presses only these characters, plus uppercase letters as Shift;
+// it has no key for shifted symbols such as + or %.
+const coreCharacters = /^[a-zA-Z0-9`\\[\],=\-.';/ ]$/;
+
+export function coreCanSend(key: KeySelection): boolean {
+  return commonKeys.some(([base]) => base === key.base) || /^f([1-9]|1[0-2])$/.test(key.base) || coreCharacters.test(key.base);
+}
+
 export function keyLabel(key: KeySelection): string {
   const base = commonKeys.find(([base]) => base === key.base)?.[1] ??
     (key.base === " " ? "Space" : /^f\d+$/.test(key.base) ? key.base.toUpperCase() : key.base);

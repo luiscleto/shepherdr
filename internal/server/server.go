@@ -32,7 +32,9 @@ type Server struct {
 	coreProjector      *herdr.Projector
 	workspaceActions   *workspaceActionCoordinator
 	terminal           *TerminalBridge
+	coreTerminal       *CoreTerminalBridge
 	fileUploads        *uploads.Manager
+	coreFileUploads    *uploads.Manager
 	fileUploadLimit    uploads.Limit
 	fileUploadState    TerminalStateSource
 	notifications      *notifications.Manager
@@ -44,6 +46,11 @@ type Server struct {
 
 func (s *Server) SetNotifications(manager *notifications.Manager) {
 	s.notifications = manager
+}
+
+// SetCoreTerminal opens Herdr Core terminals through bridge.
+func (s *Server) SetCoreTerminal(bridge *CoreTerminalBridge) {
+	s.coreTerminal = bridge
 }
 
 // New serves Home from both Herdrs. projector follows the Herdr TUI and serves
@@ -91,10 +98,10 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST /api/terminal-actions/prepare", s.workspaceActions.prepareTerminal)
 		mux.HandleFunc("POST /api/terminal-actions", s.workspaceActions.runTerminal)
 	}
-	if s.terminal != nil {
+	if s.terminal != nil || s.coreTerminal != nil {
 		mux.HandleFunc("GET /api/terminal", s.terminalSocket)
 		mux.HandleFunc("GET /api/terminal/read", s.terminalRead)
-		if s.fileUploads != nil && s.fileUploadState != nil {
+		if s.terminal != nil && s.fileUploads != nil || s.coreTerminal != nil && s.coreFileUploads != nil {
 			mux.HandleFunc("POST /api/terminal/files", s.terminalFileSend)
 		}
 	}
@@ -117,7 +124,37 @@ func (s *Server) Handler() http.Handler {
 	return securityHeaders(s.accessBoundary(mux), s.terminalLabEnabled)
 }
 
+// terminalHerdr picks the Herdr named by the required herdr parameter of a
+// terminal endpoint. It writes the failure itself and returns false.
+func (s *Server) terminalHerdr(writer http.ResponseWriter, request *http.Request) (herdr.Backend, bool) {
+	switch request.URL.Query().Get("herdr") {
+	case "tui":
+		if s.terminal == nil {
+			http.Error(writer, "Terminal unavailable", http.StatusNotFound)
+			return "", false
+		}
+		return herdr.BackendTUI, true
+	case "core":
+		if s.coreTerminal == nil {
+			http.Error(writer, "Terminal unavailable", http.StatusNotFound)
+			return "", false
+		}
+		return herdr.BackendCore, true
+	default:
+		http.Error(writer, "herdr must be tui or core", http.StatusBadRequest)
+		return "", false
+	}
+}
+
 func (s *Server) terminalSocket(writer http.ResponseWriter, request *http.Request) {
+	backend, ok := s.terminalHerdr(writer, request)
+	if !ok {
+		return
+	}
+	if backend == herdr.BackendCore {
+		s.boundTerminalSocket(writer, request, s.coreTerminal.productionSocket)
+		return
+	}
 	s.boundTerminalSocket(writer, request, s.terminal.productionSocket)
 }
 
@@ -139,6 +176,14 @@ func (s *Server) boundTerminalSocket(writer http.ResponseWriter, request *http.R
 }
 
 func (s *Server) terminalRead(writer http.ResponseWriter, request *http.Request) {
+	backend, ok := s.terminalHerdr(writer, request)
+	if !ok {
+		return
+	}
+	if backend == herdr.BackendCore {
+		s.boundTerminalRead(writer, request, s.coreTerminal.productionRead)
+		return
+	}
 	s.boundTerminalRead(writer, request, s.terminal.productionRead)
 }
 
@@ -272,11 +317,11 @@ func (s *Server) homeSocket(writer http.ResponseWriter, request *http.Request) {
 	defer unsubscribeTUI()
 	coreUpdates, unsubscribeCore := s.coreProjector.Subscribe()
 	defer unsubscribeCore()
-	// Only Herdr TUI terminals can open, and only with a terminal bridge.
+	// Each Herdr's terminals can open when its terminal bridge exists.
 	message := homeMessage{
 		Epoch: s.epoch,
 		TUI:   homeSide{State: <-tuiUpdates, CanOpenTerminals: s.terminal != nil},
-		Core:  homeSide{State: <-coreUpdates},
+		Core:  homeSide{State: <-coreUpdates, CanOpenTerminals: s.coreTerminal != nil},
 	}
 	writeHome := func() error {
 		return withCommitAuthority(request, func() error { return writeJSON(connection, message) })

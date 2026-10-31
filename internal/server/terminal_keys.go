@@ -91,8 +91,56 @@ func validatedTerminalKeyCommand(message []byte) (terminalBrowserCommand, error)
 			return command, errors.New("invalid key field")
 		}
 	}
+	command.keySelection = *envelope.Key
 	command.key, err = envelope.Key.canonical()
 	return command, err
+}
+
+// coreKeyNames maps Shepherdr's named keys to Herdr Core's key names. Core
+// has no key for double_quote, colon, percent, ampersand or plus.
+var coreKeyNames = map[string]string{
+	"enter": "enter", "return": "enter", "esc": "esc", "escape": "esc", "tab": "tab",
+	"backspace": "backspace", "bs": "backspace", "left": "left", "up": "up", "down": "down", "right": "right",
+	"space": "space", "minus": "-", "comma": ",", "period": ".", "slash": "/", "backslash": "backslash",
+	"quote": "'", "semicolon": ";", "backtick": "`",
+}
+
+// coreKeyCharacters are the single characters Herdr Core can press.
+const coreKeyCharacters = "abcdefghijklmnopqrstuvwxyz0123456789`\\[],=-.';/"
+
+// coreKeyName names a key for Herdr Core's terminal.keys: modifiers ctrl,
+// alt, shift and super in that order, joined with +. An uppercase letter
+// becomes shift with its lowercase letter.
+func coreKeyName(key terminalKey) (string, error) {
+	shift := key.Shift
+	base, named := coreKeyNames[strings.ToLower(key.Base)]
+	switch {
+	case named:
+	case key.Base == " ":
+		base = "space"
+	case len(key.Base) == 1 && key.Base[0] >= 'A' && key.Base[0] <= 'Z':
+		base, shift = strings.ToLower(key.Base), true
+	case len(key.Base) == 1 && strings.Contains(coreKeyCharacters, key.Base):
+		base = key.Base
+	default:
+		n, err := strconv.Atoi(strings.TrimPrefix(strings.ToLower(key.Base), "f"))
+		if err != nil || n < 1 || n > 12 || strings.ToLower(key.Base) != "f"+strconv.Itoa(n) {
+			return "", errors.New("Herdr Core has no such key")
+		}
+		base = "f" + strconv.Itoa(n)
+	}
+	parts := []string{}
+	for _, modifier := range []struct {
+		name    string
+		enabled bool
+	}{
+		{"ctrl", key.Ctrl}, {"alt", key.Alt}, {"shift", shift}, {"super", key.Super},
+	} {
+		if modifier.enabled {
+			parts = append(parts, modifier.name)
+		}
+	}
+	return strings.Join(append(parts, base), "+"), nil
 }
 
 // The caller holds the same write lock as text, files and Release. Herdr owns

@@ -147,7 +147,7 @@ func TestSecurityHeadersConfineBrowserContent(t *testing.T) {
 
 func TestProductionTerminalRequiresCurrentHerdrTarget(t *testing.T) {
 	application := New(nil, nil, herdr.NewNotFollowedProjector(), &TerminalBridge{}, false)
-	request := httptest.NewRequest("GET", "http://localhost/api/terminal?pane=w1:p1&terminal=term-1&mode=observe&cols=80&rows=24", nil)
+	request := httptest.NewRequest("GET", "http://localhost/api/terminal?herdr=tui&pane=w1:p1&terminal=term-1&mode=observe&cols=80&rows=24", nil)
 	response := httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusNotFound {

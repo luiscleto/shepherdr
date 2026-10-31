@@ -67,17 +67,37 @@ func terminalTargetFromState(state herdr.State, pane, terminal string) (terminal
 	return terminalTarget{}, false
 }
 
-func (target terminalTarget) matches(state herdr.State) bool {
+// coreTerminalTargetFromState is the Herdr Core target rule: Home is live and
+// current, and still holds this address with the same terminal identity.
+// Core has no layout rectangles to check.
+func coreTerminalTargetFromState(state herdr.State, pane, terminal string) (terminalTarget, bool) {
+	if state.Connection != herdr.ConnectionLive || state.LastKnown {
+		return terminalTarget{}, false
+	}
+	for _, candidate := range state.Snapshot.Panes {
+		if candidate.PaneID == pane && candidate.TerminalID == terminal {
+			return terminalTarget{
+				workspace: candidate.WorkspaceID, tab: candidate.TabID, generation: state.Gap, pane: pane, terminal: terminal,
+			}, true
+		}
+	}
+	return terminalTarget{}, false
+}
+
+type terminalTargetRule func(state herdr.State, pane, terminal string) (terminalTarget, bool)
+
+func (target terminalTarget) matches(state herdr.State, rule terminalTargetRule) bool {
 	if state.Gap != target.generation {
 		return false
 	}
-	current, ok := terminalTargetFromState(state, target.pane, target.terminal)
+	current, ok := rule(state, target.pane, target.terminal)
 	return ok && current.generation == target.generation && current.workspace == target.workspace && current.tab == target.tab
 }
 
 type terminalTargetLease struct {
 	cancel      context.CancelFunc
 	done        <-chan struct{}
+	rule        terminalTargetRule
 	source      TerminalStateSource
 	target      terminalTarget
 	unsubscribe func()
@@ -85,29 +105,35 @@ type terminalTargetLease struct {
 }
 
 func (bridge *TerminalBridge) acquireTarget(pane, terminal string) (*terminalTargetLease, bool) {
-	if bridge.targets == nil || !validTerminalIdentity(pane) || !validTerminalIdentity(terminal) {
+	return acquireTerminalTarget(bridge.context, bridge.targets, terminalTargetFromState, pane, terminal)
+}
+
+// acquireTerminalTarget holds a target while the source's state keeps
+// matching it under rule. The lease ends at the first state that doesn't.
+func acquireTerminalTarget(parent context.Context, source TerminalStateSource, rule terminalTargetRule, pane, terminal string) (*terminalTargetLease, bool) {
+	if source == nil || !validTerminalIdentity(pane) || !validTerminalIdentity(terminal) {
 		return nil, false
 	}
-	updates, unsubscribe := bridge.targets.Subscribe()
+	updates, unsubscribe := source.Subscribe()
 	state, ok := <-updates
 	if !ok {
 		unsubscribe()
 		return nil, false
 	}
-	target, ok := terminalTargetFromState(state, pane, terminal)
+	target, ok := rule(state, pane, terminal)
 	if !ok {
 		unsubscribe()
 		return nil, false
 	}
-	ctx, cancel := context.WithCancel(bridge.context)
+	ctx, cancel := context.WithCancel(parent)
 	lease := &terminalTargetLease{
-		cancel: cancel, done: ctx.Done(), source: bridge.targets, target: target, unsubscribe: unsubscribe,
+		cancel: cancel, done: ctx.Done(), rule: rule, source: source, target: target, unsubscribe: unsubscribe,
 	}
 	go func() {
 		for {
 			select {
 			case state, ok := <-updates:
-				if !ok || !target.matches(state) {
+				if !ok || !target.matches(state, rule) {
 					cancel()
 					return
 				}
@@ -132,5 +158,5 @@ func (lease *terminalTargetLease) Valid() bool {
 		return false
 	default:
 	}
-	return lease.target.matches(lease.source.Current())
+	return lease.target.matches(lease.source.Current(), lease.rule)
 }

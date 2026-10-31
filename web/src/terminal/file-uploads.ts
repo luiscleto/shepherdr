@@ -2,6 +2,7 @@ import type { ReaderInputState } from "./reader-availability";
 
 export interface TerminalFileTarget {
   controller?: string;
+  herdr: "tui" | "core";
   intent?: "insert" | "submit";
   paneID: string;
   terminalID: string;
@@ -56,7 +57,7 @@ export async function sendTerminalFiles(
 
   let response: Response;
   try {
-    response = await fetcher("/api/terminal/files", {
+    response = await fetcher(`/api/terminal/files?herdr=${target.herdr}`, {
       body: JSON.stringify({
         controller: target.controller,
         intent: target.intent,

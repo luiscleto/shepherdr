@@ -23,6 +23,8 @@ interface ReaderEvents {
 interface ReaderOptions {
   collapsibleComposer?: boolean;
   endpoint: string;
+  // herdr names the Herdr that holds the terminal, for the read endpoint.
+  herdr?: string;
 }
 
 const historyPageLines = 500;
@@ -99,6 +101,7 @@ export class ReaderView {
   #takeoverAction: (() => void) | undefined;
   #scroll: HTMLDivElement;
   #readEndpoint: string;
+  #herdr: string | undefined;
   #topSentinel: HTMLDivElement;
   #terminalID: string | undefined;
   // Only an unchanged successful read is evidence for the hint, not the depth cap.
@@ -110,6 +113,7 @@ export class ReaderView {
     this.#events = events;
     this.#collapsibleComposer = options.collapsibleComposer ?? false;
     this.#readEndpoint = options.endpoint;
+    this.#herdr = options.herdr;
     host.classList.add("reader-surface");
 
     this.#topSentinel = document.createElement("div");
@@ -378,6 +382,7 @@ export class ReaderView {
     const pane = this.#pane;
     const query = new URLSearchParams({ pane, lines: String(this.#historyLines), source: "recent-unwrapped" });
     if (this.#terminalID) query.set("terminal", this.#terminalID);
+    if (this.#herdr) query.set("herdr", this.#herdr);
     try {
       const response = await fetch(`${this.#readEndpoint}?${query}`, { cache: "no-store", signal: abort.signal });
       if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);

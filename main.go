@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -201,13 +202,23 @@ func run() error {
 		accessManager.SetNotificationAuthority(notificationManager)
 	}
 	// Shepherdr follows the Herdr TUI and herdr-core at once, each on its own
-	// socket. The Terminal page, actions and file sends use the Herdr TUI only.
+	// socket, with its own terminals and file records. Actions are Herdr TUI only.
 	actionClient := herdr.NewClient(*socketPath, logger)
 	tuiProjector := herdr.NewProjector(actionClient)
 	coreProjector := herdr.NewNotFollowedProjector()
+	var coreTerminal *server.CoreTerminalBridge
+	var coreUploadManager *uploads.Manager
 	if coreSocketPath != "" {
 		homeFolder, _ := os.UserHomeDir()
-		coreProjector = herdr.NewCoreProjector(herdr.NewCoreClient(coreSocketPath, logger), homeFolder)
+		coreClient := herdr.NewCoreClient(coreSocketPath, logger)
+		coreProjector = herdr.NewCoreProjector(coreClient, homeFolder)
+		coreTerminal = server.NewCoreTerminalBridge(coreClient, logger, coreProjector)
+		defer coreTerminal.Close()
+		coreUploadManager, err = uploads.Open(*uploadParent, filepath.Join(filepath.Dir(uploadPath), "uploads-core.json"), logger)
+		if err != nil {
+			return fmt.Errorf("open Herdr Core terminal file uploads: %w", err)
+		}
+		defer coreUploadManager.Close()
 	} else {
 		logger.Info("Herdr Core is not followed: set -herdr-core-socket")
 	}
@@ -218,9 +229,13 @@ func run() error {
 		terminal = server.NewTerminalBridge(herdrBinary, *socketPath, logger, tuiProjector)
 		defer terminal.Close()
 	}
-	observeHerdrs(tuiProjector, coreProjector, notificationManager, uploadManager)
+	observeHerdrs(tuiProjector, coreProjector, notificationManager, uploadManager, coreUploadManager)
 	application := server.New(assets, tuiProjector, coreProjector, terminal, *terminalLabEnabled, actionClient)
 	application.SetFileUploads(uploadManager, uploadLimit)
+	if coreTerminal != nil {
+		application.SetCoreTerminal(coreTerminal)
+		application.SetCoreFileUploads(coreUploadManager)
+	}
 	application.SetNotifications(notificationManager)
 	if accessManager != nil {
 		application.ConfigureProtectedAccess(accessManager)
@@ -276,12 +291,30 @@ type snapshotObservers interface {
 	SetPublishedSnapshotObserver(herdr.PublishedSnapshotObserver)
 }
 
-// observeHerdrs gives each Herdr its own notification observer. Only Herdr TUI
-// reads reach the upload records, which hold Herdr TUI workspaces.
-func observeHerdrs(tui, core snapshotObservers, notificationManager *notifications.Manager, uploadManager *uploads.Manager) {
+// observeHerdrs gives each Herdr its own notification observer and its own
+// upload records: each upload manager sees only its own Herdr's reads.
+func observeHerdrs(tui, core snapshotObservers, notificationManager *notifications.Manager, uploadManager, coreUploadManager *uploads.Manager) {
 	tui.SetSnapshotObserver(notificationManager.Observer(herdr.BackendTUI))
 	tui.SetPublishedSnapshotObserver(uploadManager)
 	core.SetSnapshotObserver(notificationManager.Observer(herdr.BackendCore))
+	if coreUploadManager != nil {
+		core.SetPublishedSnapshotObserver(coreUploads{coreUploadManager})
+	}
+}
+
+// coreUploads keeps files for Other terminals while Home lists the group, as
+// for a space. The group never joins Snapshot.Workspaces, because space
+// notices rely on its absence, so it is added only for the upload records.
+type coreUploads struct{ manager *uploads.Manager }
+
+func (c coreUploads) ObservePublishedSnapshot(snapshot herdr.Snapshot, baseline bool) {
+	for _, pane := range snapshot.Panes {
+		if pane.WorkspaceID == herdr.OtherTerminalsID {
+			snapshot.Workspaces = append(slices.Clone(snapshot.Workspaces), herdr.WorkspaceInfo{WorkspaceID: herdr.OtherTerminalsID})
+			break
+		}
+	}
+	c.manager.ObservePublishedSnapshot(snapshot, baseline)
 }
 
 func readBuildInfo() *debug.BuildInfo {

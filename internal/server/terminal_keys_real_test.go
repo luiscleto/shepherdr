@@ -52,7 +52,7 @@ func TestTerminalKeyRealProtected(t *testing.T) {
 	protected.application.projector = projector
 	server := httptest.NewServer(protected.application.Handler())
 	defer server.Close()
-	path := "/api/terminal?pane=" + pane + "&terminal=" + terminal + "&mode=control&cols=80&rows=24"
+	path := "/api/terminal?herdr=tui&pane=" + pane + "&terminal=" + terminal + "&mode=control&cols=80&rows=24"
 	connection := dialProtectedWebSocket(t, server.URL, path, protected.tokens[0])
 	defer connection.Close()
 	_ = connection.SetReadDeadline(time.Now().Add(5 * time.Second))

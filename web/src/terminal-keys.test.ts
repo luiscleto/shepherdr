@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Window } from "happy-dom";
 import { KeysSheet } from "./terminal/keys-sheet";
-import { validateKey, readShortcuts, saveShortcuts, type KeySelection } from "./terminal/keys";
+import { coreCanSend, validateKey, readShortcuts, saveShortcuts, type KeySelection } from "./terminal/keys";
 
 for (const stored of [null, '[{"base":"f1"}]']) {
   test(`shortcut edits survive failed writes with ${stored === null ? "missing" : "stale"} readable storage`, t => {
@@ -79,4 +79,34 @@ test("key preferences validate combinations and editing never sends", t => {
   Object.defineProperty(browser, "localStorage", { get() { throw new Error("storage blocked"); }, configurable: true });
   saveShortcuts([{ base: "界", alt: true }]);
   assert.equal(JSON.stringify(readShortcuts()), '[{"base":"界","alt":true}]');
+});
+
+test("Herdr Core offers only keys it can send, and says so for any other character", t => {
+  const browser = new Window({ url: "http://localhost" });
+  const originalWindow = globalThis.window, originalDocument = globalThis.document;
+  globalThis.window = browser as unknown as Window & typeof globalThis;
+  globalThis.document = browser.document as unknown as Document;
+  t.after(() => { globalThis.window = originalWindow; globalThis.document = originalDocument; browser.close(); });
+  const sendable = ["esc", "tab", "enter", "backspace", "up", "f5", "f12", "a", "A", "7", " ", "`", "\\", "[", "]", ",", "=", "-", ".", "'", ";", "/"];
+  const unsendable = ["+", "%", "&", ":", '"', "!", "@", "~", "é", "界"];
+  assert.equal(sendable.filter(base => !coreCanSend({ base })).join(" "), "");
+  assert.equal(unsendable.filter(base => coreCanSend({ base })).join(" "), "");
+  for (const core of [true, false]) {
+    const sheet = new KeysSheet(document.body, { send: () => true, changed() {}, dismiss() {}, core });
+    sheet.available(true, "");
+    Array.from(document.querySelectorAll("button")).find(button => button.textContent === "Character")!.click();
+    const type = (value: string) => {
+      const input = document.querySelector("input")!;
+      input.value = value;
+      input.dispatchEvent(new browser.Event("input") as unknown as Event);
+      const note = document.querySelector<HTMLElement>(".keys-core-note")!;
+      const send = document.querySelector<HTMLButtonElement>(".keys-send")!;
+      return `${value}:${note.hidden ? "-" : note.textContent}:${send.disabled ? "off" : "on"}`;
+    };
+    const results = ["+", "A", "%"].map(type).join(" ");
+    assert.equal(results, core
+      ? "+:Herdr can't send this key.:off A:-:on %:Herdr can't send this key.:off"
+      : "+:-:on A:-:on %:-:on");
+    sheet.destroy();
+  }
 });
