@@ -219,9 +219,9 @@ The browser keeps its WebSocket protocol, and the server holds the core channel.
 | **Control** (mode `control`) | Close the observe channel, then `terminal.attach {observe:false}` with the browser's cols and rows. Core treats the attach itself as activity, so this size applies. It is never "occupied". |
 | **Release** | Close the active channel, then reattach with `observe:true`. Observing never resizes. |
 | mode `takeover` | Rejected (400) in core mode. The browser never sends it, because ownership is never "occupied". |
-| Reader older output (today's `pane read --source recent --lines N`) | A short separate observe attach with `history: N`, taking only the first paint, then CLOSE. Never `terminal.read`. **The worker must first confirm the first paint arrives as one DATA frame; if it does not, stop and report.** |
-| Live output | First paint → one `terminal.frame` with `full:true`; each later DATA chunk → `full:false`. Width and height are the terminal's current size, from the attach result and `size` events. |
-| Flow control | Send CREDIT for the bytes forwarded to the WebSocket. When core sends a fresh repaint after 4 MiB of backlog, it becomes the next full frame. |
+| Reader older output (today's `pane read --source recent --lines N`) | A short separate observe attach with `history: N`. Read DATA up to and including the first `CSI ?9001h` or `CSI ?9001l`, which ends the first paint, then CLOSE. Wait no longer than the existing request timeout; on time-out Reader shows its existing "Could not read terminal output". Reader gets the paint without its title and status strings, and without the blank lines and clear that push history into scrollback. Never `terminal.read`. (Amended 2026-10-31, see the note below.) |
+| Live output | The first DATA chunk → one `terminal.frame` with `full:true`; every later DATA chunk → `full:false`. Width and height are the terminal's current size, from the attach result and `size` events. (Amended 2026-10-31.) |
+| Flow control | Send CREDIT for the bytes forwarded to the WebSocket. A fresh repaint after 4 MiB of backlog arrives inside the byte stream as a delta; it resets the screen itself. (Amended 2026-10-31.) |
 | **Message** text and Enter | The existing chunks (bracketed paste, then `\r`), written as DATA on the active channel, in order and under the existing write lock. **Accepted** means the bytes were written to the core socket. A failed or partial write is **unknown**. There is no retry. |
 | **Send keys** | `terminal.keys {terminal, keys:[name]}`, only while controlling. Core waits up to ~3 s after the last typing ("quiet rule"); note this as a known limitation. |
 | Resize while controlling | A RESIZE frame (u16 cols, u16 rows) on the active channel. Never while observing. |
@@ -230,6 +230,8 @@ The browser keeps its WebSocket protocol, and the server holds the core channel.
 | Exact target | Valid while Home is live and not last-known, and the latest Home still contains `pane=address` with the same `terminal_id=core.id:address`. There is no layout-rectangle check in core mode. |
 
 The phone and the app window can both type. Size follows whichever typed last. There is no note about this (decision 4).
+
+**First paint amendment (approved 2026-10-31).** Core 0.1.15 does not send the first paint as one DATA frame. It sends stream bytes in chunks of up to 16 KiB, and live output can share the paint's last chunk. The attach result carries no paint length, and neither the published API nor core's own `hc attach` and `hc read` mark where the paint ends. In 0.1.15 every paint ends with `CSI ?9001h` or `CSI ?9001l`, followed only by status reports, and every paint resets the screen itself. So Reader cuts the paint at the first such marker, and the live stream marks only its first chunk as full. This relies on core 0.1.15 behaviour and is validated per version, like the rest of the core range.
 
 ### Send keys mapping (Shepherdr name → core name)
 
