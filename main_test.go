@@ -2,12 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"testing"
+
+	"github.com/luiscleto/shepherdr/internal/herdr"
+	"github.com/luiscleto/shepherdr/internal/uploads"
 )
 
 func TestDefaultHerdrSocket(t *testing.T) {
@@ -155,6 +160,71 @@ func TestHerdrCoreStartFlags(t *testing.T) {
 			}
 			if err != nil || got != test.want {
 				t.Fatalf("socket = %q, %v; want %q", got, err, test.want)
+			}
+		})
+	}
+}
+
+type recordingProjector struct {
+	published herdr.PublishedSnapshotObserver
+}
+
+func (p *recordingProjector) SetPublishedSnapshotObserver(observer herdr.PublishedSnapshotObserver) {
+	p.published = observer
+}
+
+func (p *recordingProjector) publish(snapshot herdr.Snapshot) {
+	if p.published != nil {
+		p.published.ObservePublishedSnapshot(snapshot, true)
+	}
+}
+
+// Upload records hold Herdr TUI workspace ids. A read from herdr-core, whose
+// spaces have other ids, must never remove files staged for a TUI workspace.
+func TestHerdrCoreStartKeepsFilesStagedForHerdrTUI(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for _, test := range []struct {
+		name     string
+		core     bool
+		snapshot herdr.Snapshot
+		wantKept bool
+	}{
+		{name: "herdr-core", core: true, snapshot: herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "sp1"}}}, wantKept: true},
+		{name: "Herdr TUI with the workspace open", snapshot: herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "w1"}}}, wantKept: true},
+		{name: "Herdr TUI after the workspace closed", snapshot: herdr.Snapshot{Workspaces: []herdr.WorkspaceInfo{{WorkspaceID: "w2"}}}, wantKept: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			base := t.TempDir()
+			if err := os.Mkdir(filepath.Join(base, "state"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			uploadParent, statePath := filepath.Join(base, "uploads"), filepath.Join(base, "state", "uploads.json")
+			earlier, err := uploads.Open(uploadParent, statePath, logger)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var staged string
+			_, err = earlier.StageAndForward(context.Background(), "w1", "alpha", []uploads.File{{Name: "notes.txt", Data: []byte("notes")}},
+				func() error { return nil }, func(paths []string, _ func() error) (uploads.ForwardResult, error) {
+					staged = paths[0]
+					return uploads.Forwarded, nil
+				})
+			earlier.Close()
+			if err != nil || staged == "" {
+				t.Fatalf("stage = %q, %v", staged, err)
+			}
+
+			manager, err := uploads.Open(uploadParent, statePath, logger)
+			if err != nil {
+				t.Fatal(err)
+			}
+			projector := &recordingProjector{}
+			observeUploads(projector, manager, test.core)
+			projector.publish(test.snapshot)
+			manager.Close()
+			_, statErr := os.Stat(staged)
+			if kept := statErr == nil; kept != test.wantKept {
+				t.Fatalf("staged file kept = %v (%v), want %v", kept, statErr, test.wantKept)
 			}
 		})
 	}

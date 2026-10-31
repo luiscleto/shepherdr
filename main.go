@@ -220,7 +220,7 @@ func run() error {
 		defer terminal.Close()
 	}
 	projector.SetSnapshotObserver(notificationManager)
-	projector.SetPublishedSnapshotObserver(uploadManager)
+	observeUploads(projector, uploadManager, *herdrCore)
 	application := server.New(assets, projector, terminal, *terminalLabEnabled, actionClient)
 	application.SetFileUploads(uploadManager, uploadLimit)
 	application.SetNotifications(notificationManager)
@@ -274,6 +274,20 @@ func run() error {
 		}
 		return err
 	}
+}
+
+type publishedSnapshotObservers interface {
+	SetPublishedSnapshotObserver(herdr.PublishedSnapshotObserver)
+}
+
+// observeUploads lets published Herdr TUI reads clean up staged files. Upload
+// records hold TUI workspace ids and herdr-core has no file sending yet, so a
+// herdr-core read must never decide that a recorded workspace is gone.
+func observeUploads(projector publishedSnapshotObservers, uploadManager *uploads.Manager, herdrCore bool) {
+	if herdrCore {
+		return
+	}
+	projector.SetPublishedSnapshotObserver(uploadManager)
 }
 
 func readBuildInfo() *debug.BuildInfo {
