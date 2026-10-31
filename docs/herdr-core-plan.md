@@ -1,6 +1,6 @@
 # Herdr core plan
 
-Status: **approved human direction and work brief** (2026-10-31). The human approved option A (keep the Herdr TUI backend unchanged and add a herdr-core backend), decisions 1–10 below, decisions A–C in section 8 as recommended, and the documentation changes in section 5. Later on 2026-10-31 the human replaced decision 1 and the section 2 flag rules: one Shepherdr follows both, and Home switches between them (section 2, "Both at once"). Waves 1, 1b and 2 are approved for dispatch; wave 3 needs separate approval.
+Status: **approved human direction and work brief** (2026-10-31). The human approved option A (keep the Herdr TUI backend unchanged and add a herdr-core backend), decisions 1–10 below, decisions A–C in section 8 as recommended, and the documentation changes in section 5. Later on 2026-10-31 the human replaced decision 1 and the section 2 flag rules: one Shepherdr follows both, and Home switches between them (section 2, "Both at once"). Waves 1, 1b and 2 are approved for dispatch. Wave 3 (actions) is planned in two parts, 3a and 3b; each needs separate approval.
 
 Goal (human, 2026-10-31): use the Herdr desktop app instead of the Herdr TUI, and keep the same organization and agent visibility and interaction in Shepherdr that the TUI version has. Release only when core mode supports everything core and the app offer as equivalents of the TUI actions. Later direction: Shepherdr and the desktop app reflect each other's state both ways, so nothing works only on the phone or only on the desktop. The human approves user-facing behaviour, copy and anything security-related; technical choices toward this goal are made by the orchestrator and recorded here.
 
@@ -10,7 +10,7 @@ Planning base: Shepherdr `628eccb` (v0.4.3). Upstream: herdr-core 0.1.15 (`4a359
 Date: 2026-10-31. Discovery evidence was recorded outside the repository during planning.
 
 Approved decisions 1–10: (1) keep the TUI backend and add a core backend; one Shepherdr follows both on their sockets whenever each runs, and Home switches between **Herdr TUI** and **Herdr Core**, remembered per browser; (2) read the `herdr-app` document read-only plus terminal labels, never write it; (3) say **space** and **tab** in core mode; (4) Control = active attach, Release = observe, no Take over in core mode, no extra note; (5) hide worktrees, Split and Rename in core mode; (6) show `error` unchanged and treat it as attention like blocked; (7) an agent is a terminal with a current non-null status, identity from `status.app`; (8) hide Send keys combinations core cannot send, uppercase as `shift+<lower>`; (9) gate on API generation 1 and required methods, validated from 0.1.15, newer best effort; (10) this machine's terminals only.
-Close terminal, New space and Close space stay out of waves 1–2.
+Actions in core mode come in wave 3 (section 3.5 and section 9).
 
 ---
 
@@ -134,8 +134,8 @@ Liveness: core's 15 s `heartbeat` on the event connection counts as liveness, li
 - Methods required in each wave, which must all appear in `hello.methods`:
   - wave 1: `hello`, `events.subscribe`, `terminal.list`, `doc.get`;
   - wave 2 adds `terminal.attach` and `terminal.keys`;
-  - wave 3, only if approved, adds `terminal.kill`.
-- Never used: `terminal.read` (it scrolls full-screen apps), `terminal.send`, `doc.set`, `terminal.run`, `terminal.put`, `machine.*`, `server.*`, `exec`/`file.*`.
+  - wave 3a adds `terminal.kill`.
+- Never used: `terminal.read` (it scrolls full-screen apps), `terminal.send`, `doc.set`, `terminal.run` (a labelled run can't name a space, can't place a split, and brings back a space closed a moment earlier), `terminal.put`, `machine.*`, `server.*`, `exec`/`file.*`.
 - Validated range: 0.1.15 only. Newer runs best effort with a warning. Add each version to the range only after the real acceptance below.
 
 ---
@@ -173,7 +173,7 @@ The core read becomes the existing internal `Snapshot` / `Home` contract, so Hom
 | Terminal `agent` | present only while `status` is non-null: `{kind: status.app, name: title if not empty else status.app, status: status.state}` |
 | Terminal `title` | the agent name, else the core `name`, else the terminal `title`, else **Terminal**. Today's single-terminal and duplicate-numbering rules still apply. |
 | Terminal `manual_name` | never set (core has no rename) |
-| Terminal and space `actions` | empty in waves 1–2 |
+| Terminal and space `actions` | as section 3.5 |
 | Worktrees, `checkout_path` | never set (hidden in core mode) |
 
 Status words: `idle`, `working`, `done`, `blocked` and `error` pass through unchanged. `unknown` never occurs in core. Any other word fails the read, as the TUI does today (`InvalidStatusError`).
@@ -199,13 +199,18 @@ Only live terminals (`terminal.list` without `all`) and only this machine's (an 
 - Workspace notices become space notices in core mode: opened or closed is worked out from document spaces, with the existing diff and the existing settings keys. The **Other terminals** group never triggers them.
 - `restarted`: the identity (`core.id:address`) stays the same, so Home keeps the same row and notifications don't treat it as a new terminal. The agent status usually goes back to null, so the agent badge disappears.
 
-### 3.5 Hidden in core mode
+### 3.5 Actions in core mode
 
-- Worktree groups;
-- **New space**, **New worktree**, **Close workspace** and **Delete checkout**;
-- **Split terminal**, **Rename terminal** and **Close terminal**;
-- every three-dot menu, since none has actions;
-- **Take over** and **Take over and send**.
+Shown, through core, whenever core Home is live (the app window open or closed):
+- **Close terminal**: `terminal.kill` on the exact address. The confirmation is the TUI's, plus "N terminals it started will also close." when workers end with it. If it is the space's last terminal, the confirmation is Close space's.
+- **Close space**: `terminal.kill` on every live terminal Home shows in the space, workers included. The confirmation is the TUI's Close workspace one in space words, never naming linked workspaces, with `error` in the interruption warning. **Other terminals** has no space actions.
+
+Hidden in core mode:
+- worktree groups, **New worktree** and **Delete checkout** (core and the app expose no worktree command);
+- **New space** and **New terminal** (wave 3b plans them, with **Rename space**, through the app while its window is open; see `docs/herdr-core-actions-plan.md`);
+- **Rename terminal** (core names are fixed at start, and the app has no terminal rename);
+- **Take over** and **Take over and send**;
+- every three-dot menu with no actions.
 
 Expand all and Collapse all only apply to worktree groups, so they never show.
 
@@ -333,6 +338,7 @@ The human also approved a matching one-line note in `docs/north-star.md` ("Uses 
 - **Shared input:** the phone and the app window can type into the same terminal at once (approved, no note).
 - **No status before an agent's first report,** for example during trust prompts, so **Add files** is unavailable then.
 - **Links already on screen** when a terminal opens are not clickable, because the first paint drops OSC 8.
+- **A closed window leaves a stale app layout** after Close terminal or Close space. Home is right through rules 1 and 4, and the app tidies up on its next start.
 
 ---
 
@@ -493,11 +499,14 @@ Wave 2 starts from the approved integrated wave 1b commit. With both Herdrs foll
   6. Reconnect, suspend, and a core restart recover with no input replay.
   7. TUI Terminal acceptance is unchanged.
 
-### Wave 3: actions (only if the human approves)
+### Wave 3a: Close terminal and Close space (core API only)
 
-- **Close terminal** via `terminal.kill`, with the existing confirmation. First check with the real app what happens when the killed terminal is the last one in a tab or a space. Then **New space** and **Close space** only after separate approval and that check.
-- **Likely files:** `internal/herdr/actions.go`, `internal/server/terminal_actions.go`, `web/src/home-view.ts`.
-- **Gate:** the app removes the pane, and Home updates without blinking or moving the page.
+Planned in `docs/herdr-core-actions-plan.md` (approved 2026-10-31), sections 4.2 and 7.1, with decisions D5 (a) and D6:
+- **Close terminal** and **Close space**, both through `terminal.kill`, whenever core Home is live, the app window open or closed. Close terminal also shows on rows under **Other terminals**, which has no space menu.
+- Prepare (a fresh complete read, then facts), confirm, then run (a fresh complete read; the facts must still match, else "This space changed…"; then kill). One action at a time per Herdr. Outcomes are succeeded, refused or unknown, with no retry, and one complete read afterwards.
+- **Gate:** the acceptance checks in section 7.1 of that plan, on an isolated herdr-core 0.1.15, Herdr app 0.1.10 and Herdr TUI 0.9.5.
+
+Wave 3b (app window actions) is planned in the same document, section 7.2.
 
 ### Later, separately
 

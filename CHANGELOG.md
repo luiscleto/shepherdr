@@ -10,6 +10,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Notifications come from both, whichever one Home shows.
 - With the Herdr app, an agent's **error** status shows on Home, **N error** opens an **Error** view, and a new **error** notification choice starts on.
 - Herdr Core terminals open from Home, with Reader, the full terminal, **Message**, **Send keys** and files. They open in control, so you can type at once; **Release** goes back to observing and **Control** takes control again.
+- With the Herdr app, **Close terminal** and **Close space** work from Home, whether or not the app window is open. The confirmation counts the agents that may be interrupted, including any reporting **error**, and the terminals a closing terminal started that will close with it. Closing a space's last terminal closes the space. Terminals under **Other terminals** can be closed one at a time.
 
 ### Changed
 
@@ -23,7 +24,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ### Compatibility
 
-- Support herdr-core 0.1.15 with the Herdr app. Newer versions run best effort with a warning. For Herdr Core there is no **Take over**, **Send keys** offers only keys it can send, and there are no space or terminal actions.
+- Support herdr-core 0.1.15 with the Herdr app. Newer versions run best effort with a warning. For Herdr Core there is no **Take over**, **Send keys** offers only keys it can send, and the only space and terminal actions are **Close space** and **Close terminal**.
 
 ## [0.4.3] - 2026-10-16
 
