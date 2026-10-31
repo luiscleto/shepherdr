@@ -249,21 +249,27 @@ TUI mode copy is unchanged. In core mode:
 
 | Where | TUI mode (today) | Core mode |
 |---|---|---|
+| Masthead | Herdr 0.9.5 | **Herdr core 0.1.15** (the herdr-core version) |
 | Home filter label | Filter workspaces and terminals | **Filter spaces and terminals** |
 | Unplaced terminals group | (n/a) | **Other terminals** (decision A) |
+| A lone Other terminal | (n/a) | Shows its own name, with **Other terminals** beneath it; it is not renamed **Other terminals** |
+| Space with no name, no `where` label and no folder | (n/a) | **Space** |
 | Attention | N blocked | N blocked, and **N error** when nonzero |
 | Temporary view | Blocked | Blocked, or **Error** |
 | Agent status words | working, blocked, idle, done, unknown | working, blocked, **error**, idle, done |
 | Notifications settings intro | Get an alert when a workspace needs attention or finishes. | Get an alert when a **space** needs attention or finishes. |
 | Notification choices | Workspace opened / Workspace closed | **Space opened** / **Space closed**; add **error** |
 | Notice titles and bodies | Workspace opened/closed; "A workspace needs attention." etc. | **Space opened/closed**; "A **space** needs attention." etc. The status notice for `error` uses the `blocked` wording. |
+| Error notice title | (n/a) | **Agent status is error** |
+| Status notice body for an agent under Other terminals | (n/a) | "A **terminal** needs attention.", "A **terminal** is working.", "A **terminal** is idle.", "A **terminal** finished."; `error` uses the `blocked` wording |
+| Terminal page before wave 2 | (n/a) | **Terminal unavailable** with **Home**, without "This terminal is no longer here." Core mode is not released before wave 2. |
 | Terminal control action | Control / Take over / Release | **Control** / **Release** only |
 | Observing hint | "Use Control first." / "Use Take over first." | "Use Control first." only |
 | Send keys, unsupported character | (n/a) | "Herdr can't send this key." |
 | Connection badge | Live, Reconnecting, Offline, Herdr is not running, Cannot use this Herdr | unchanged |
 | Empty Home | No terminals / Herdr is running, but nothing is open. | unchanged |
 
-The browser learns the mode from one new field in the existing state JSON, `"herdr": "tui" | "core"`. The service worker gets the same field in its notification payload, so it can pick the space wording.
+The browser learns the mode from one new field in the existing state JSON, `"herdr": "tui" | "core"`. The service worker gets the same field in its notification payload, so it can pick the space wording. A status notice for an agent under Other terminals also carries `"other_terminals": true`, so it can say terminal.
 
 ### Approved `docs/ui-direction.md` change (applied in wave 1)
 
