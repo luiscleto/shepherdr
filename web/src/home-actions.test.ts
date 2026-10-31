@@ -1491,12 +1491,13 @@ test("Herdr Core splits only a terminal with a pane and opens the new terminal o
   window.close();
 });
 
-test("Herdr Core says when the app window is closed and when a split's terminal is gone", async () => {
+test("Herdr Core says when the app window is closed, a folder is missing, and a split's terminal is gone", async () => {
   const window = new Window({ url: "http://localhost/" });
   const terminalRefusals: Array<"app_closed" | "not_found"> = ["app_closed", "not_found"];
+  const spaceRefusals: Array<"app_closed" | "folder_missing"> = ["app_closed", "folder_missing"];
   const { app } = makeView(window, {
     herdr: "core",
-    run: async () => ({ outcome: "refused", reason: "app_closed" }),
+    run: async () => ({ outcome: "refused", reason: spaceRefusals.shift()! }),
     runTerminal: async () => ({ outcome: "refused", reason: terminalRefusals.shift()! }),
   }, coreAppHome());
   const messages: string[] = [];
@@ -1505,11 +1506,13 @@ test("Herdr Core says when the app window is closed and when a split's terminal 
     messages.push(requiredElement(panel, ".home-action-copy").textContent ?? "");
     requiredMatchingElement<HTMLButtonElement>(panel, "button", (button) => button.textContent === "Done").click();
   };
-  requiredElement<HTMLButtonElement>(app, ".new-space-action").click();
-  requiredElement<HTMLFormElement>(app, ".home-action-form")
-    .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
-  await settle();
-  readPanel();
+  for (let index = 0; index < 2; index++) {
+    requiredElement<HTMLButtonElement>(app, ".new-space-action").click();
+    requiredElement<HTMLFormElement>(app, ".home-action-form")
+      .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    readPanel();
+  }
   for (let index = 0; index < 2; index++) {
     requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
     const trigger = requiredMatchingElement<HTMLButtonElement>(
@@ -1523,6 +1526,7 @@ test("Herdr Core says when the app window is closed and when a split's terminal 
   }
   assert.deepEqual(messages, [
     "The Herdr app window is closed. Open it on the computer, then try again.",
+    "This folder doesn't exist.",
     "The Herdr app window is closed. Open it on the computer, then try again.",
     "This terminal is no longer here.",
   ]);

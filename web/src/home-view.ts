@@ -1968,6 +1968,7 @@ export class HomeView {
       herdr_unavailable: "Herdr is not available. Try again when it is running.",
       herdr_refused: "Herdr refused this action.",
       app_closed: "The Herdr app window is closed. Open it on the computer, then try again.",
+      folder_missing: "This folder doesn't exist.",
     };
     this.#showResult("Action not completed", messages[refusal.reason], refusal.detail);
   }

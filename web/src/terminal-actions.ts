@@ -221,6 +221,8 @@ function validStatus(status: number, response: PreparedTerminalActionResponse | 
     herdr_refused: [422],
     herdr_unavailable: [503],
     app_closed: [503],
+    // Only New space checks a folder.
+    folder_missing: [],
   };
   return statuses[response.reason].includes(status);
 }

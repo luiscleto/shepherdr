@@ -34,6 +34,7 @@ test("parses only exact documented action outcomes and prepared facts", () => {
   assert.equal(parseWorkspaceActionResponse({ outcome: "succeeded", resource: {} }), undefined);
   assert.equal(parseWorkspaceActionResponse({ outcome: "unknown", detail: "maybe" }), undefined);
   assert.equal(parseWorkspaceActionResponse({ outcome: "refused", reason: "dirty" }), undefined);
+  assert.equal(parseWorkspaceActionResponse({ outcome: "refused", reason: "folder_missing" })?.outcome, "refused");
   assert.equal(parseWorkspaceActionResponse({
     outcome: "prepared",
     action: "close_group",

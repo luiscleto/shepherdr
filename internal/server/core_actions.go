@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/luiscleto/shepherdr/internal/access"
@@ -319,6 +321,12 @@ func (c *coreActionCoordinator) runCreateSpace(writer http.ResponseWriter, reque
 		return
 	}
 	defer c.release()
+	// The folder is on this machine. If it goes before the app starts the
+	// space, the app's own refusal still shows.
+	if info, err := os.Stat(folder); errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) || err == nil && !info.IsDir() {
+		writeRefusal(writer, http.StatusUnprocessableEntity, "folder_missing", "")
+		return
+	}
 	var created struct {
 		Space    string `json:"space"`
 		Tab      string `json:"tab"`

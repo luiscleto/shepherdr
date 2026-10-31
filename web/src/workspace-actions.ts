@@ -35,7 +35,8 @@ export type RefusalReason =
   | "herdr_unavailable"
   | "checkout_has_changes"
   | "herdr_refused"
-  | "app_closed";
+  | "app_closed"
+  | "folder_missing";
 
 export interface RefusedWorkspaceAction {
   outcome: "refused";
@@ -119,6 +120,7 @@ const refusalReasons = new Set<RefusalReason>([
   "checkout_has_changes",
   "herdr_refused",
   "app_closed",
+  "folder_missing",
 ]);
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -219,6 +221,7 @@ function validStatus(status: number, response: WorkspaceActionResponse): boolean
     checkout_has_changes: 422,
     herdr_refused: 422,
     app_closed: 503,
+    folder_missing: 422,
   };
   return status === expectedStatus[response.reason];
 }

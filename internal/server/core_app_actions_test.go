@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -92,18 +94,33 @@ func TestCoreNewSpaceSendsTheExpandedFolderAndOptionalName(t *testing.T) {
 	core := newFakeCore(t)
 	app := &fakeApp{open: true, reply: `{"space":"sp1","tab":"tb1","terminal":"t20"}`}
 	refresh := &countingHomeRefresher{}
-	handler := coreAppHandler(core, app, nil, refresh)
+	home, repo := t.TempDir(), t.TempDir()
+	if err := os.Mkdir(filepath.Join(home, "work"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "notes"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	coordinator := newCoreActionCoordinator(core, home, refresh)
+	coordinator.app = app
+	coordinator.homeDir = func() (string, error) { return home, nil }
+	handler := (&Server{coreActions: coordinator}).Handler()
 
 	assertOutcome(t, performSideActionRequest(t, handler, "/api/workspace-actions",
 		`{"herdr":"core","action":"create_space","working_directory":"~/work","label":"api work"}`), http.StatusOK, "succeeded", "")
 	assertOutcome(t, performSideActionRequest(t, handler, "/api/workspace-actions",
-		`{"herdr":"core","action":"create_space","working_directory":"/srv/repo","label":"  "}`), http.StatusOK, "succeeded", "")
+		`{"herdr":"core","action":"create_space","working_directory":"`+repo+`","label":"  "}`), http.StatusOK, "succeeded", "")
 	// A relative folder would be the app's own; nothing is sent.
 	assertOutcome(t, performSideActionRequest(t, handler, "/api/workspace-actions",
 		`{"herdr":"core","action":"create_space","working_directory":"repo"}`), http.StatusBadRequest, "refused", "invalid_request")
+	// A folder that isn't here is refused before the app is asked.
+	for _, missing := range []string{"~/gone", repo + "/gone", repo + "/notes", repo + "/notes/deeper"} {
+		assertOutcome(t, performSideActionRequest(t, handler, "/api/workspace-actions",
+			`{"herdr":"core","action":"create_space","working_directory":"`+missing+`"}`), http.StatusUnprocessableEntity, "refused", "folder_missing")
+	}
 	want := []string{
-		`space.new {"folder":"/home/user/work","name":"api work"}`,
-		`space.new {"folder":"/srv/repo"}`,
+		`space.new {"folder":"` + home + `/work","name":"api work"}`,
+		`space.new {"folder":"` + repo + `"}`,
 	}
 	if got := app.sent(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("commands = %q, want %q", got, want)
@@ -115,7 +132,7 @@ func TestCoreNewSpaceSendsTheExpandedFolderAndOptionalName(t *testing.T) {
 	// A reply without the new space can't be confirmed.
 	app.reply = `{"space":"sp1"}`
 	assertOutcome(t, performSideActionRequest(t, handler, "/api/workspace-actions",
-		`{"herdr":"core","action":"create_space","working_directory":"/srv/repo"}`), http.StatusBadGateway, "unknown", "")
+		`{"herdr":"core","action":"create_space","working_directory":"`+repo+`"}`), http.StatusBadGateway, "unknown", "")
 }
 
 func TestCoreRenameSpaceSendsTheNameOrEmptyForAutomatic(t *testing.T) {
