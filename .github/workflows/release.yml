@@ -69,6 +69,8 @@ jobs:
             runner_arch: X64
             herdr_asset: herdr-linux-x86_64
             herdr_sha256: 14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d
+            herdr_core_url: https://releases.herdr.dev/core/0.1.15/herdr-core-linux-x86_64.tar.gz
+            herdr_core_sha256: efbb1382da3d5053cb20c60c166a62ec34e73d8299977fb1f5abed28ddec8d66
           - goos: linux
             goarch: arm64
             runner: ubuntu-24.04-arm
@@ -76,6 +78,8 @@ jobs:
             runner_arch: ARM64
             herdr_asset: herdr-linux-aarch64
             herdr_sha256: 17d7536f2da50859523680ef279dffcac8e4a235f4e46fe8da6c2ec44141897c
+            herdr_core_url: https://releases.herdr.dev/core/0.1.15/herdr-core-linux-aarch64.tar.gz
+            herdr_core_sha256: e4939faa57cd1597eb2a07ea34b84cc8f861992c943a08f5e685b41d4d0bfa4f
           - goos: darwin
             goarch: amd64
             runner: macos-15-intel
@@ -83,6 +87,8 @@ jobs:
             runner_arch: X64
             herdr_asset: herdr-macos-x86_64
             herdr_sha256: 5fb0a908ec7f6745e3e245738b06bfad56c46391c391ab3c0955fbead01f1369
+            herdr_core_url: https://releases.herdr.dev/core/0.1.15/herdr-core-macos-x86_64.tar.gz
+            herdr_core_sha256: 55acac7e0ba75c829028655cd7e7964d138b10a03946fd73628508a2821b1118
           - goos: darwin
             goarch: arm64
             runner: macos-15
@@ -90,6 +96,8 @@ jobs:
             runner_arch: ARM64
             herdr_asset: herdr-macos-aarch64
             herdr_sha256: fb77c2232a05a8035421382c894392f4174e4e38a18e48af3dd0290157c3a7e2
+            herdr_core_url: https://releases.herdr.dev/core/0.1.15/herdr-core-macos-aarch64.tar.gz
+            herdr_core_sha256: 47eba8367e0626a1efced8795fcb03d5434b2541c5a84d78c50cc02c8fb49fc8
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     env:
@@ -186,10 +194,12 @@ jobs:
           test -f "$extract_root/$archive_base/LICENSE"
           test "$("$extract_root/$archive_base/shepherdr" --version)" = "shepherdr v0.4.3"
 
-      - name: Exercise the native packaged binary with Herdr 0.9.5
+      - name: Exercise the native packaged binary with Herdr 0.9.5 and herdr-core 0.1.15
         env:
           GH_TOKEN: ${{ github.token }}
           HERDR_ASSET: ${{ matrix.herdr_asset }}
+          HERDR_CORE_SHA256: ${{ matrix.herdr_core_sha256 }}
+          HERDR_CORE_URL: ${{ matrix.herdr_core_url }}
           HERDR_SHA256: ${{ matrix.herdr_sha256 }}
           TARGET_GOARCH: ${{ matrix.goarch }}
           TARGET_GOOS: ${{ matrix.goos }}
@@ -210,7 +220,38 @@ jobs:
           test "$("$herdr_binary" --version)" = "herdr 0.9.5"
           test "$(PATH="$tools_dir:$PATH" command -v herdr)" = "$herdr_binary"
 
+          # herdr-core publishes its builds and checksums in a release manifest, not
+          # on GitHub; the matrix pins the URL and SHA-256 from its 0.1.15 manifest.
+          if [[ -z "$HERDR_CORE_URL" || -z "$HERDR_CORE_SHA256" ]]; then
+            echo "no herdr-core 0.1.15 build is pinned for $TARGET_GOOS/$TARGET_GOARCH" >&2
+            exit 1
+          fi
+          downloaded_core="$tools_dir/${HERDR_CORE_URL##*/}"
+          curl --fail --silent --show-error --location --proto '=https' --output "$downloaded_core" "$HERDR_CORE_URL"
+          printf '%s  %s\n' "$HERDR_CORE_SHA256" "$downloaded_core" | shasum -a 256 -c -
+          mkdir "$tools_dir/herdr-core-0.1.15"
+          tar -xzf "$downloaded_core" -C "$tools_dir/herdr-core-0.1.15" herdr-core
+          core_binary="$tools_dir/herdr-core-0.1.15/herdr-core"
+          test -x "$core_binary"
+          test "$("$core_binary" --version)" = "hc 0.1.15"
+
+          # The core runs in its own session with scratch XDG folders, and its
+          # update source points nowhere. The names stay short: core refuses
+          # socket paths, holder sockets included, that the OS cannot bind.
+          core_root="$smoke_root/hc"
+          core_socket="$core_root/run/herdr-core/smoke.sock"
+          mkdir -p -m 0700 "$core_root" "$core_root/config" "$core_root/run" "$core_root/state"
+          run_core() {
+            HC_SESSION=smoke \
+              XDG_CONFIG_HOME="$core_root/config" \
+              XDG_RUNTIME_DIR="$core_root/run" \
+              XDG_STATE_HOME="$core_root/state" \
+              HERDR_RELEASES_URL=http://127.0.0.1:9 \
+              "$core_binary" "$@"
+          }
+
           herdr_pid=
+          core_pid=
           shepherdr_pid=
           wait_bounded() {
             local pid=$1
@@ -262,6 +303,36 @@ jobs:
             fi
             wait_bounded "$herdr_pid" "Herdr server" 15 false
           }
+          # herdr-core detaches from the command that starts it, so this shell
+          # cannot wait for it; it watches the process instead.
+          wait_gone_bounded() {
+            local pid=$1
+            local label=$2
+            local seconds=$3
+            local attempt
+            for ((attempt = 0; attempt < seconds; attempt++)); do
+              if ! kill -0 "$pid" 2>/dev/null; then
+                return 0
+              fi
+              sleep 1
+            done
+            echo "$label did not exit within ${seconds}s" >&2
+            return 124
+          }
+          stop_core_bounded() {
+            local stop_pid
+            run_core server stop --json >"$smoke_root/core-stop.json" 2>"$smoke_root/core-stop.log" &
+            stop_pid=$!
+            if ! wait_bounded "$stop_pid" "herdr-core stop command" 15 false; then
+              terminate_bounded "$stop_pid" "herdr-core stop command cleanup" || true
+              return 1
+            fi
+            if ! grep -F '"stopped":true' "$smoke_root/core-stop.json"; then
+              echo "herdr-core did not report that it stopped" >&2
+              return 1
+            fi
+            wait_gone_bounded "$core_pid" "herdr-core" 15
+          }
           cleanup() {
             status=$?
             trap - EXIT
@@ -273,6 +344,15 @@ jobs:
                 fi
               else
                 wait "$shepherdr_pid" >/dev/null 2>&1 || true
+              fi
+            fi
+            if [[ -S "$core_socket" ]] || { [[ -n "$core_pid" ]] && kill -0 "$core_pid" 2>/dev/null; }; then
+              if ! stop_core_bounded; then
+                cleanup_failed=1
+                if [[ -n "$core_pid" ]]; then
+                  kill -KILL "$core_pid" 2>/dev/null || true
+                  wait_gone_bounded "$core_pid" "herdr-core after KILL" 5 || echo "herdr-core could not be stopped" >&2
+                fi
               fi
             fi
             if [[ -n "$herdr_pid" ]]; then
@@ -313,8 +393,22 @@ jobs:
           grep -F '"running":true' "$smoke_root/herdr-status.json"
           grep -F '"version":"0.9.5"' "$smoke_root/herdr-status.json"
 
+          run_core server start --json >"$smoke_root/core-start.json" 2>"$smoke_root/core-start.log" &
+          core_start_pid=$!
+          if ! wait_bounded "$core_start_pid" "herdr-core start command" 30 false; then
+            terminate_bounded "$core_start_pid" "herdr-core start command cleanup" || true
+            cat "$smoke_root/core-start.json" "$smoke_root/core-start.log" >&2 || true
+            exit 1
+          fi
+          core_pid=$(jq -er '.pid | select(type == "number" and . > 0 and . == floor)' "$smoke_root/core-start.json")
+          test -S "$core_socket"
+          test "$(ps -o uid= -p "$core_pid" | tr -d ' ')" = "$(id -u)"
+          run_core server status --json >"$smoke_root/core-status.json"
+          grep -F "\"pid\":$core_pid," "$smoke_root/core-status.json"
+          grep -F '"version":"0.1.15"' "$smoke_root/core-status.json"
+
           mkdir -p "$smoke_root/sign-in-off/config" "$smoke_root/sign-in-off/uploads"
-          XDG_CONFIG_HOME="$smoke_root/sign-in-off/config" PATH="$tools_dir:$PATH" "$packaged_binary" -no-sign-in -listen 127.0.0.1:18787 -herdr-socket "$smoke_root/herdr/herdr.sock" -upload-parent "$smoke_root/sign-in-off/uploads" >"$smoke_root/sign-in-off.log" 2>&1 &
+          XDG_CONFIG_HOME="$smoke_root/sign-in-off/config" PATH="$tools_dir:$PATH" "$packaged_binary" -no-sign-in -listen 127.0.0.1:18787 -herdr-socket "$smoke_root/herdr/herdr.sock" -herdr-core-socket "$core_socket" -upload-parent "$smoke_root/sign-in-off/uploads" >"$smoke_root/sign-in-off.log" 2>&1 &
           shepherdr_pid=$!
           for _ in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:18787/healthz >"$smoke_root/health.txt"; then
@@ -331,13 +425,26 @@ jobs:
           if grep -F 'Browser assets are not built' "$smoke_root/home.html"; then
             exit 1
           fi
-          SHEPHERDR_REAL_URL=http://127.0.0.1:18787 go test ./internal/server -run '^TestRealProductionHome$' -count=1
+          grep -F "herdr_core_socket=$core_socket" "$smoke_root/sign-in-off.log"
+          # The Home check waits for the Herdr TUI side to be Live and logs the
+          # Herdr Core side it saw with it. Core's first read can land a moment
+          # later, so the check reruns, bounded, until Core is Live too.
+          core_live=false
+          for _ in $(seq 1 10); do
+            SHEPHERDR_REAL_URL=http://127.0.0.1:18787 go test ./internal/server -run '^TestRealProductionHome$' -count=1 -v | tee "$smoke_root/home-check.log"
+            if grep -F 'Herdr Core side: live, has Home true, version "0.1.15"' "$smoke_root/home-check.log"; then
+              core_live=true
+              break
+            fi
+            sleep 1
+          done
+          test "$core_live" = "true"
           kill -TERM "$shepherdr_pid"
           wait_bounded "$shepherdr_pid" "sign-in-off Shepherdr" 15 false
           shepherdr_pid=
 
           mkdir -p "$smoke_root/protected/config" "$smoke_root/protected/uploads"
-          XDG_CONFIG_HOME="$smoke_root/protected/config" PATH="$tools_dir:$PATH" "$packaged_binary" -public-origin https://shepherdr.test -listen 127.0.0.1:18787 -herdr-socket "$smoke_root/herdr/herdr.sock" -upload-parent "$smoke_root/protected/uploads" >"$smoke_root/protected.log" 2>&1 &
+          XDG_CONFIG_HOME="$smoke_root/protected/config" PATH="$tools_dir:$PATH" "$packaged_binary" -public-origin https://shepherdr.test -listen 127.0.0.1:18787 -herdr-socket "$smoke_root/herdr/herdr.sock" -herdr-core-socket "$core_socket" -upload-parent "$smoke_root/protected/uploads" >"$smoke_root/protected.log" 2>&1 &
           shepherdr_pid=$!
           for _ in $(seq 1 60); do
             if curl -fsS -H 'Host: shepherdr.test' -H 'X-Forwarded-Proto: https' http://127.0.0.1:18787/healthz >"$smoke_root/protected-health.txt"; then
@@ -354,6 +461,8 @@ jobs:
           wait_bounded "$shepherdr_pid" "protected Shepherdr" 15 false
           shepherdr_pid=
 
+          stop_core_bounded
+          core_pid=
           stop_herdr_bounded
           herdr_pid=
 
@@ -374,6 +483,10 @@ jobs:
     if: ${{ !cancelled() && needs.verify.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # Two runs for one tag must not both find no draft and both create one.
+    concurrency:
+      group: release-draft-${{ inputs.tag }}
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:
@@ -441,50 +554,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          release_id=
-          is_draft=
-          lookup_body="$RUNNER_TEMP/release-lookup.json"
-          lookup_status=
-          if ! lookup_status=$(curl --silent --show-error \
-            --header "Accept: application/vnd.github+json" \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            --output "$lookup_body" \
-            --write-out '%{http_code}' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG"); then
-            echo "draft release lookup request failed" >&2
+          # The by-tag release endpoint returns published releases only, so it
+          # cannot see an earlier run's draft. The release list includes drafts
+          # for a token with write access; match the tag there instead.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
+          tagged=$(jq -cs --arg tag "$RELEASE_TAG" '[.[][] | select(.tag_name == $tag) | {id, draft}]' "$RUNNER_TEMP/releases.json")
+          published_count=$(jq -r '[.[] | select(.draft != true)] | length' <<<"$tagged")
+          draft_count=$(jq -r '[.[] | select(.draft == true)] | length' <<<"$tagged")
+          if [[ "$published_count" != "0" ]]; then
+            echo "refusing to modify a published release" >&2
             exit 1
           fi
-          case "$lookup_status" in
-            200)
-              release_id=$(jq -er '.id | select(type == "number" and . > 0 and . == floor)' "$lookup_body")
-              is_draft=$(jq -er '.draft | if type == "boolean" then tostring else empty end' "$lookup_body")
-              ;;
-            404)
-              if ! jq -e 'type == "object" and .message == "Not Found"' "$lookup_body" >/dev/null; then
-                echo "draft release lookup returned a malformed 404 response" >&2
-                exit 1
-              fi
-              repository=$(gh api "repos/$GITHUB_REPOSITORY" --jq .full_name)
-              if [[ "$repository" != "$GITHUB_REPOSITORY" ]]; then
-                echo "could not confirm repository access after missing draft lookup" >&2
-                exit 1
-              fi
-              release_id=
-              ;;
-            *)
-              echo "draft release lookup failed with HTTP $lookup_status" >&2
-              exit 1
-              ;;
-          esac
+          if [[ "$draft_count" != "0" && "$draft_count" != "1" ]]; then
+            echo "found $draft_count drafts for $RELEASE_TAG ($(jq -r '[.[].id] | join(", ")' <<<"$tagged")); delete the extras, then rerun" >&2
+            exit 1
+          fi
 
-          if [[ -n "$release_id" ]]; then
+          release_id=
+          if [[ "$draft_count" == "1" ]]; then
+            release_id=$(jq -r '.[0].id | select(type == "number" and . > 0 and . == floor)' <<<"$tagged")
             if [[ ! "$release_id" =~ ^[1-9][0-9]*$ ]]; then
               echo "draft release lookup returned an invalid release ID" >&2
-              exit 1
-            fi
-            if [[ "$is_draft" != "true" ]]; then
-              echo "refusing to modify a published release" >&2
               exit 1
             fi
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
