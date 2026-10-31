@@ -45,7 +45,7 @@ The human's request: when the app window is unavailable, still offer **New space
 | C8, C9 | A missing folder; `cwd: "~"` | `spawn_failed`, "cannot start "/bin/bash": No such file or directory". Each failure used up an address (t12, t13 never appear). **Shepherdr must expand `~` and check the folder first**, which it already does for New space. |
 | Reopen 1 | Window opened | Within ~1 s the document went **v6 → v7** (t6 placed, `keep` turned on) **→ v8** (the rest). The window still showed the same space and tab. |
 | | C1 → | t6 is the **last pane of alpha / main** (`t1 t2 t6`). |
-| | New spaces → | **Appended after the existing spaces, unnamed** (`name: ""`), in this order: C5's space (t10), C3's space (t8, t9), gamma (t11). That is **address-string order** (`t10 < t11 < t8`), as the source does (`orphans.sort()`), **not creation order**. |
+| | New spaces → | **Appended after the existing spaces, unnamed** (`name: ""`), in this order: C5's space (t10), C3's space (t8, t9), gamma (t11). This run happened to match address-string order (`t10 < t11 < t8`), **not creation order**. That order is not fixed: see the adoption notes below. |
 | | Names → | C3's space folder is `repo/sub`, but the app's name, from `where`, is **`repo`** (its git top). |
 | | Other labels → | `shepherdr.name` stayed on t8 but was ignored. Core `name` is not a space name. |
 | | gamma → | **It came back, unnamed** ("plain"). This repeats R1. |
@@ -59,6 +59,7 @@ Adoption in the app source (`window.rs` `reconcile` / `start_adoption` / `adopt`
 - Adoption checks `state == live` and that the labels are unchanged, then turns `keep` on.
 - An unknown space is created under the label's id, unnamed, with the terminal's folder.
 - A known tab gets a split **right of its last pane**.
+- Several waiting terminals start their adoption in address-string order (`orphans.sort()`). Each first waits for its own `terminal.get` on a background thread and is placed when that reply arrives. So several new spaces, or several new terminals in one tab, are placed in the order their replies finish, which varies from run to run. Six real trials in the wave 3c fix matched neither address-string order nor space-id order.
 - An unknown tab is inserted after the space's selected tab.
 - The shown space and focus are kept.
 - `terminal.park` clears both labels, so parked terminals are never adopted.
@@ -118,7 +119,7 @@ Adoption in the app source (`window.rs` `reconcile` / `start_adoption` / `adopt`
 |---|---|---|
 | **Stale ids** (a space or tab the person closed in the app) | Labelled ids for a closed space or tab bring it back unnamed (C6, E2, R1). | New space uses fresh ids. New terminal takes S/T from a fresh read right before the run, and **while the window is closed the document can't change**: it stayed at v6 through every closed run, and only the app writes it. A stale browser Home is refused (`not_found` / "This space changed…"). Left over: the window opens **and** the person closes that space or tab in the milliseconds between the read and the run. Accept and document. |
 | **Window opens mid-action** | The app adopts within ~0.7 s and doesn't change its view or focus (E3). | Nothing to do. Home moves from rule 1b to rule 1 in one update. |
-| **Two creates before the app opens** | Both are adopted. New spaces are appended in address-string order, not creation order (C3/C5). Several new terminals in one tab are appended in that order too. | Home shows creation order while waiting, then follows the document in one update. The warning says the position may change. The one-action latch serialises the creates. |
+| **Two creates before the app opens** | Both are adopted. Several new spaces, or several new terminals in one tab, are appended in the order the app finishes checking them. That order varies from run to run, and it is not creation order, address-string order or space-id order (section 2). | Home shows creation order while waiting, then follows the document in one update. The warning says the position may change. The one-action latch serialises the creates. |
 | **App open on another session** | (a) The default-home app runs on another core: `status` says open, so the app route is used, as in 3b today. Unchanged risk, recorded in 3b. (b) An app at another home runs on **this** core: `status` says closed, so best effort is offered, and that window adopts at once (E3). The warning overstates; the result is right. (c) The app later opens on another core: it never adopts. | Documented. No change. |
 | **App never opens again** | The terminal keeps running in core. `keep` restarts a lost shell, and Home keeps showing it in its space. | Close terminal and Close space work on it. Nothing is cleaned up automatically. |
 | **Target's folder gone, or `~`** | Core refuses and uses up an address (C8/C9). | Checked before the run. |
@@ -155,10 +156,10 @@ The space and terminal are real and running; only their place in the app is pred
 - **There is no reconciliation step.** Rule 1 is applied first, and rule 1b only covers what rule 1 doesn't. The app doesn't change `herdr.space` or `herdr.tab` on adoption (validated: only `where` and `keep` change). So no complete read can show a terminal twice or not at all, and each change is one complete Home, under the existing one-read latch. It adds no queue, replay or memory of earlier reads.
 - **What can change once, at the reopen:**
   - a new space's **name**: folder base name → the app's git-top name, through `where`. In R3 this happened one read before the placement;
-  - the **order of several new spaces** (address-string order);
+  - the **order of several new spaces, or of several new terminals in one tab**, created while the window was closed (the app's order varies from run to run; see section 2);
   - the **position of a re-created tab** (stale or third-party ids only).
 
-  A new terminal in an existing tab stays in place.
+  A single new terminal in an existing tab stays in place.
 - **Notifications:** **Space opened** fires once when the waiting space first appears. Adoption keeps its id, so it doesn't fire again. Core uploads are keyed by space id, which is stable through adoption.
 
 ### 4.4 Alternative, if rule 1b is not wanted
