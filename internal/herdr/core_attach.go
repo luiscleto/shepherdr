@@ -469,16 +469,18 @@ func (c *CoreClient) ReadFirstPaint(ctx context.Context, address string, history
 
 var (
 	corePaintOSC     = regexp.MustCompile("\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)")
-	corePaintClear   = regexp.MustCompile("\n*\x1b\\[H\x1b\\[2J")
+	corePaintClear   = regexp.MustCompile("(\n?)\n*\x1b\\[H\x1b\\[2J")
 	corePaintCharset = regexp.MustCompile("\x1b[()*+].")
 )
 
 // CoreReaderANSI turns a first paint into Reader's history text. The paint is
-// rebuilt from screen cells, so its clears come only from its own layout:
-// history, blank lines that push it into scrollback, a clear, then the
-// screen. Reader shows history and screen as one list, so the push-up and
-// the clears go. Titles, status reports and character set choices are not
-// output and go too.
+// rebuilt from screen cells, so its clears come only from its own layout: a
+// clear, history, a line break and blank lines that push it into scrollback,
+// a clear, then the screen. Reader shows history and screen as one list, so
+// the push-up and the clears go, keeping the one line break that ends the
+// last history line. Titles, status reports and character set choices are
+// not output and go too.
 func CoreReaderANSI(paint []byte) []byte {
-	return corePaintCharset.ReplaceAll(corePaintClear.ReplaceAll(corePaintOSC.ReplaceAll(paint, nil), nil), nil)
+	text := corePaintClear.ReplaceAll(corePaintOSC.ReplaceAll(paint, nil), []byte("$1"))
+	return corePaintCharset.ReplaceAll(text, nil)
 }

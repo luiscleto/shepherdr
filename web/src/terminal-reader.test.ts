@@ -4,6 +4,7 @@ import test from "node:test";
 
 import { Window } from "happy-dom";
 
+import { renderANSI } from "./terminal/ansi-dom";
 import { terminalReaderForDevice } from "./terminal/device";
 import { readerActionAvailability } from "./terminal/reader-availability";
 import { pauseReaderLiveRefresh, ReaderView, readerAtLatest } from "./terminal/reader-view";
@@ -437,6 +438,22 @@ test("Reader uses snapshot dimensions only for reading", async (t) => {
   await reader.refresh(true, false);
   assert.equal(reader.dimensions().rows, 24);
   reader.destroy();
+});
+
+test("Reader shows each row of a Herdr Core paint on its own line", (t) => {
+  // The server's Reader text for paints a real herdr-core sent, kept equal to
+  // CoreReaderANSI by the Go tests.
+  const { host } = withReaderBrowser(t);
+  for (const [name, row, rows] of [["idle", /idle (\d+)/g, 400], ["busy", /live (\d+)/g, 619], ["marker", /line (\d+)/g, 30]] as const) {
+    const ansi = readFileSync(new URL(`../../internal/herdr/testdata/core-reader-${name}.ansi`, import.meta.url), "utf8");
+    renderANSI(host, ansi);
+    const lines = Array.from(host.querySelectorAll(".reader-line"), (line) => line.textContent ?? "");
+    const numbers = lines.map((line) => Array.from(line.matchAll(row), (match) => Number(match[1])));
+    assert.deepEqual(numbers.filter((found) => found.length !== 1), [], `${name}: a line holds other than one row`);
+    assert.equal(lines.length, rows, name);
+    const first = numbers[0][0];
+    assert.deepEqual(numbers.map((found) => found[0]), Array.from({ length: rows }, (_, index) => first + index), name);
+  }
 });
 
 test("the production Reader follows the primary coarse pointer even when another fine pointer exists", () => {

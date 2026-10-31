@@ -3,11 +3,16 @@ package herdr
 import (
 	"bytes"
 	"errors"
+	"flag"
 	"io"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+var updateReaderText = flag.Bool("update-reader-text", false, "rewrite testdata/core-reader-*.ansi from the captured paints")
 
 // The testdata files are the raw framed bytes a real herdr-core 0.1.15 sent
 // to a fresh observing attach with history 500, right after hello:
@@ -47,10 +52,12 @@ func TestFirstPaintEndsAtItsMarkerInRealCoreStreams(t *testing.T) {
 		liveAfter  string
 		readerHas  []string
 		readerLast string
+		row        string
+		rows       int
 	}{
-		{name: "idle", minFrames: 2, paintEnds: "\x1b[?9001l", readerHas: []string{"idle 001", "idle 250"}, readerLast: "idle 400"},
-		{name: "busy", minFrames: 2, paintEnds: "\x1b[?9001l", liveAfter: "\x1b[32mlive ", readerHas: []string{"live 00"}},
-		{name: "marker", minFrames: 1, paintEnds: "\x1b[?9001h\x1b]7501;state=idle", readerHas: []string{"text [?9001l and [?9001h line 01"}, readerLast: "line 30"},
+		{name: "idle", minFrames: 2, paintEnds: "\x1b[?9001l", readerHas: []string{"idle 001", "idle 250"}, readerLast: "idle 400", row: `idle (\d+)`, rows: 400},
+		{name: "busy", minFrames: 2, paintEnds: "\x1b[?9001l", liveAfter: "\x1b[32mlive ", readerHas: []string{"live 00"}, row: `live (\d+)`, rows: 619},
+		{name: "marker", minFrames: 1, paintEnds: "\x1b[?9001h\x1b]7501;state=idle", readerHas: []string{"text [?9001l and [?9001h line 01"}, readerLast: "line 30", row: `line (\d+)`, rows: 30},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			frames := readPaintCapture(t, test.name)
@@ -112,7 +119,55 @@ func TestFirstPaintEndsAtItsMarkerInRealCoreStreams(t *testing.T) {
 					t.Errorf("Reader text holds %q", unwanted)
 				}
 			}
+			checkReaderGolden(t, test.name, reader)
+			checkOneRowPerLine(t, reader, test.row, test.rows)
 		})
+	}
+}
+
+// checkOneRowPerLine splits the text where Reader starts a new line, at each
+// line feed, and checks every line holds exactly one row, in order. A history
+// line joined with the first screen line, or a lost line, fails.
+func checkOneRowPerLine(t *testing.T, reader, row string, rows int) {
+	t.Helper()
+	if strings.HasPrefix(reader, "\n") {
+		t.Error("Reader text starts with a line break")
+	}
+	pattern := regexp.MustCompile(row)
+	lines := strings.Split(reader, "\n")
+	if len(lines) != rows {
+		t.Errorf("Reader text has %d lines, want %d", len(lines), rows)
+	}
+	previous := -1
+	for index, line := range lines {
+		found := pattern.FindAllStringSubmatch(line, -1)
+		if len(found) != 1 {
+			t.Fatalf("line %d holds %d rows: %q", index, len(found), line)
+		}
+		number, _ := strconv.Atoi(found[0][1])
+		if previous >= 0 && number != previous+1 {
+			t.Fatalf("line %d is row %d after row %d", index, number, previous)
+		}
+		previous = number
+	}
+}
+
+// checkReaderGolden keeps testdata/core-reader-*.ansi equal to the Reader
+// text, so the browser tests render the same text with Reader's renderer.
+func checkReaderGolden(t *testing.T, name, reader string) {
+	t.Helper()
+	path := "testdata/core-reader-" + name + ".ansi"
+	if *updateReaderText {
+		if err := os.WriteFile(path, []byte(reader), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	golden, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(golden) != reader {
+		t.Errorf("%s differs from the Reader text; rerun with -update-reader-text", path)
 	}
 }
 
