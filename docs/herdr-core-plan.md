@@ -205,14 +205,28 @@ Shown, through core, whenever core Home is live (the app window open or closed):
 - **Close terminal**: `terminal.kill` on the exact address. The confirmation is the TUI's, plus "N terminals it started will also close." when workers end with it. If nothing else Home shows would remain in the space, the confirmation is Close space's, and confirming closes everything shown in the space, as the TUI does for a last pane.
 - **Close space**: `terminal.kill` on every live terminal Home shows in the space, workers included: workers first, deepest first, each before the terminal that started it, otherwise in Home order. The confirmation is the TUI's Close workspace one in space words, never naming linked workspaces, with `error` in the interruption warning. **Other terminals** has no space actions.
 
+Shown only while the Herdr app window is open (wave 3b; `herdr-app do`, see section 4b):
+- **New space**: `space.new` with the folder (`~` expanded by Shepherdr) and the optional label as its name;
+- **New terminal**: `pane.split` beside or below an exact terminal that has a pane;
+- **Rename space**: `space.rename`.
+
 Hidden in core mode:
 - worktree groups, **New worktree** and **Delete checkout** (core and the app expose no worktree command);
-- **New space** and **New terminal** (wave 3b plans them, with **Rename space**, through the app while its window is open; see `docs/herdr-core-actions-plan.md`);
 - **Rename terminal** (core names are fixed at start, and the app has no terminal rename);
 - **Take over** and **Take over and send**;
 - every three-dot menu with no actions.
 
 Expand all and Collapse all only apply to worktree groups, so they never show.
+
+---
+
+## 4b. App window actions (wave 3b)
+
+- Shepherdr runs `herdr-app` from `PATH` only as `--version`, `commands`, `status` and `do <command> <one JSON object>`, with no shell. It never runs bare `herdr-app`, which opens the window. If `herdr-app` is missing, or Shepherdr follows a non-default core socket, app actions are off and this is logged once.
+- Gate: herdr-app 0.1.10 validated; newer runs best effort with a warning. `commands` must list `space.new {name, folder}`, `pane.split {direction, pane}` and `space.rename {id, name}`.
+- Window open = `herdr-app status` exits 0. It is checked every 5 s while core is live and before each app action. A change publishes one complete Home.
+- Results: exit 0 = succeeded; "the window did not answer", "the window hung up", or a timeout = unknown; "no Herdr window" = not sent ("The Herdr app window is closed. Open it on the computer, then try again."); other errors = refused, with the app's message. There is no retry. Afterwards, one complete core read.
+- New space shows the new space in the app window. New terminal focuses the new pane when its tab is shown there.
 
 ---
 
@@ -339,6 +353,8 @@ The human also approved a matching one-line note in `docs/north-star.md` ("Uses 
 - **No status before an agent's first report,** for example during trust prompts, so **Add files** is unavailable then.
 - **Links already on screen** when a terminal opens are not clickable, because the first paint drops OSC 8.
 - **A closed window leaves a stale app layout** after Close terminal or Close space. Home is right through rules 1 and 4, and the app tidies up on its next start.
+- **App command interface:** it is used only through the documented `herdr-app` CLI. Exit codes don't separate "not sent" from "unknown", so Shepherdr reads the CLI's stderr and error text, validated per app version.
+- **App actions change the window:** New space switches the shown space, and New terminal focuses the new pane when its tab is shown.
 
 ---
 
@@ -506,7 +522,11 @@ Planned in `docs/herdr-core-actions-plan.md` (approved 2026-10-31), sections 4.2
 - Prepare (a fresh complete read, then facts), confirm, then run (a fresh complete read; the facts must still match, else "This space changed…"; then kill). One action at a time per Herdr. Outcomes are succeeded, refused or unknown, with no retry, and one complete read afterwards.
 - **Gate:** the acceptance checks in section 7.1 of that plan, on an isolated herdr-core 0.1.15, Herdr app 0.1.10 and Herdr TUI 0.9.5.
 
-Wave 3b (app window actions) is planned in the same document, section 7.2.
+### Wave 3b: app window actions
+
+Planned in the same document, sections 4.3 and 7.2, with decisions D2 (a), D3 and D4:
+- **New space**, **New terminal** and **Rename space**, through the documented `herdr-app` CLI (section 4b), shown only while the app window answers `herdr-app status`, and only while Shepherdr follows the default core socket.
+- **Gate:** the acceptance checks in section 7.2 of that plan, on an isolated herdr-core 0.1.15, Herdr app 0.1.10 and Herdr TUI 0.9.5.
 
 ### Later, separately
 
