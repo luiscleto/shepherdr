@@ -220,16 +220,6 @@ Expand all and Collapse all only apply to worktree groups, so they never show.
 
 ---
 
-## 4b. App window actions (wave 3b)
-
-- Shepherdr runs `herdr-app` from `PATH` only as `--version`, `commands`, `status` and `do <command> <one JSON object>`, with no shell. It never runs bare `herdr-app`, which opens the window. If `herdr-app` is missing, or Shepherdr follows a non-default core socket, app actions are off and this is logged once.
-- Gate: herdr-app 0.1.10 validated; newer runs best effort with a warning. `commands` must list `space.new {name, folder}`, `pane.split {direction, pane}` and `space.rename {id, name}`.
-- Window open = `herdr-app status` exits 0. It is checked every 5 s while core is live and before each app action. A change publishes one complete Home.
-- Results: exit 0 = succeeded; "the window did not answer", "the window hung up", or a timeout = unknown; "no Herdr window" = not sent ("The Herdr app window is closed. Open it on the computer, then try again."); other errors = refused, with the app's message. There is no retry. Afterwards, one complete core read.
-- New space shows the new space in the app window. New terminal focuses the new pane when its tab is shown there.
-
----
-
 ## 4. Terminal page on core (wave 2)
 
 The browser keeps its WebSocket protocol, and the server holds the core channel. The bridge is a Go framed client in-process, so there is no `herdr` subprocess.
@@ -272,6 +262,16 @@ These are hidden in core mode, because core has no key for them:
 The Character field only accepts the characters in the table. Any other input gets the inline note "Herdr can't send this key." and Send stays unavailable.
 
 The existing Super note stays: it reaches only programs that turned on enhanced keyboard input. Core refuses a combination it can't encode with `invalid_params` → **not sent** (existing result).
+
+---
+
+## 4b. App window actions (wave 3b)
+
+- Shepherdr runs `herdr-app` from `PATH` only as `--version`, `commands`, `status` and `do <command> <one JSON object>`, with no shell. It never runs bare `herdr-app`, which opens the window. If `herdr-app` is missing, or Shepherdr follows a non-default core socket, app actions are off and this is logged once.
+- Gate: herdr-app 0.1.10 validated; newer runs best effort with a warning. `commands` must list `space.new {name, folder}`, `pane.split {direction, pane}` and `space.rename {id, name}`.
+- Window open = `herdr-app status` exits 0 within 2 s. Home asks every 5 s and after each action, apart from the core reads, so a window that stops answering reads as closed without holding up Home. Each app action also asks first. A change publishes one complete Home.
+- Results: exit 0 = succeeded; "the window did not answer", "the window hung up", or a timeout = unknown; "no Herdr window" = not sent ("The Herdr app window is closed. Open it on the computer, then try again."); other errors = refused, with the app's message. There is no retry. Afterwards, one complete core read.
+- New space shows the new space in the app window. New terminal focuses the new pane when its tab is shown there.
 
 ---
 
