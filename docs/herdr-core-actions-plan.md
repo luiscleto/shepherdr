@@ -197,7 +197,7 @@ There is no retry.
 
 **App client.**
 - Found once at start as `herdr-app` on `PATH`, like `herdr`. If it is missing, log once ("Herdr app actions are off: herdr-app is not on PATH") and show no app actions.
-- It runs only `herdr-app --version`, `herdr-app commands`, `herdr-app status` and `herdr-app do <command> <one JSON object>`, with `exec.Command` (no shell), Shepherdr's own environment, and a 10 s timeout.
+- It runs only `herdr-app --version`, `herdr-app commands`, `herdr-app status` and `herdr-app do <command> <one JSON object>`, with `exec.Command` (no shell), Shepherdr's own environment, and a 10 s timeout (2 s for `status`).
 - **It never runs bare `herdr-app`.**
 
 **Gate.**
@@ -212,7 +212,7 @@ There is no retry.
 **Pairing.** The app at its default home drives the default core session. App actions are offered only while Shepherdr follows the default core socket (`-herdr-core-socket` not given). With a custom socket they are off, with one log line.
 
 **Window open.**
-- The core projector asks `herdr-app status` every 5 s while core is live, and again right before each app action.
+- A watcher outside the core loop asks `herdr-app status` every 5 s, and again right before each app action, so a slow or hung window never delays core Home.
 - Exit 0 means open. Exit 2 with stderr starting `no Herdr window at` means closed.
 - A change triggers the normal complete core read and publish, so the actions appear or disappear in one complete Home. There is no new visible state.
 
@@ -346,7 +346,7 @@ New section 4b, "App window actions" (wave 3b only):
 
 - Shepherdr runs `herdr-app` from `PATH` only as `--version`, `commands`, `status` and `do <command> <one JSON object>`, with no shell. It never runs bare `herdr-app`, which opens the window. If `herdr-app` is missing, or Shepherdr follows a non-default core socket, app actions are off and this is logged once.
 - Gate: herdr-app 0.1.10 validated; newer runs best effort with a warning. `commands` must list `space.new {name, folder}`, `pane.split {direction, pane}` and `space.rename {id, name}`.
-- Window open = `herdr-app status` exits 0. It is checked every 5 s while core is live and before each app action. A change publishes one complete Home.
+- Window open = `herdr-app status` exits 0 within 2 s. It is checked every 5 s and before each app action. A change publishes one complete Home.
 - Results: exit 0 = succeeded; "the window did not answer", "the window hung up", or a timeout = unknown; "no Herdr window" = not sent ("The Herdr app window is closed. Open it on the computer, then try again."); other errors = refused, with the app's message. There is no retry. Afterwards, one complete core read.
 - New space shows the new space in the app window. New terminal focuses the new pane when its tab is shown there.
 ```
@@ -478,7 +478,7 @@ Worktree actions (D1), Rename terminal, tab actions, remote machines.
 - **Closed window:** Close actions leave the app's layout stale until the app starts again. Home is correct meanwhile.
 - **Close space is several kills.** A failure part-way through is unknown and leaves some terminals running. Home shows the truth after the refresh.
 - **Pairing:** the app at its default home is assumed to drive the default core. A custom core socket turns app actions off. Someone with a custom `HERDR_APP_HOME` and the default core gets no app actions, because the app client looks in the default home.
-- **Window check every 5 s:** an app action can show for up to 5 s after the window closes. The run then refuses honestly ("not sent").
+- **Window check every 5 s:** an app action can show for up to about 7 s after the window closes or stops answering. The run then refuses honestly ("not sent").
 - **Workers:** core kill spares `outlive_parent` children (they move to **Other terminals**), while the app's own kill ends them. The Close space plan kills them explicitly. Close terminal says which will also close.
 - **Kill of a finished terminal looks like success** in core's reply. Shepherdr relies on its fresh read before the kill.
 
