@@ -180,6 +180,7 @@ type Workspace struct {
 	GroupAgentCounts *AgentCounts      `json:"group_agent_counts,omitempty"`
 	ID               string            `json:"id"`
 	Label            string            `json:"label"`
+	ManualName       *string           `json:"manual_name,omitempty"`
 	Number           uint              `json:"number"`
 	Tabs             []Tab             `json:"tabs"`
 	Worktrees        []Workspace       `json:"worktrees,omitempty"`
@@ -194,11 +195,18 @@ type AgentCounts struct {
 	Unknown int `json:"unknown,omitempty"`
 }
 
+// HomeAction is an action for Home as a whole. Only the Herdr app window
+// offers one: New space.
+type HomeAction string
+
+const HomeActionCreateSpace HomeAction = "create_space"
+
 type Home struct {
-	BlockedCount int         `json:"blocked_count"`
-	ErrorCount   int         `json:"error_count"`
-	WorkingCount int         `json:"working_count"`
-	Workspaces   []Workspace `json:"workspaces"`
+	Actions      []HomeAction `json:"actions,omitempty"`
+	BlockedCount int          `json:"blocked_count"`
+	ErrorCount   int          `json:"error_count"`
+	WorkingCount int          `json:"working_count"`
+	Workspaces   []Workspace  `json:"workspaces"`
 }
 
 func Project(snapshot Snapshot) (Home, error) {

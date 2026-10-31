@@ -31,6 +31,9 @@ type appTab struct {
 	ID        string
 	Name      string
 	Terminals []string
+	// Blocks maps each placed terminal to the app's id for its pane. It stays
+	// on the server: only a split names it, to the app.
+	Blocks map[string]string
 }
 
 func parseAppDocument(raw json.RawMessage) ([]appSpace, error) {
@@ -65,7 +68,9 @@ func parseAppDocument(raw json.RawMessage) ([]appSpace, error) {
 			if err := json.Unmarshal(rawTab, &tab); err != nil || tab.ID == nil {
 				return nil, ErrUnreadableAppLayout
 			}
-			parsed.Tabs = append(parsed.Tabs, appTab{ID: *tab.ID, Name: stringOrEmpty(tab.Name), Terminals: layoutTerminals(tab.Root, nil)})
+			parsedTab := appTab{ID: *tab.ID, Name: stringOrEmpty(tab.Name), Blocks: map[string]string{}}
+			layoutTerminals(tab.Root, &parsedTab)
+			parsed.Tabs = append(parsed.Tabs, parsedTab)
 		}
 		spaces = append(spaces, parsed)
 	}
@@ -75,28 +80,31 @@ func parseAppDocument(raw json.RawMessage) ([]appSpace, error) {
 // layoutTerminals walks the split tree depth first, which is the app's visual
 // order. Unknown node types and keys are ignored: a terminal they would have
 // placed still appears under Other terminals.
-func layoutTerminals(raw json.RawMessage, terminals []string) []string {
+func layoutTerminals(raw json.RawMessage, tab *appTab) {
 	var node struct {
 		Type     string            `json:"type"`
+		ID       any               `json:"id"`
 		Children []json.RawMessage `json:"children"`
 		Content  struct {
 			Terminal any `json:"terminal"`
 		} `json:"content"`
 	}
 	if json.Unmarshal(raw, &node) != nil {
-		return terminals
+		return
 	}
 	switch node.Type {
 	case "row", "column", "stack":
 		for _, child := range node.Children {
-			terminals = layoutTerminals(child, terminals)
+			layoutTerminals(child, tab)
 		}
 	case "block":
 		if address, ok := node.Content.Terminal.(string); ok {
-			terminals = append(terminals, address)
+			tab.Terminals = append(tab.Terminals, address)
+			if id, ok := node.ID.(string); ok && id != "" {
+				tab.Blocks[address] = id
+			}
 		}
 	}
-	return terminals
 }
 
 func stringOrEmpty(value any) string {
@@ -170,8 +178,15 @@ func ProjectCore(read CoreRead, homeFolder string) (Snapshot, Home, error) {
 
 	snapshot := Snapshot{Version: read.Version, Workspaces: []WorkspaceInfo{}, Tabs: []TabInfo{}, Panes: []PaneInfo{}, Agents: []AgentInfo{}}
 	home := Home{Workspaces: []Workspace{}}
-	addTerminal := func(workspace *Workspace, tab *Tab, terminal CoreTerminal) {
+	if read.AppWindowOpen {
+		home.Actions = []HomeAction{HomeActionCreateSpace}
+	}
+	addTerminal := func(workspace *Workspace, tab *Tab, terminal CoreTerminal, pane bool) {
 		projected := coreTerminal(read.CoreID, terminal)
+		// The app window splits only a terminal it shows in a pane.
+		if pane && read.AppWindowOpen {
+			projected.Actions = []TerminalAction{TerminalActionSplit, TerminalActionClose}
+		}
 		tab.Terminals = append(tab.Terminals, projected)
 		snapshot.Panes = append(snapshot.Panes, PaneInfo{
 			CWD: terminal.CWD, PaneID: projected.PaneID, TabID: tab.ID, TerminalID: projected.TerminalID,
@@ -190,6 +205,13 @@ func ProjectCore(read CoreRead, homeFolder string) (Snapshot, Home, error) {
 			Actions: []WorkspaceAction{WorkspaceActionCloseWorkspace}, ID: space.ID, Label: spaceLabel(space, live, homeFolder),
 			Number: uint(spaceIndex + 1), Tabs: []Tab{},
 		}
+		if read.AppWindowOpen {
+			workspace.Actions = []WorkspaceAction{WorkspaceActionRenameSpace, WorkspaceActionCloseWorkspace}
+		}
+		if space.Name != "" {
+			name := space.Name
+			workspace.ManualName = &name
+		}
 		if !space.Machine {
 			snapshot.Workspaces = append(snapshot.Workspaces, WorkspaceInfo{Label: workspace.Label, Number: workspace.Number, WorkspaceID: space.ID})
 		}
@@ -203,9 +225,10 @@ func ProjectCore(read CoreRead, homeFolder string) (Snapshot, Home, error) {
 				if !exists {
 					continue
 				}
-				addTerminal(&workspace, &tab, terminal)
+				_, pane := appTab.Blocks[address]
+				addTerminal(&workspace, &tab, terminal, pane)
 				for _, follower := range followers[address] {
-					addTerminal(&workspace, &tab, follower)
+					addTerminal(&workspace, &tab, follower, false)
 				}
 			}
 			if len(tab.Terminals) == 0 {
@@ -228,7 +251,7 @@ func ProjectCore(read CoreRead, homeFolder string) (Snapshot, Home, error) {
 		}
 		tab := Tab{ID: OtherTerminalsID, Label: otherTerminalsLabel, Number: 1, Terminals: []Terminal{}}
 		for _, terminal := range others {
-			addTerminal(&other, &tab, terminal)
+			addTerminal(&other, &tab, terminal, false)
 		}
 		other.Tabs = append(other.Tabs, tab)
 		snapshot.Tabs = append(snapshot.Tabs, TabInfo{Label: tab.Label, Number: 1, PaneCount: uint(len(tab.Terminals)), TabID: tab.ID, WorkspaceID: other.ID})
@@ -382,4 +405,22 @@ func CoreEndsWith(terminals []CoreTerminal, address string) map[string]struct{} 
 		}
 	}
 	return ending
+}
+
+// CorePaneBlock finds the app's pane id for a terminal the read's document
+// places in that space and tab.
+func CorePaneBlock(read CoreRead, spaceID, tabID, address string) (string, bool) {
+	spaces, err := parseAppDocument(read.Document)
+	if err != nil {
+		return "", false
+	}
+	for _, space := range spaces {
+		for _, tab := range space.Tabs {
+			if space.ID == spaceID && tab.ID == tabID {
+				block, ok := tab.Blocks[address]
+				return block, ok
+			}
+		}
+	}
+	return "", false
 }

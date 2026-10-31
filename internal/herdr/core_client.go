@@ -52,6 +52,9 @@ type CoreRead struct {
 	Version   string
 	Terminals []CoreTerminal
 	Document  json.RawMessage
+	// AppWindowOpen says the Herdr app window answered just before this read,
+	// so Home offers the actions the window does. Read leaves it false.
+	AppWindowOpen bool
 }
 
 type CoreTerminal struct {

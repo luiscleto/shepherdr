@@ -1,7 +1,7 @@
 import type { Herdr } from "./home-model";
 
-export type WorkspaceAction = "create_worktree" | "close_workspace" | "close_group" | "delete_checkout";
-export type DestructiveWorkspaceAction = Exclude<WorkspaceAction, "create_worktree">;
+export type WorkspaceAction = "create_worktree" | "close_workspace" | "close_group" | "delete_checkout" | "rename_space";
+export type DestructiveWorkspaceAction = Exclude<WorkspaceAction, "create_worktree" | "rename_space">;
 
 // error comes only from Herdr Core and unknown only from the Herdr TUI.
 export interface InterruptionCounts {
@@ -34,7 +34,8 @@ export type RefusalReason =
   | "stale"
   | "herdr_unavailable"
   | "checkout_has_changes"
-  | "herdr_refused";
+  | "herdr_refused"
+  | "app_closed";
 
 export interface RefusedWorkspaceAction {
   outcome: "refused";
@@ -77,6 +78,15 @@ export interface CreateWorktreeRequest {
   branch?: string;
 }
 
+// Rename space comes only from the Herdr app window. A blank name returns the
+// space to its automatic name.
+export interface RenameSpaceRequest {
+  herdr: Herdr;
+  action: "rename_space";
+  workspace_id: string;
+  name: string;
+}
+
 export interface ConfirmWorkspaceActionRequest {
   herdr: Herdr;
   action: DestructiveWorkspaceAction;
@@ -84,7 +94,11 @@ export interface ConfirmWorkspaceActionRequest {
   expected: ConfirmationFacts;
 }
 
-export type RunWorkspaceActionRequest = CreateSpaceRequest | CreateWorktreeRequest | ConfirmWorkspaceActionRequest;
+export type RunWorkspaceActionRequest =
+  | CreateSpaceRequest
+  | CreateWorktreeRequest
+  | RenameSpaceRequest
+  | ConfirmWorkspaceActionRequest;
 export type PreparedWorkspaceActionResponse = PreparedWorkspaceAction | RefusedWorkspaceAction;
 export type RunWorkspaceActionResponse = SucceededWorkspaceAction | RefusedWorkspaceAction | UnknownWorkspaceAction;
 
@@ -104,6 +118,7 @@ const refusalReasons = new Set<RefusalReason>([
   "herdr_unavailable",
   "checkout_has_changes",
   "herdr_refused",
+  "app_closed",
 ]);
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -203,6 +218,7 @@ function validStatus(status: number, response: WorkspaceActionResponse): boolean
     herdr_unavailable: 503,
     checkout_has_changes: 422,
     herdr_refused: 422,
+    app_closed: 503,
   };
   return status === expectedStatus[response.reason];
 }

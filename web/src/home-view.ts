@@ -170,6 +170,7 @@ function workspaceActionLabels(herdr: Herdr): Record<WorkspaceAction, string> {
     close_workspace: `Close ${spaceWord(herdr)}`,
     close_group: "Close workspace",
     delete_checkout: "Delete checkout",
+    rename_space: "Rename space",
   };
 }
 
@@ -519,7 +520,8 @@ export class HomeView {
         reconcileChildren(this.#homeTools, [
           this.#filterLabel,
           this.#expandAction,
-          ...(managementAvailable && !core ? [this.#newSpaceAction] : []),
+          // On Herdr Core, the Herdr app window makes spaces while it is open.
+          ...(managementAvailable && (!core || model.state.home.actions?.includes("create_space")) ? [this.#newSpaceAction] : []),
         ]);
         desired.push(this.#homeTools);
         // The empty state takes the list's place, below the tools row.
@@ -1165,7 +1167,7 @@ export class HomeView {
 
   #updateWorkspaceMenu(nodes: WorkspaceMenuNodes, workspace: Workspace): void {
     setAttribute(nodes.trigger, "aria-label", `Actions for ${workspace.label}`);
-    const order: WorkspaceAction[] = ["create_worktree", "close_workspace", "close_group", "delete_checkout"];
+    const order: WorkspaceAction[] = ["rename_space", "create_worktree", "close_workspace", "close_group", "delete_checkout"];
     const labels = workspaceActionLabels(this.#shownHerdr());
     const items: Node[] = [];
     for (const action of order) {
@@ -1212,7 +1214,7 @@ export class HomeView {
       items.push(item);
     }
     if (includeWorkspace) {
-      const workspaceOrder: WorkspaceAction[] = ["create_worktree", "close_workspace", "close_group", "delete_checkout"];
+      const workspaceOrder: WorkspaceAction[] = ["rename_space", "create_worktree", "close_workspace", "close_group", "delete_checkout"];
       const labels = workspaceActionLabels(this.#shownHerdr());
       for (const action of workspaceOrder) {
         if (!entry.workspace.actions.includes(action)) continue;
@@ -1439,7 +1441,7 @@ export class HomeView {
     if (this.#actionRunning || !this.#lastRender) return;
     const herdr = this.#shownHerdr();
     this.#returnFocus = this.#newSpaceAction;
-    const copy = element(this.#document, "p", "home-action-copy", "Add a workspace for an existing folder.");
+    const copy = element(this.#document, "p", "home-action-copy", `Add a ${spaceWord(herdr)} for an existing folder.`);
     const form = element(this.#document, "form", "home-action-form");
     const directoryLabel = element(this.#document, "label", "home-action-field");
     directoryLabel.append(element(this.#document, "span", undefined, "Working directory"));
@@ -1529,6 +1531,27 @@ export class HomeView {
       void this.#submitAction(request);
     });
     this.#showActionLayer(`New worktree for ${workspace.label}`, [copy, form], () => this.#closeActionLayer(), branch);
+  }
+
+  #openRenameSpace(workspace: Workspace, returnFocus: HTMLElement, herdr: Herdr): void {
+    if (this.#actionRunning) return;
+    this.#returnFocus = returnFocus;
+    const form = element(this.#document, "form", "home-action-form");
+    const field = element(this.#document, "label", "home-action-field");
+    field.append(element(this.#document, "span", undefined, "Name"));
+    const name = element(this.#document, "input");
+    name.name = "space_name";
+    name.value = workspace.manual_name ?? "";
+    name.autocomplete = "off";
+    field.append(name);
+    const help = element(this.#document, "p", "home-action-help", "Leave the name blank to use the automatic name.");
+    const actions = this.#formActions("Rename space", () => this.#closeActionLayer());
+    form.append(field, help, actions.container);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void this.#submitAction({ herdr, action: "rename_space", workspace_id: workspace.id, name: name.value });
+    });
+    this.#showActionLayer(`Rename ${workspace.label}`, [form], () => this.#closeActionLayer(), name);
   }
 
   #formActions(primaryLabel: string, cancel: () => void): { container: HTMLElement; primary: HTMLButtonElement } {
@@ -1703,7 +1726,8 @@ export class HomeView {
     this.#renderAgain();
     if (response.outcome === "refused") {
       // A confirmed Close terminal names the terminal; a confirmed Close space keeps the space's words.
-      const terminalGone = request.herdr === "core" && request.action === "close_terminal" && !request.expected.workspace_expected;
+      const terminalGone = request.herdr === "core" &&
+        (request.action === "split_terminal" || request.action === "close_terminal" && !request.expected.workspace_expected);
       this.#showRefusal(response, request.herdr, terminalGone ? "This terminal is no longer here." : undefined);
       return;
     }
@@ -1748,6 +1772,10 @@ export class HomeView {
     const herdr = this.#shownHerdr();
     if (action === "create_worktree") {
       this.#openNewWorktree(workspace, returnFocus, herdr);
+      return;
+    }
+    if (action === "rename_space") {
+      this.#openRenameSpace(workspace, returnFocus, herdr);
       return;
     }
     this.#returnFocus = returnFocus;
@@ -1894,6 +1922,7 @@ export class HomeView {
       close_workspace: `Closing ${spaceWord(herdr)}`,
       close_group: "Closing workspace",
       delete_checkout: "Deleting checkout",
+      rename_space: "Renaming space",
     };
     return headings[action];
   }
@@ -1905,6 +1934,7 @@ export class HomeView {
       close_workspace: [herdr === "core" ? "Space closed" : "Workspace closed", "Its folder and branch remain. Home will update when it is ready."],
       close_group: ["Workspace closed", "Linked checkout folders and branches remain. Home will update when it is ready."],
       delete_checkout: ["Checkout deleted", "The Git branch remains. Home will update when it is ready."],
+      rename_space: ["Space renamed", "The new name is ready on Home."],
     };
     this.#showResult(copy[action][0], copy[action][1]);
   }
@@ -1914,7 +1944,9 @@ export class HomeView {
       ? "Result unknown. Check Home before starting another worktree."
       : action === "create_space"
         ? "Result unknown. Check Home before starting another space."
-        : "Result unknown. Check Home before trying this action again.";
+        : action === "rename_space"
+          ? "Result unknown. Check Home before renaming this space again."
+          : "Result unknown. Check Home before trying this action again.";
     this.#showResult("Result unknown", message);
   }
 
@@ -1935,6 +1967,7 @@ export class HomeView {
       stale: `This ${word} changed. Open the action again to check the latest details.`,
       herdr_unavailable: "Herdr is not available. Try again when it is running.",
       herdr_refused: "Herdr refused this action.",
+      app_closed: "The Herdr app window is closed. Open it on the computer, then try again.",
     };
     this.#showResult("Action not completed", messages[refusal.reason], refusal.detail);
   }

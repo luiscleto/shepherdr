@@ -170,3 +170,26 @@ test("reads whether each Herdr's terminals can open, and requires it", () => {
   (wrongType.core as Record<string, unknown>).can_open_terminals = "false";
   assert.equal(parseCompleteHomeState(wrongType), undefined);
 });
+
+test("parses the Herdr app window's New space and a space's own name, and nothing else", () => {
+  const frame = completeFrame();
+  const core = completeSide();
+  const home = core.home as { actions?: unknown; workspaces: Array<Record<string, unknown>> };
+  home.actions = ["create_space"];
+  home.workspaces[0].actions = ["rename_space", "close_workspace"];
+  home.workspaces[0].manual_name = "Space <b>";
+  frame.core = core;
+  const parsed = parseCompleteHomeState(frame)?.core;
+  assert.equal(parsed?.home.actions?.join(","), "create_space");
+  assert.equal(parsed?.home.workspaces[0].actions.join(","), "rename_space,close_workspace");
+  assert.equal(parsed?.home.workspaces[0].manual_name, "Space <b>");
+  assert.equal(parseCompleteHomeState(completeFrame())?.tui.home.actions, undefined);
+
+  for (const actions of [[], ["create_space", "create_space"], ["create_worktree"], "create_space"]) {
+    home.actions = actions;
+    assert.equal(parseCompleteHomeState(frame), undefined);
+  }
+  home.actions = ["create_space"];
+  home.workspaces[0].manual_name = 7;
+  assert.equal(parseCompleteHomeState(frame), undefined);
+});

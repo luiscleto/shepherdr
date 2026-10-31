@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/luiscleto/shepherdr/internal/access"
 	"github.com/luiscleto/shepherdr/internal/herdr"
@@ -14,22 +18,43 @@ import (
 
 // Herdr Core offers Close terminal and Close space, both through terminal.kill.
 // Each is prepared from a fresh complete read, confirmed, then checked against
-// another fresh complete read before anything is killed. There is no retry.
+// another fresh complete read before anything is killed. While the Herdr app
+// window is open, it also offers New space, New terminal and Rename space,
+// which the window does. There is no retry.
 
 type coreActionClient interface {
 	Read(context.Context) (herdr.CoreRead, error)
 	Kill(context.Context, string) (string, error)
 }
 
+// appActionClient runs commands in the Herdr app window.
+type appActionClient interface {
+	WindowOpen(context.Context) bool
+	Do(context.Context, string, map[string]any, any) error
+}
+
+// homeWatcher is the published core Home.
+type homeWatcher interface {
+	Subscribe() (<-chan herdr.State, func())
+}
+
+// splitWait bounds how long a split waits for Home to show the new terminal.
+const splitWait = 5 * time.Second
+
 type coreActionCoordinator struct {
 	client     coreActionClient
+	app        appActionClient
+	published  homeWatcher
 	homeFolder string
+	homeDir    func() (string, error)
 	refresh    homeRefresher
 	mutation   chan struct{}
 }
 
 func newCoreActionCoordinator(client coreActionClient, homeFolder string, refresh homeRefresher) *coreActionCoordinator {
-	return &coreActionCoordinator{client: client, homeFolder: homeFolder, refresh: refresh, mutation: make(chan struct{}, 1)}
+	return &coreActionCoordinator{
+		client: client, homeFolder: homeFolder, homeDir: os.UserHomeDir, refresh: refresh, mutation: make(chan struct{}, 1),
+	}
 }
 
 // coreView is one complete read and the Home it projects to.
@@ -38,11 +63,14 @@ type coreView struct {
 	home herdr.Home
 }
 
-func (c *coreActionCoordinator) view(ctx context.Context) (coreView, error) {
+// view reads and projects Home; appWindowOpen projects the app window's
+// actions too.
+func (c *coreActionCoordinator) view(ctx context.Context, appWindowOpen bool) (coreView, error) {
 	read, err := c.client.Read(ctx)
 	if err != nil {
 		return coreView{}, err
 	}
+	read.AppWindowOpen = appWindowOpen
 	_, home, err := herdr.ProjectCore(read, c.homeFolder)
 	if err != nil {
 		return coreView{}, err
@@ -79,7 +107,14 @@ func (c *coreActionCoordinator) prepare(writer http.ResponseWriter, request *htt
 
 func (c *coreActionCoordinator) run(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage) {
 	action, actionOK := decodeString(fields["action"])
-	if !actionOK || action != string(herdr.WorkspaceActionCloseWorkspace) {
+	switch {
+	case actionOK && action == "create_space":
+		c.runCreateSpace(writer, request, fields)
+		return
+	case actionOK && action == string(herdr.WorkspaceActionRenameSpace):
+		c.runRenameSpace(writer, request, fields)
+		return
+	case !actionOK || action != string(herdr.WorkspaceActionCloseWorkspace):
 		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
 		return
 	}
@@ -98,7 +133,7 @@ func (c *coreActionCoordinator) run(writer http.ResponseWriter, request *http.Re
 	}
 	defer c.release()
 
-	current, err := c.view(context.Background())
+	current, err := c.view(context.Background(), false)
 	if err != nil {
 		writeRefusal(writer, http.StatusServiceUnavailable, "herdr_unavailable", err.Error())
 		return
@@ -144,6 +179,10 @@ func (c *coreActionCoordinator) prepareTerminal(writer http.ResponseWriter, requ
 
 func (c *coreActionCoordinator) runTerminal(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage) {
 	action, actionOK := decodeString(fields["action"])
+	if actionOK && action == string(herdr.TerminalActionSplit) {
+		c.runSplitTerminal(writer, request, fields)
+		return
+	}
 	if !actionOK || action != string(herdr.TerminalActionClose) {
 		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
 		return
@@ -162,7 +201,7 @@ func (c *coreActionCoordinator) runTerminal(writer http.ResponseWriter, request 
 	}
 	defer c.release()
 
-	current, err := c.view(context.Background())
+	current, err := c.view(context.Background(), false)
 	if err != nil {
 		writeRefusal(writer, http.StatusServiceUnavailable, "herdr_unavailable", err.Error())
 		return
@@ -235,12 +274,245 @@ func (c *coreActionCoordinator) closeSpace(writer http.ResponseWriter, request *
 		killed = true
 		finished = finished && state == "finished"
 	}
-	after, err := c.view(context.Background())
+	after, err := c.view(context.Background(), false)
 	if _, present := findCoreWorkspace(after.home, workspaceID); err != nil || !finished || present {
 		c.unknown(writer, http.StatusBadGateway)
 		return
 	}
 	c.succeeded(writer)
+}
+
+// runCreateSpace makes a space in the app window for an existing folder, with
+// the label as its name. The window shows the new space.
+func (c *coreActionCoordinator) runCreateSpace(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage) {
+	if !requireObjectKeys(writer, fields, []string{"action", "working_directory", "label"}, []string{"action", "working_directory"}) {
+		return
+	}
+	workingDirectory, ok := decodeString(fields["working_directory"])
+	if !ok || workingDirectory == "" {
+		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
+		return
+	}
+	args := map[string]any{}
+	if raw, present := fields["label"]; present {
+		label, valid := decodeString(raw)
+		if !valid {
+			writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
+			return
+		}
+		if strings.TrimSpace(label) != "" {
+			args["name"] = label
+		}
+	}
+	// The app does not expand "~", and a relative folder would be the app's.
+	folder, err := expandTilde(workingDirectory, c.homeDir)
+	if err != nil {
+		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "Could not find the current user's home directory.")
+		return
+	}
+	if !filepath.IsAbs(folder) {
+		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
+		return
+	}
+	args["folder"] = folder
+	if !c.startAppAction(writer) {
+		return
+	}
+	defer c.release()
+	var created struct {
+		Space    string `json:"space"`
+		Tab      string `json:"tab"`
+		Terminal string `json:"terminal"`
+	}
+	if err := c.doApp(request, "space.new", args, &created); err != nil {
+		c.finishAppError(writer, err)
+		return
+	}
+	if created.Space == "" || created.Tab == "" || created.Terminal == "" {
+		c.unknown(writer, http.StatusBadGateway)
+		return
+	}
+	c.succeeded(writer)
+}
+
+// runRenameSpace names a space in the app window; an empty name returns it to
+// the automatic name. The app refuses an id it no longer has.
+func (c *coreActionCoordinator) runRenameSpace(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage) {
+	keys := []string{"action", "workspace_id", "name"}
+	if !requireObjectKeys(writer, fields, keys, keys) {
+		return
+	}
+	workspaceID, workspaceOK := decodeString(fields["workspace_id"])
+	name, nameOK := decodeString(fields["name"])
+	if !workspaceOK || !nameOK || workspaceID == "" {
+		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
+		return
+	}
+	if workspaceID == herdr.OtherTerminalsID {
+		writeRefusal(writer, http.StatusConflict, "not_applicable", "")
+		return
+	}
+	if strings.TrimSpace(name) == "" {
+		name = ""
+	}
+	if !c.startAppAction(writer) {
+		return
+	}
+	defer c.release()
+	var renamed struct {
+		OK bool `json:"ok"`
+	}
+	if err := c.doApp(request, "space.rename", map[string]any{"id": workspaceID, "name": name}, &renamed); err != nil {
+		c.finishAppError(writer, err)
+		return
+	}
+	if !renamed.OK {
+		c.unknown(writer, http.StatusBadGateway)
+		return
+	}
+	c.succeeded(writer)
+}
+
+// runSplitTerminal splits the exact terminal's pane in the app window, then
+// waits for the published Home to show the new terminal in the same tab so
+// the browser can open it.
+func (c *coreActionCoordinator) runSplitTerminal(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage) {
+	keys := []string{"action", "workspace_id", "tab_id", "pane_id", "terminal_id", "direction"}
+	if !requireObjectKeys(writer, fields, keys, keys) {
+		return
+	}
+	target, targetOK := decodeTerminalTarget(fields)
+	direction, directionOK := decodeString(fields["direction"])
+	if !targetOK || !directionOK || (direction != string(herdr.SplitRight) && direction != string(herdr.SplitDown)) {
+		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
+		return
+	}
+	if !c.startAppAction(writer) {
+		return
+	}
+	defer c.release()
+	current, err := c.view(context.Background(), true)
+	if err != nil {
+		writeRefusal(writer, http.StatusServiceUnavailable, "herdr_unavailable", err.Error())
+		return
+	}
+	terminal, found := findCoreTerminal(current.home, target)
+	if !found {
+		writeRefusal(writer, http.StatusNotFound, "not_found", "")
+		return
+	}
+	block, placed := herdr.CorePaneBlock(current.read, target.WorkspaceID, target.TabID, target.PaneID)
+	if !containsTerminalAction(terminal.Actions, herdr.TerminalActionSplit) || !placed {
+		writeRefusal(writer, http.StatusConflict, "not_applicable", "")
+		return
+	}
+	// Subscribe first, so no Home published after the split is missed.
+	var updates <-chan herdr.State
+	if c.published != nil {
+		var unsubscribe func()
+		updates, unsubscribe = c.published.Subscribe()
+		defer unsubscribe()
+	}
+	var created struct {
+		Pane     string `json:"pane"`
+		Terminal string `json:"terminal"`
+	}
+	if err := c.doApp(request, "pane.split", map[string]any{"direction": direction, "pane": block}, &created); err != nil {
+		c.finishAppError(writer, err)
+		return
+	}
+	if created.Pane == "" || created.Terminal == "" || updates == nil {
+		c.unknown(writer, http.StatusBadGateway)
+		return
+	}
+	c.refreshHome()
+	timeout := time.NewTimer(splitWait)
+	defer timeout.Stop()
+	for {
+		select {
+		case state := <-updates:
+			shown, ok := findCoreTerminal(state.Home, terminalActionTarget{WorkspaceID: target.WorkspaceID, TabID: target.TabID, PaneID: created.Terminal})
+			if !ok || state.Connection != herdr.ConnectionLive {
+				continue
+			}
+			writeActionJSON(writer, http.StatusOK, struct {
+				Outcome  string               `json:"outcome"`
+				Terminal terminalActionTarget `json:"terminal"`
+			}{Outcome: "succeeded", Terminal: terminalActionTarget{
+				WorkspaceID: target.WorkspaceID, TabID: target.TabID, PaneID: shown.PaneID, TerminalID: shown.TerminalID,
+			}})
+			return
+		case <-timeout.C:
+			c.unknown(writer, http.StatusGatewayTimeout)
+			return
+		}
+	}
+}
+
+// startAppAction takes the one-action latch and checks the app window is
+// open. When it is closed nothing is sent, and Home asks the window again.
+// Without the app, core has no such action.
+func (c *coreActionCoordinator) startAppAction(writer http.ResponseWriter) bool {
+	if c.app == nil {
+		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
+		return false
+	}
+	if !c.acquire() {
+		writeRefusal(writer, http.StatusConflict, "busy", "")
+		return false
+	}
+	if !c.app.WindowOpen(context.Background()) {
+		c.release()
+		c.refreshHome()
+		writeRefusal(writer, http.StatusServiceUnavailable, "app_closed", "")
+		return false
+	}
+	return true
+}
+
+func (c *coreActionCoordinator) doApp(request *http.Request, command string, args map[string]any, result any) error {
+	return withCommitAuthority(request, func() error {
+		return c.app.Do(context.Background(), command, args, result)
+	})
+}
+
+// finishAppError answers an app command that did not succeed.
+func (c *coreActionCoordinator) finishAppError(writer http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, access.ErrUnauthorized):
+		writeAccessError(writer, http.StatusUnauthorized, "Sign in again.")
+	case errors.Is(err, herdr.ErrAppWindowClosed):
+		c.refreshHome()
+		writeRefusal(writer, http.StatusServiceUnavailable, "app_closed", "")
+	default:
+		var apiError *herdr.APIError
+		if errors.As(err, &apiError) {
+			writeRefusal(writer, http.StatusUnprocessableEntity, "herdr_refused", apiError.Message)
+			return
+		}
+		if herdr.MutationMayHaveRun(err) {
+			c.unknown(writer, unknownStatus(err))
+			return
+		}
+		writeRefusal(writer, http.StatusServiceUnavailable, "herdr_unavailable", err.Error())
+	}
+}
+
+// findCoreTerminal finds the terminal at target's space, tab and address, and
+// matches its terminal id when target names one.
+func findCoreTerminal(home herdr.Home, target terminalActionTarget) (herdr.Terminal, bool) {
+	workspace, _ := findCoreWorkspace(home, target.WorkspaceID)
+	for _, tab := range workspace.Tabs {
+		if tab.ID != target.TabID {
+			continue
+		}
+		for _, terminal := range tab.Terminals {
+			if terminal.PaneID == target.PaneID && (target.TerminalID == "" || terminal.TerminalID == target.TerminalID) {
+				return terminal, true
+			}
+		}
+	}
+	return herdr.Terminal{}, false
 }
 
 // preparedView reads under the session's authority, as preparing writes facts
@@ -249,7 +521,7 @@ func (c *coreActionCoordinator) preparedView(writer http.ResponseWriter, request
 	var current coreView
 	err := withCommitAuthority(request, func() error {
 		var viewErr error
-		current, viewErr = c.view(request.Context())
+		current, viewErr = c.view(request.Context(), false)
 		return viewErr
 	})
 	if err != nil {

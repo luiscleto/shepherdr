@@ -223,6 +223,13 @@ func run() error {
 	} else {
 		logger.Info("Herdr Core is not followed: set -herdr-core-socket")
 	}
+	var appClient *herdr.AppClient
+	if coreSocketPath != "" {
+		appClient = herdrAppClient(herdrCoreSocket.set, logger)
+		if appClient != nil {
+			coreProjector.SetAppWindow(appClient)
+		}
+	}
 	var terminal *server.TerminalBridge
 	if herdrBinary, err := exec.LookPath("herdr"); err != nil {
 		logger.Warn("Herdr TUI terminals can't open: herdr is not on PATH")
@@ -237,6 +244,9 @@ func run() error {
 		application.SetCoreTerminal(coreTerminal)
 		application.SetCoreFileUploads(coreUploadManager)
 		application.SetCoreActions(coreClient, homeFolder)
+		if appClient != nil {
+			application.SetCoreAppActions(appClient)
+		}
 	}
 	application.SetNotifications(notificationManager)
 	if accessManager != nil {
@@ -395,6 +405,27 @@ func defaultHerdrSocket() (string, error) {
 		configurationDirectory = filepath.Join(home, ".config")
 	}
 	return filepath.Join(configurationDirectory, "herdr", "herdr.sock"), nil
+}
+
+// herdrAppClient finds the Herdr app's command line for the actions its window
+// does, or logs once why they are off. The app at its default home drives the
+// default herdr-core, so a custom core socket turns them off.
+func herdrAppClient(customCoreSocket bool, logger *slog.Logger) *herdr.AppClient {
+	if customCoreSocket {
+		logger.Info("Herdr app actions are off: Shepherdr follows a custom Herdr Core socket")
+		return nil
+	}
+	path, err := exec.LookPath("herdr-app")
+	if err != nil {
+		logger.Info("Herdr app actions are off: herdr-app is not on PATH")
+		return nil
+	}
+	client, err := herdr.NewAppClient(context.Background(), path, logger)
+	if err != nil {
+		logger.Warn("Herdr app actions are off", "detail", err.Error())
+		return nil
+	}
+	return client
 }
 
 // herdrCoreSocketPath returns the herdr-core socket to follow: the flag's

@@ -63,6 +63,15 @@ func (s *Server) SetCoreActions(client coreActionClient, homeFolder string) {
 		refresh = s.coreProjector
 	}
 	s.coreActions = newCoreActionCoordinator(client, homeFolder, refresh)
+	if s.coreProjector != nil {
+		s.coreActions.published = s.coreProjector
+	}
+}
+
+// SetCoreAppActions adds the actions the Herdr app window does through app.
+// Call it after SetCoreActions.
+func (s *Server) SetCoreAppActions(app appActionClient) {
+	s.coreActions.app = app
 }
 
 // New serves Home from both Herdrs. projector follows the Herdr TUI, whose

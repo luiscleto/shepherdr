@@ -360,3 +360,69 @@ func TestCoreEndsWithFollowsWorkersThatDieWithTheirParent(t *testing.T) {
 		t.Fatalf("a terminal that isn't live ends %v", got)
 	}
 }
+
+func TestProjectCoreOffersTheAppWindowActionsOnlyWhileItIsOpen(t *testing.T) {
+	read := loadCoreRead(t, "core-read-app.json")
+	read.AppWindowOpen = true
+	_, home, err := ProjectCore(read, "/home/user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(home.Actions, []HomeAction{HomeActionCreateSpace}) {
+		t.Fatalf("home actions = %v", home.Actions)
+	}
+	got := []string{}
+	for _, workspace := range home.Workspaces {
+		name := "-"
+		if workspace.ManualName != nil {
+			name = *workspace.ManualName
+		}
+		got = append(got, fmt.Sprintf("%s %s %v", workspace.Label, name, workspace.Actions))
+		for _, tab := range workspace.Tabs {
+			for _, terminal := range tab.Terminals {
+				got = append(got, fmt.Sprintf("  %s %v", terminal.PaneID, terminal.Actions))
+			}
+		}
+	}
+	want := []string{
+		// Only the named space has a manual name. A worker has no pane, so it
+		// can't be split; neither can a terminal under Other terminals.
+		"alpha alpha [rename_space close_workspace]",
+		"  t3 [split_terminal close_terminal]",
+		"  t9 [close_terminal]",
+		"  t4 [split_terminal close_terminal]",
+		"  t5 [split_terminal close_terminal]",
+		"repo - [rename_space close_workspace]",
+		"  t6 [split_terminal close_terminal]",
+		"~ - [rename_space close_workspace]",
+		"  t7 [split_terminal close_terminal]",
+		"Other terminals - []",
+		"  t8 [close_terminal]",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("actions:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	read.AppWindowOpen = false
+	_, closed, err := ProjectCore(read, "/home/user")
+	if err != nil || closed.Actions != nil || !reflect.DeepEqual(closed.Workspaces[0].Actions, []WorkspaceAction{WorkspaceActionCloseWorkspace}) {
+		t.Fatalf("closed window: %v %v %v", err, closed.Actions, closed.Workspaces[0].Actions)
+	}
+}
+
+func TestCorePaneBlockNamesTheAppPaneOfAPlacedTerminal(t *testing.T) {
+	read := loadCoreRead(t, "core-read-app.json")
+	const alpha, main, second = "sp4d15c560d9928dee4d7842adfe949cb6", "tba5ed0454645e0dac10d29a4b83da7df7", "tb7c3a8ed2988a3811e31c1b41c81d4ba0"
+	if block, ok := CorePaneBlock(read, alpha, main, "t4"); !ok || block != "p20daff1ca339f27e18f44423f49f4290" {
+		t.Fatalf("t4 block = %q %v", block, ok)
+	}
+	// The worker has no pane, and a terminal is found only in its own tab.
+	for _, address := range []string{"t9", "t5", "t8"} {
+		if block, ok := CorePaneBlock(read, alpha, main, address); ok {
+			t.Fatalf("%s block = %q", address, block)
+		}
+	}
+	if _, ok := CorePaneBlock(read, alpha, second, "t5"); !ok {
+		t.Fatal("t5 has no block in its own tab")
+	}
+}

@@ -1381,3 +1381,150 @@ test("opening Close terminal on a terminal that is gone names the terminal on He
   }
   assert.deepEqual(messages, ["This terminal is no longer here.", "This workspace is no longer here."]);
 });
+
+// Home on Herdr Core while the Herdr app window is open.
+function coreAppHome(): Home {
+  const home = coreHome();
+  home.actions = ["create_space"];
+  const space = home.workspaces[0];
+  space.actions = ["rename_space", "close_workspace"];
+  space.manual_name = "Core <img src=x>";
+  space.tabs[0].terminals[0].actions = ["split_terminal", "close_terminal"];
+  space.tabs[1].terminals[0].actions = ["split_terminal", "close_terminal"];
+  return home;
+}
+
+test("Herdr Core shows New space only while the app window offers it, with no suggestions", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  let request: RunWorkspaceActionRequest | undefined;
+  const { app } = makeView(window, {
+    herdr: "core",
+    run: async (value) => {
+      request = value;
+      return { outcome: "succeeded" };
+    },
+  }, coreAppHome());
+  requiredElement<HTMLButtonElement>(app, ".new-space-action").click();
+  const panel = requiredElement(app, ".home-action-panel");
+  assert.equal(requiredElement(panel, ".home-action-copy").textContent, "Add a space for an existing folder.");
+  assert.equal(panel.querySelectorAll(".checkout-suggestion").length, 0);
+  requiredElement<HTMLInputElement>(panel, 'input[name="working_directory"]').value = "~/repo";
+  requiredElement<HTMLInputElement>(panel, 'input[name="label"]').value = "api <b>";
+  requiredElement<HTMLFormElement>(panel, ".home-action-form")
+    .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await settle();
+  assert.equal(JSON.stringify(request), '{"herdr":"core","action":"create_space","working_directory":"~/repo","label":"api <b>"}');
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "Space created");
+  window.close();
+});
+
+test("Herdr Core renames a space from its menu, starting from its own name", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  let request: RunWorkspaceActionRequest | undefined;
+  const { app } = makeView(window, {
+    herdr: "core",
+    run: async (value) => {
+      request = value;
+      return { outcome: "succeeded" };
+    },
+  }, coreAppHome());
+  const trigger = requiredMatchingElement<HTMLButtonElement>(
+    app, ".workspace-menu-trigger", (node) => node.getAttribute("aria-label") === "Actions for Core <img src=x>",
+  );
+  trigger.click();
+  const items = Array.from(trigger.parentElement!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+  assert.deepEqual(items.map((item) => item.textContent), ["Rename space", "Close space"]);
+  items[0].click();
+
+  const panel = requiredElement(app, ".home-action-panel");
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "Rename Core <img src=x>");
+  assert.equal(panel.querySelectorAll("img").length, 0);
+  assert.equal(requiredElement(panel, ".home-action-help").textContent, "Leave the name blank to use the automatic name.");
+  assert.equal(requiredElement(panel, ".home-action-primary").textContent, "Rename space");
+  const name = requiredElement<HTMLInputElement>(panel, 'input[name="space_name"]');
+  assert.equal(name.value, "Core <img src=x>");
+  name.value = "";
+  requiredElement<HTMLFormElement>(panel, ".home-action-form")
+    .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await settle();
+  assert.equal(JSON.stringify(request), '{"herdr":"core","action":"rename_space","workspace_id":"sp-core","name":""}');
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "Space renamed");
+  assert.equal(requiredElement(panel, ".home-action-copy").textContent, "The new name is ready on Home.");
+  window.close();
+});
+
+test("Herdr Core splits only a terminal with a pane and opens the new terminal on core", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  let request: RunTerminalActionRequest | undefined;
+  let opened: TerminalActionTarget | undefined;
+  const created = { workspace_id: "sp-core", tab_id: "tb-main", pane_id: "t20", terminal_id: "core:t20" };
+  const { app } = makeView(window, {
+    herdr: "core",
+    onOpenCreated: (target) => { opened = target; },
+    runTerminal: async (value) => {
+      request = value;
+      return { outcome: "succeeded", terminal: created };
+    },
+  }, coreAppHome());
+  requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
+  const menuItems = (title: string): string[] => {
+    const trigger = requiredMatchingElement<HTMLButtonElement>(
+      app, ".terminal-menu .workspace-menu-trigger", (button) => button.getAttribute("aria-label") === `Actions for ${title}`,
+    );
+    return Array.from(trigger.parentElement!.querySelectorAll('[role="menuitem"]'), (item) => item.textContent ?? "");
+  };
+  // A worker has no pane in the app window.
+  assert.deepEqual(menuItems("Worker <b>"), ["Close terminal"]);
+  assert.deepEqual(menuItems("Claude"), ["New terminal", "Close terminal"]);
+  const trigger = requiredMatchingElement<HTMLButtonElement>(
+    app, ".terminal-menu .workspace-menu-trigger", (button) => button.getAttribute("aria-label") === "Actions for Claude",
+  );
+  trigger.click();
+  requiredElement<HTMLButtonElement>(trigger.parentElement!, '[role="menuitem"]').click();
+  assert.equal(requiredElement(app, ".home-action-title").textContent, "Split terminal");
+  requiredMatchingElement<HTMLButtonElement>(app, ".home-action-buttons button", (button) => button.textContent === "Beside").click();
+  await settle();
+  assert.equal(JSON.stringify(request), JSON.stringify({
+    herdr: "core", action: "split_terminal", workspace_id: "sp-core", tab_id: "tb-main", pane_id: "t3", terminal_id: "core:t3", direction: "right",
+  }));
+  assert.deepEqual(opened, created);
+  window.close();
+});
+
+test("Herdr Core says when the app window is closed and when a split's terminal is gone", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  const terminalRefusals: Array<"app_closed" | "not_found"> = ["app_closed", "not_found"];
+  const { app } = makeView(window, {
+    herdr: "core",
+    run: async () => ({ outcome: "refused", reason: "app_closed" }),
+    runTerminal: async () => ({ outcome: "refused", reason: terminalRefusals.shift()! }),
+  }, coreAppHome());
+  const messages: string[] = [];
+  const readPanel = (): void => {
+    const panel = requiredElement(app, ".home-action-panel");
+    messages.push(requiredElement(panel, ".home-action-copy").textContent ?? "");
+    requiredMatchingElement<HTMLButtonElement>(panel, "button", (button) => button.textContent === "Done").click();
+  };
+  requiredElement<HTMLButtonElement>(app, ".new-space-action").click();
+  requiredElement<HTMLFormElement>(app, ".home-action-form")
+    .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+  await settle();
+  readPanel();
+  for (let index = 0; index < 2; index++) {
+    requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
+    const trigger = requiredMatchingElement<HTMLButtonElement>(
+      app, ".terminal-menu .workspace-menu-trigger", (button) => button.getAttribute("aria-label") === "Actions for Claude",
+    );
+    trigger.click();
+    requiredElement<HTMLButtonElement>(trigger.parentElement!, '[role="menuitem"]').click();
+    requiredMatchingElement<HTMLButtonElement>(app, ".home-action-buttons button", (button) => button.textContent === "Below").click();
+    await settle();
+    readPanel();
+  }
+  assert.deepEqual(messages, [
+    "The Herdr app window is closed. Open it on the computer, then try again.",
+    "The Herdr app window is closed. Open it on the computer, then try again.",
+    "This terminal is no longer here.",
+  ]);
+  window.close();
+});

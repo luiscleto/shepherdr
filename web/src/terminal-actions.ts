@@ -77,7 +77,7 @@ type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respons
 
 const statuses = new Set<AgentStatus>(["working", "blocked", "error", "idle", "done", "unknown"]);
 const refusalReasons = new Set<RefusalReason>([
-  "invalid_request", "not_found", "not_applicable", "busy", "stale", "herdr_unavailable", "herdr_refused",
+  "invalid_request", "not_found", "not_applicable", "busy", "stale", "herdr_unavailable", "herdr_refused", "app_closed",
   "checkout_has_changes",
 ]);
 
@@ -220,6 +220,7 @@ function validStatus(status: number, response: PreparedTerminalActionResponse | 
     checkout_has_changes: [422],
     herdr_refused: [422],
     herdr_unavailable: [503],
+    app_closed: [503],
   };
   return statuses[response.reason].includes(status);
 }

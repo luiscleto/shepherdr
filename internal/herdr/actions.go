@@ -18,6 +18,8 @@ const (
 	WorkspaceActionCloseWorkspace WorkspaceAction = "close_workspace"
 	WorkspaceActionCloseGroup     WorkspaceAction = "close_group"
 	WorkspaceActionDeleteCheckout WorkspaceAction = "delete_checkout"
+	// Rename space comes only from the Herdr app window.
+	WorkspaceActionRenameSpace WorkspaceAction = "rename_space"
 )
 
 type WorkspaceActionTarget struct {

@@ -36,6 +36,7 @@ export interface Workspace {
   group_agent_counts?: AgentCounts;
   id: string;
   label: string;
+  manual_name?: string;
   number: number;
   tabs: Tab[];
   worktrees?: Workspace[];
@@ -50,7 +51,11 @@ export interface AgentCounts {
   unknown?: number;
 }
 
+// Only the Herdr app window offers an action for Home as a whole: New space.
+export type HomeAction = "create_space";
+
 export interface Home {
+  actions?: HomeAction[];
   blocked_count: number;
   error_count: number;
   working_count: number;

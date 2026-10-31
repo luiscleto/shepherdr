@@ -3,6 +3,7 @@ import type {
   AgentCounts,
   AgentStatus,
   Home,
+  HomeAction,
   HomeFrame,
   HomeState,
   Tab,
@@ -19,6 +20,7 @@ const workspaceActions = new Set<WorkspaceAction>([
   "close_workspace",
   "close_group",
   "delete_checkout",
+  "rename_space",
 ]);
 const terminalActions = new Set<TerminalAction>(["split_terminal", "rename_terminal", "close_terminal"]);
 
@@ -103,8 +105,9 @@ function parseWorkspace(value: unknown, topLevel: boolean): Workspace | undefine
   if (!workspace || !exactKeys(
     workspace,
     ["actions", "id", "label", "number", "tabs"],
-    ["agent_counts", "checkout_path", "group_agent_counts", "worktrees"],
+    ["agent_counts", "checkout_path", "group_agent_counts", "manual_name", "worktrees"],
   ) || typeof workspace.id !== "string" || typeof workspace.label !== "string" ||
+    (Object.hasOwn(workspace, "manual_name") && typeof workspace.manual_name !== "string") ||
     !nonnegativeInteger(workspace.number) || !Array.isArray(workspace.tabs) || !Array.isArray(workspace.actions)) {
     return undefined;
   }
@@ -154,22 +157,32 @@ function parseWorkspace(value: unknown, topLevel: boolean): Workspace | undefine
     ...(agentCounts ? { agent_counts: agentCounts } : {}),
     ...(groupAgentCounts ? { group_agent_counts: groupAgentCounts } : {}),
     ...(typeof workspace.checkout_path === "string" ? { checkout_path: workspace.checkout_path } : {}),
+    ...(typeof workspace.manual_name === "string" ? { manual_name: workspace.manual_name } : {}),
     ...(worktrees ? { worktrees } : {}),
   };
 }
 
 function parseHome(value: unknown): Home | undefined {
   const home = record(value);
-  if (!home || !exactKeys(home, ["blocked_count", "error_count", "working_count", "workspaces"]) ||
+  if (!home || !exactKeys(home, ["blocked_count", "error_count", "working_count", "workspaces"], ["actions"]) ||
     !nonnegativeInteger(home.blocked_count) || !nonnegativeInteger(home.error_count) || !nonnegativeInteger(home.working_count) ||
     !Array.isArray(home.workspaces)) return undefined;
+  if (Object.hasOwn(home, "actions") && (!Array.isArray(home.actions) || home.actions.length !== 1 || home.actions[0] !== "create_space")) {
+    return undefined;
+  }
   const workspaces: Workspace[] = [];
   for (const value of home.workspaces) {
     const workspace = parseWorkspace(value, true);
     if (!workspace) return undefined;
     workspaces.push(workspace);
   }
-  return { blocked_count: home.blocked_count, error_count: home.error_count, working_count: home.working_count, workspaces };
+  return {
+    ...(Object.hasOwn(home, "actions") ? { actions: ["create_space"] as HomeAction[] } : {}),
+    blocked_count: home.blocked_count,
+    error_count: home.error_count,
+    working_count: home.working_count,
+    workspaces,
+  };
 }
 
 const serverEpochPattern = /^[0-9a-f]{32}$/;

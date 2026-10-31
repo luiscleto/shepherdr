@@ -50,6 +50,7 @@ type PublishedSnapshotObserver interface {
 type Projector struct {
 	client     *Client
 	core       *CoreClient
+	app        AppWindow
 	homeFolder string
 	refresh    chan struct{}
 
