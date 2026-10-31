@@ -134,8 +134,10 @@ Liveness: core's 15 s `heartbeat` on the event connection counts as liveness, li
 - Methods required in each wave, which must all appear in `hello.methods`:
   - wave 1: `hello`, `events.subscribe`, `terminal.list`, `doc.get`;
   - wave 2 adds `terminal.attach` and `terminal.keys`;
-  - wave 3a adds `terminal.kill`.
-- Never used: `terminal.read` (it scrolls full-screen apps), `terminal.send`, `doc.set`, `terminal.run` (a labelled run can't name a space, can't place a split, and brings back a space closed a moment earlier), `terminal.put`, `machine.*`, `server.*`, `exec`/`file.*`.
+  - wave 3a adds `terminal.kill`;
+  - wave 3c adds `terminal.run`.
+- `terminal.run` is used only for two labelled runs while the Herdr app window is closed: **New space** and **New terminal** (wave 3c, `docs/herdr-core-closed-create-plan.md`). Each is `{cwd, labels: {herdr.space, herdr.tab}, keep: true}`, with no `argv`, `name`, `env` or caller. Stale-id rule: a labelled run for a space or tab the app has closed brings it back, so New terminal takes its ids from a fresh complete read just before the run (while the window is closed only the app writes the document, so it can't change), and New space uses new ids that aren't in that read.
+- Never used: `terminal.read` (it scrolls full-screen apps), `terminal.send`, `doc.set`, `terminal.put`, `machine.*`, `server.*`, `exec`/`file.*`, and `terminal.run` for anything else.
 - Validated range: 0.1.15 only. Newer runs best effort with a warning. Add each version to the range only after the real acceptance below.
 
 ---
@@ -183,6 +185,13 @@ Status words: `idle`, `working`, `done`, `blocked` and `error` pass through unch
 Only live terminals (`terminal.list` without `all`) and only this machine's (an address with no `/`) are shown.
 
 1. A terminal placed by the document goes in that place. A document block whose terminal isn't live is skipped. The app drops such panes on its next start.
+1b. A live terminal the document doesn't place, with non-empty `herdr.space` **and** `herdr.tab` labels, is shown where the app will put it when the window opens (wave 3c):
+   - the space and tab are in the document → in that tab, after the tab's placed terminals, in `created_ms` order;
+   - the space is in the document, the tab isn't → a tab with that id at the end of that space;
+   - the space isn't in the document → a space with that id after the document's spaces, in order of its first terminal's `created_ms`, one tab per tab id. It is unnamed, so the existing label rule applies: its first terminal's `where`, else the base name of that terminal's starting folder;
+   - otherwise (the tab id belongs to another space, or the space id is `other`) → unchanged, under **Other terminals**.
+
+   Such a terminal counts as placed for rule 2, so its workers follow it. A waiting space offers **Close space** but not **Rename space**, and its terminals **Close terminal** but not **New terminal**, because they have no pane yet. The app keeps these labels when it adopts a terminal and rule 1 always wins, so each complete read shows every terminal once, and a terminal moves from rule 1b to rule 1 in one Home update.
 2. A live terminal not placed by the document whose `parent` is placed (directly or through other parents) goes in its top parent's tab, right after that parent, ordered by `created_ms`. This matches how the app nests sub-agents.
 3. Every other live terminal goes in one last group, **Other terminals**, in `created_ms` order. Its fixed id `other` can't clash with the app's `sp…` ids. The group is listed only when it has terminals. It has no actions and never triggers space notices. (Decision A.)
 4. A tab with no live terminals is left out, and so is a space with no tabs left.
@@ -205,10 +214,17 @@ Shown, through core, whenever core Home is live (the app window open or closed):
 - **Close terminal**: `terminal.kill` on the exact address. The confirmation is the TUI's, plus "N terminals it started will also close." when workers end with it. If nothing else Home shows would remain in the space, the confirmation is Close space's, and confirming closes everything shown in the space, as the TUI does for a last pane.
 - **Close space**: `terminal.kill` on every live terminal Home shows in the space, workers included: workers first, deepest first, each before the terminal that started it, otherwise in Home order. The confirmation is the TUI's Close workspace one in space words, never naming linked workspaces, with `error` in the interruption warning. **Other terminals** has no space actions.
 
-Shown only while the Herdr app window is open (wave 3b; `herdr-app do`, see section 4b):
+Shown with the Herdr app (wave 3b; `herdr-app do`, see section 4b), while the window is open:
 - **New space**: `space.new` with the folder (`~` expanded by Shepherdr) and the optional label as its name;
 - **New terminal**: `pane.split` beside or below an exact terminal that has a pane;
 - **Rename space**: `space.rename`.
+
+While the window is closed (wave 3c, `docs/herdr-core-closed-create-plan.md`), with a warning on the sheet:
+- **New space**: the folder only (`~` expanded, the folder checked), then `terminal.run` labelled with a new space and tab id. The app adds it, unnamed, at the end of its list when the window next opens;
+- **New terminal**: one **New terminal** button (no Beside or Below) on a terminal the document places in a pane. Its current folder (`foreground.cwd`, else `cwd`) is checked, then `terminal.run` is labelled with its space and tab. The app adds it as that tab's last pane. The new terminal opens, as after a split;
+- **Rename space** stays hidden.
+
+Home carries `app_window: "closed"` while the window is closed, and the browser sends `best_effort: true` with what the person confirmed on that sheet. The server routes by that flag, never by a fresh window check: a confirmed open-window sheet sent after the window closed gets "The Herdr app window is closed. Open the action again to start it in Herdr Core." Without the app (no `herdr-app`, or a custom core socket) none of these show.
 
 Hidden in core mode:
 - worktree groups, **New worktree** and **Delete checkout** (core and the app expose no worktree command);
@@ -272,6 +288,7 @@ The existing Super note stays: it reaches only programs that turned on enhanced 
 - Window open = `herdr-app status` exits 0 within 2 s. Home asks every 5 s and after each action, apart from the core reads, so a window that stops answering reads as closed without holding up Home. Each app action also asks first. A change publishes one complete Home.
 - Results: exit 0 = succeeded; "the window did not answer", "the window hung up", or a timeout = unknown; "no Herdr window" = not sent ("The Herdr app window is closed. Open it on the computer, then try again."); other errors = refused, with the app's message. There is no retry. Afterwards, one complete core read.
 - New space shows the new space in the app window. New terminal focuses the new pane when its tab is shown there.
+- Window closed = `herdr-app status` didn't answer. Before the first answer, Home offers no app actions. While closed, New space and New terminal run in core (section 3.5); when the window next opens, the app adopts the labelled terminals within about 1 s without changing what it shows.
 
 ---
 
@@ -357,6 +374,7 @@ The human also approved a matching one-line note in `docs/north-star.md` ("Uses 
 - **A closed window leaves a stale app layout** after Close terminal or Close space. Home is right through rules 1 and 4, and the app tidies up on its next start.
 - **App command interface:** it is used only through the documented `herdr-app` CLI. Exit codes don't separate "not sent" from "unknown", so Shepherdr reads the CLI's stderr and error text, validated per app version.
 - **App actions change the window:** New space switches the shown space, and New terminal focuses the new pane when its tab is shown.
+- **Creating while the window is closed predicts placement** (rule 1b). Position, order, unnamed naming and `keep` come from app 0.1.10's adoption code and real runs, and are validated per app version. On reopen, a new space's name can change once (folder → git top), several new spaces follow the app's order (address-string order), and a re-created stale tab can move. A labelled run for a space or tab closed in the app between the fresh read and the run brings it back; that window is a sub-second race and is accepted. A refused run uses up a core address, so the folder is checked first. An app at another home on the same core makes "closed" wrong, but the result is still right.
 
 ---
 
@@ -529,6 +547,11 @@ Planned in `docs/herdr-core-actions-plan.md` (approved 2026-10-31), sections 4.2
 Planned in the same document, sections 4.3 and 7.2, with decisions D2 (a), D3 and D4:
 - **New space**, **New terminal** and **Rename space**, through the documented `herdr-app` CLI (section 4b), shown only while the app window answers `herdr-app status`, and only while Shepherdr follows the default core socket.
 - **Gate:** the acceptance checks in section 7.2 of that plan, on an isolated herdr-core 0.1.15, Herdr app 0.1.10 and Herdr TUI 0.9.5.
+
+### Wave 3c: create with the app window closed
+
+Planned in `docs/herdr-core-closed-create-plan.md` (approved 2026-10-31), decisions H1–H7: New space and New terminal through a labelled `terminal.run` while the window is closed, and rule 1b in section 3.3.
+- **Gate:** the acceptance checks in section 6 of that plan, on an isolated herdr-core 0.1.15, Herdr app 0.1.10 and Herdr TUI 0.9.5.
 
 ### Later, separately
 

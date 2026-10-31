@@ -2,6 +2,8 @@
 
 Status: **approved human direction and work brief for waves 3a and 3b** (2026-10-31). The human approved D1 (a), D2 (a), D3, D4, D5 (a), D6 and the new copy in section 9, and the doc changes in section 5. Wave 3a, then wave 3b, are approved for dispatch.
 
+Note (wave 3c): New space and New terminal while the app window is closed, through a labelled `terminal.run`, are planned in `docs/herdr-core-closed-create-plan.md`. That plan supersedes this one's "only while the window is open" for those two actions; Rename space is unchanged.
+
 Planning base: Shepherdr `06c40b1` (master). Upstream: herdr-core 0.1.15 (the human's installed `hc`, copied), Herdr app 0.1.10 (the human's installed binary, copied; source `e3cdccc`).
 Date: 2026-10-31. Validation evidence was recorded outside the repository during planning.
 
