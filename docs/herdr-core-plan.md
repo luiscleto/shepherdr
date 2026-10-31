@@ -2,6 +2,8 @@
 
 Status: **approved human direction and work brief** (2026-10-31). The human approved option A (keep the Herdr TUI backend unchanged and add a herdr-core backend), decisions 1–10 below, decisions A–C in section 8 as recommended, and the documentation changes in section 5. Later on 2026-10-31 the human replaced decision 1 and the section 2 flag rules: one Shepherdr follows both, and Home switches between them (section 2, "Both at once"). Waves 1, 1b and 2 are approved for dispatch; wave 3 needs separate approval.
 
+Goal (human, 2026-10-31): use the Herdr desktop app instead of the Herdr TUI, and keep the same organization and agent visibility and interaction in Shepherdr that the TUI version has. Release only when core mode supports everything core and the app offer as equivalents of the TUI actions. Later direction: Shepherdr and the desktop app reflect each other's state both ways, so nothing works only on the phone or only on the desktop. The human approves user-facing behaviour, copy and anything security-related; technical choices toward this goal are made by the orchestrator and recorded here.
+
 In this document, **core mode** means what Shepherdr shows for Herdr Core (its Home, terminals and notices), and **TUI mode** the same for the Herdr TUI. Both run at once in one Shepherdr.
 
 Planning base: Shepherdr `628eccb` (v0.4.3). Upstream: herdr-core 0.1.15 (`4a3591a`), Herdr app 0.1.10 (`e3cdccc`).
