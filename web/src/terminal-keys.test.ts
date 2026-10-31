@@ -103,6 +103,9 @@ test("Herdr Core offers only keys it can send, and says so for any other charact
       const send = document.querySelector<HTMLButtonElement>(".keys-send")!;
       return `${value}:${note.hidden ? "-" : note.textContent}:${send.disabled ? "off" : "on"}`;
     };
+    assert.equal(document.querySelector(".keys-super-note")!.textContent, core
+      ? "Super / Command reaches only apps that turn on enhanced keyboard input. An ordinary shell may receive just the key."
+      : "Super / Command reaches only apps that turn on enhanced keyboard input. An ordinary shell may receive nothing.");
     const results = ["+", "A", "%"].map(type).join(" ");
     assert.equal(results, core
       ? "+:Herdr can't send this key.:off A:-:on %:Herdr can't send this key.:off"

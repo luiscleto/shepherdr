@@ -170,7 +170,8 @@ export class KeysSheet {
       tab.setAttribute("aria-pressed", String(this.#category === category));
       categories.append(tab);
     }
-    const superNote = node("p", "Super / Command reaches only apps that turn on enhanced keyboard input. An ordinary shell may receive nothing.", "keys-help keys-super-note");
+    // Herdr Core sends an ordinary shell the key without Super.
+    const superNote = node("p", `Super / Command reaches only apps that turn on enhanced keyboard input. An ordinary shell may receive ${this.#options.core ? "just the key" : "nothing"}.`, "keys-help keys-super-note");
     this.#body.append(modifiers, superNote, categories);
     if (this.#category === "Character") {
       const label = node("label", "Character", "keys-character");
