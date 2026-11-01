@@ -450,9 +450,10 @@ func folderLabel(folder, homeFolder string) string {
 
 // repositoryFolder is the top folder of the Git repository that folder is
 // in, as Git names it: symlinks resolved, then the nearest folder up from it
-// with a .git folder holding HEAD, or a .git file as a linked worktree has.
-// It only looks at files. It is "" for a folder outside a repository or one
-// that doesn't exist.
+// with a .git folder holding HEAD. As on the Herdr TUI, only a top-level
+// repository counts: a .git file, as a linked worktree or a submodule has,
+// gives "". It only looks at files. It is "" for a folder outside a
+// repository or one that doesn't exist.
 func repositoryFolder(folder string) string {
 	if !filepath.IsAbs(folder) {
 		return ""
@@ -465,7 +466,7 @@ func repositoryFolder(folder string) string {
 		git := filepath.Join(current, ".git")
 		if info, err := os.Lstat(git); err == nil {
 			if info.Mode().IsRegular() {
-				return current
+				return ""
 			}
 			if info.IsDir() {
 				if _, err := os.Stat(filepath.Join(git, "HEAD")); err == nil {

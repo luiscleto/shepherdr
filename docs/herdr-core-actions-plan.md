@@ -255,7 +255,7 @@ There is no retry, and Shepherdr never sends `confirmed` for anything except `sp
 | Results | Workspace closed: "Its folder and branch remain. Home will update when it is ready." (via Close terminal: "Its terminals are closed. The folder and branch remain.") | **Space closed**: "Its folder and branch remain. Home will update when it is ready." in both cases, because a Close space through the app finishes its kills after the reply |
 | Refusals | "This workspace is no longer here." / "This workspace changed. Open the action again to check the latest details." / "Another workspace action is running. Try again when it finishes." | **space** in place of workspace; a Close terminal whose terminal is gone says "This terminal is no longer here."; New space with a missing folder says "This folder doesn't exist." |
 | New refusal (3b) | — | `app_closed`: **"The Herdr app window is closed. Open it on the computer, then try again."** |
-| New space sheet | "Add a workspace for an existing folder." / Working directory / Label (optional) / Create space; suggestions from repository checkouts | "Add a **space** for an existing folder." The fields and button are unchanged. Suggestions are the repository folders open in Herdr TUI or Herdr Core: for each space Home shows, the Git top folder of its app `folder`, found by read-only file checks. |
+| New space sheet | "Add a workspace for an existing folder." / Working directory / Label (optional) / Create space; suggestions from repository checkouts | "Add a **space** for an existing folder." The fields and button are unchanged. Suggestions are the repository folders open in Herdr TUI or Herdr Core: for each space Home shows, the Git top folder of its app `folder` when that is a top-level repository (not a linked worktree or submodule), found by read-only file checks. |
 | New space result | Space created: "Home will update when the new space is ready." | unchanged |
 | Split sheet | Split terminal: "This splits {terminal} and opens the new terminal." Beside / Below / Cancel | unchanged |
 | Rename space sheet (D4) | (Rename terminal: Name; "Leave the name blank to use the automatic name.") | **Rename {space}**: Name; the same help text; **Rename space**; result **Space renamed**: "The new name is ready on Home." |
@@ -447,7 +447,7 @@ CHANGELOG: one entry per wave, added before merge as usual.
   - `internal/herdr/core_project.go`: keep each placed terminal's document block id server-side; app actions when the window is open;
   - `internal/server/core_actions.go`: `create_space`, `split_terminal` (waiting on the published Home), `rename_space`;
   - `main.go`: `herdr-app` lookup and the default-socket pairing rule;
-  - `web/src/home-view.ts`: New space in core mode (no suggestions), the Rename space sheet, the `app_closed` refusal;
+  - `web/src/home-view.ts`: New space in core mode (suggestions shared with the Herdr TUI), the Rename space sheet, the `app_closed` refusal;
   - `web/src/workspace-actions.ts`: `rename_space`;
   - tests; a `web/dist` rebuild; the docs.
 - **Acceptance** (same isolation; the isolated app window opens on the desktop and is closed afterwards):

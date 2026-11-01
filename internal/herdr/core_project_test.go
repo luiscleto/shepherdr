@@ -606,12 +606,16 @@ func TestProjectCoreLeavesOddAppLabelsUnderOtherTerminals(t *testing.T) {
 
 func TestProjectCoreSuggestsTheRepositoryFolderOfEachShownSpace(t *testing.T) {
 	root := t.TempDir()
-	for _, folder := range []string{"repo/.git", "repo/sub/deep", "plain", "stray/.git", "linked"} {
+	for _, folder := range []string{"repo/.git", "repo/sub/deep", "repo/module/src", "plain", "stray/.git", "linked"} {
 		if err := os.MkdirAll(root+"/"+folder, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for path, content := range map[string]string{"repo/.git/HEAD": "ref: refs/heads/main\n", "linked/.git": "gitdir: " + root + "/repo/.git/worktrees/linked\n"} {
+	for path, content := range map[string]string{
+		"repo/.git/HEAD":   "ref: refs/heads/main\n",
+		"linked/.git":      "gitdir: " + root + "/repo/.git/worktrees/linked\n",
+		"repo/module/.git": "gitdir: ../.git/modules/module\n",
+	} {
 		if err := os.WriteFile(root+"/"+path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -620,6 +624,7 @@ func TestProjectCoreSuggestsTheRepositoryFolderOfEachShownSpace(t *testing.T) {
 		t.Fatal(err)
 	}
 	read := loadCoreRead(t, "core-read-app.json")
+	read.Terminals = append(read.Terminals, CoreTerminal{Address: "t10", Title: "module"})
 	space := func(id, folder, terminal string, extra string) string {
 		return `{"id":"` + id + `","name":"","folder":` + strconvQuote(folder) + extra + `,"tabs":[{"id":"tb` + id + `","name":"","root":{"type":"block","content":{"terminal":"` + terminal + `"}}}]}`
 	}
@@ -632,6 +637,7 @@ func TestProjectCoreSuggestsTheRepositoryFolderOfEachShownSpace(t *testing.T) {
 		space("sp6", root+"/repo", "t8", `,"machine":"vps"`),
 		space("sp7", root+"/missing", "t9", ""),
 		space("sp8", root+"/repo", "t99", ""),
+		space("sp9", root+"/repo/module/src", "t10", ""),
 	}, ",") + `]}`)
 	_, home, err := ProjectCore(read, "/home/user")
 	if err != nil {
@@ -641,9 +647,11 @@ func TestProjectCoreSuggestsTheRepositoryFolderOfEachShownSpace(t *testing.T) {
 	for _, workspace := range home.Workspaces {
 		got[workspace.ID] = workspace.CheckoutPath
 	}
-	// A space with no live terminal isn't shown, so sp8 suggests nothing.
+	// Only a top-level repository counts, as on the Herdr TUI: a linked
+	// worktree (sp4) and a submodule (sp9) suggest nothing. A space with no
+	// live terminal isn't shown, so sp8 suggests nothing.
 	want := map[string]string{
-		"sp1": root + "/repo", "sp2": "", "sp3": "", "sp4": root + "/linked", "sp5": root + "/repo", "sp6": "", "sp7": "",
+		"sp1": root + "/repo", "sp2": "", "sp3": "", "sp4": "", "sp5": root + "/repo", "sp6": "", "sp7": "", "sp9": "",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("checkout paths = %q, want %q", got, want)
