@@ -45,7 +45,7 @@ test("a reconnect has a fresh frame fence while hostile frame shapes are rejecte
   assert.throws(() => reconnected.accept(frame(false, 2, { width: 0 })), /fields are invalid/);
 });
 
-test("a size is sent once unless the page asks for it again", (t) => {
+test("a size is sent once unless the page asks for it again, with a person's input or not", (t) => {
   const sent: string[] = [];
   class Socket extends EventTarget {
     static OPEN = 1;
@@ -69,6 +69,8 @@ test("a size is sent once unless the page asks for it again", (t) => {
   session.resize({ cols: 46, rows: 35 });
   session.resize({ cols: 46, rows: 35 });
   session.resizeAgain({ cols: 46, rows: 35 });
-  assert.deepEqual(sent.map(message => JSON.parse(message).rows), [35, 35]);
+  session.resizeAgain({ cols: 46, rows: 35 }, true);
+  assert.deepEqual(sent.map(message => JSON.parse(message).rows), [35, 35, 35]);
+  assert.deepEqual(sent.map(message => JSON.parse(message).keep ?? false), [false, false, true]);
   session.disconnect();
 });

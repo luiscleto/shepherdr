@@ -185,3 +185,57 @@ func TestCoreResizeIsSentOnlyWhenItChangesTheSize(t *testing.T) {
 	}()
 	_, _ = (&CoreTerminalBridge{}).applyCommand(httptest.NewRequest(http.MethodGet, "/", nil), session, nil, "t1", command)
 }
+
+func TestCoreSizeIsTakenBackOnceSoonAfterThisBrowsersInput(t *testing.T) {
+	phone, composer, app := coreSize(46, 41), coreSize(46, 35), coreSize(7, 14)
+	start := time.Unix(1_000, 0)
+	at := func(ms int) time.Time { return start.Add(time.Duration(ms) * time.Millisecond) }
+	var keep coreSizeKeep
+	keep.asked(composer)
+	keep.asked(phone)
+	if keep.changed(phone, app, at(0)) {
+		t.Fatal("without input, another viewer taking the size is left alone")
+	}
+	keep.input(at(1_000))
+	if keep.changed(app, app, at(1_010)) || keep.changed(app, composer, at(1_050)) || keep.changed(composer, phone, at(1_100)) {
+		t.Fatal("an unchanged size and this browser's own sizes are not taken back")
+	}
+	if !keep.changed(phone, app, at(1_170)) {
+		t.Fatal("a size taken soon after the input is taken back")
+	}
+	if keep.changed(app, phone, at(1_180)) || keep.changed(phone, app, at(1_300)) {
+		t.Fatal("at most once per input, so a resend never leads to another")
+	}
+	keep.reached(at(1_400))
+	if keep.changed(phone, app, at(1_500)) {
+		t.Fatal("a spent input stays spent")
+	}
+	if size, _ := keep.wanted(); size != phone {
+		t.Fatalf("wanted %x, not the latest size asked for", size)
+	}
+
+	keep.input(at(5_000))
+	if keep.changed(phone, app, at(5_000).Add(keepSizeAfterInput+time.Millisecond)) {
+		t.Fatal("a size change after the window is left alone")
+	}
+	keep.reached(at(9_000))
+	if !keep.changed(app, coreSize(120, 40), at(9_000).Add(keepSizeAfterInput)) {
+		t.Fatal("a key core held back restarts the window when it is pressed")
+	}
+}
+
+func TestOnlyACoreResizeCarriesKeep(t *testing.T) {
+	command, err := validatedTerminalCommand([]byte(`{"type":"terminal.resize","cols":46,"rows":41,"keep":true}`))
+	if err != nil || !command.keepSize {
+		t.Fatalf("keep resize: %+v %v", command, err)
+	}
+	for _, message := range []string{
+		`{"type":"terminal.resize","cols":46,"rows":41,"keep":false}`,
+		`{"type":"terminal.input","text":"x","request_id":1,"keep":true}`,
+		`{"type":"terminal.release","keep":true}`,
+	} {
+		if _, err := validatedTerminalCommand([]byte(message)); err == nil {
+			t.Fatalf("accepted %s", message)
+		}
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,16 +92,89 @@ func (bridge *CoreTerminalBridge) productionRead(writer http.ResponseWriter, req
 
 // coreLiveSession is one browser stream. writeMutex orders text, keys, files
 // and resizes on the attach. size is the terminal's current size in core,
-// cols<<16 | rows, from the attach and core's size events.
+// cols<<16 | rows, from the attach and core's size events. takeBack asks the
+// command loop to give the terminal this browser's size again.
 type coreLiveSession struct {
 	attachment *herdr.CoreAttachment
 	controlled bool
 	writeMutex sync.Mutex
 	ended      chan struct{}
 	size       atomic.Uint32
+	keep       coreSizeKeep
+	takeBack   chan struct{}
 }
 
 func coreSize(cols, rows int) uint32 { return uint32(cols)<<16 | uint32(rows)&0xffff }
+
+// keepSizeAfterInput covers a program started by this browser's input coming
+// up and the Herdr app window answering it, which took 150-200 ms in real
+// runs, with room for a slower start. It stays short so that a person at the
+// computer acting a moment later keeps the size.
+const keepSizeAfterInput = 2 * time.Second
+
+// coreSizeKeep applies "the size follows whoever typed last". Herdr Core
+// counts a program's automatic reply in the Herdr app window as activity and
+// gives the terminal the app's size. Soon after this browser's own input, a
+// change to a size this browser didn't ask for is taken back, once per input.
+type coreSizeKeep struct {
+	mutex sync.Mutex
+	until time.Time
+	spent bool
+	own   []uint32 // this browser's recent sizes, newest first
+}
+
+// asked records a size this browser asked for.
+func (keep *coreSizeKeep) asked(size uint32) {
+	keep.mutex.Lock()
+	defer keep.mutex.Unlock()
+	own := []uint32{size}
+	for _, previous := range keep.own {
+		if previous != size && len(own) < 8 {
+			own = append(own, previous)
+		}
+	}
+	keep.own = own
+}
+
+// input opens the window as this browser's input is sent.
+func (keep *coreSizeKeep) input(now time.Time) {
+	keep.mutex.Lock()
+	defer keep.mutex.Unlock()
+	keep.until, keep.spent = now.Add(keepSizeAfterInput), false
+}
+
+// reached restarts the window for input that reached the terminal later than
+// it was sent, as a key core holds back after typing. A spent input stays
+// spent.
+func (keep *coreSizeKeep) reached(now time.Time) {
+	keep.mutex.Lock()
+	defer keep.mutex.Unlock()
+	if !keep.until.IsZero() && !keep.spent {
+		keep.until = now.Add(keepSizeAfterInput)
+	}
+}
+
+// changed reports core's size change and whether to take this browser's size
+// back. Sizes this browser asked for are its own, even when they arrive late.
+func (keep *coreSizeKeep) changed(previous, next uint32, now time.Time) bool {
+	keep.mutex.Lock()
+	defer keep.mutex.Unlock()
+	if previous == next || keep.spent || now.After(keep.until) || slices.Contains(keep.own, next) {
+		return false
+	}
+	keep.spent = true
+	return true
+}
+
+// wanted is the size this browser asked for last.
+func (keep *coreSizeKeep) wanted() (uint32, bool) {
+	keep.mutex.Lock()
+	defer keep.mutex.Unlock()
+	if len(keep.own) == 0 {
+		return 0, false
+	}
+	return keep.own[0], true
+}
 
 type coreLiveController struct {
 	handle  string
@@ -151,8 +225,9 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 		_ = writeTerminalStatus(connection, "Could not open this Herdr terminal")
 		return
 	}
-	session := &coreLiveSession{attachment: attachment, controlled: control, ended: make(chan struct{})}
+	session := &coreLiveSession{attachment: attachment, controlled: control, ended: make(chan struct{}), takeBack: make(chan struct{}, 1)}
 	session.size.Store(coreSize(attachment.Cols, attachment.Rows))
+	session.keep.asked(coreSize(settings.cols, settings.rows))
 	defer func() {
 		session.writeMutex.Lock()
 		session.controlled = false
@@ -173,7 +248,13 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 			// Kept here, not where the browser loop takes the event, so a
 			// slow browser link can't leave the size behind core's.
 			if event.Data == nil && !event.Closed {
-				session.size.Store(coreSize(event.Cols, event.Rows))
+				next := coreSize(event.Cols, event.Rows)
+				if session.keep.changed(session.size.Swap(next), next, time.Now()) {
+					select {
+					case session.takeBack <- struct{}{}:
+					default:
+					}
+				}
 			}
 			select {
 			case stream <- coreStreamItem{event: event}:
@@ -231,6 +312,8 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 				if command.release || !command.isKey && command.requestID > 0 && outcome != terminalBatchForwarded {
 					return
 				}
+			case <-session.takeBack:
+				bridge.takeSizeBack(session, settings.pane)
 			case <-session.ended:
 				return
 			}
@@ -380,14 +463,23 @@ func (bridge *CoreTerminalBridge) applyCommand(request *http.Request, session *c
 		return terminalBatchNotSent, errors.New("terminal is not controlled")
 	}
 	if command.isKey {
-		return bridge.sendKey(request, session, lease, pane, command.keySelection)
+		outcome, err := bridge.sendKey(request, session, lease, pane, command.keySelection)
+		if outcome == terminalBatchForwarded {
+			session.keep.reached(time.Now())
+		}
+		return outcome, err
 	}
 	chunks, resize, err := coreCommandBytes(command)
 	if err != nil {
 		return terminalBatchNotSent, err
 	}
 	if resize != nil {
-		if session.size.Load() == coreSize(resize[0], resize[1]) {
+		size := coreSize(resize[0], resize[1])
+		session.keep.asked(size)
+		if command.keepSize {
+			session.keep.input(time.Now())
+		}
+		if session.size.Load() == size {
 			return terminalBatchNotSent, nil
 		}
 		return terminalBatchNotSent, session.attachment.Resize(resize[0], resize[1])
@@ -396,6 +488,21 @@ func (bridge *CoreTerminalBridge) applyCommand(request *http.Request, session *c
 		return terminalBatchNotSent, nil
 	}
 	return forwardCoreBatch(request, lease, session.attachment, chunks, nil)
+}
+
+// takeSizeBack gives the terminal this browser's size again after another
+// viewer took it soon after this browser's own input.
+func (bridge *CoreTerminalBridge) takeSizeBack(session *coreLiveSession, pane string) {
+	session.writeMutex.Lock()
+	defer session.writeMutex.Unlock()
+	size, ok := session.keep.wanted()
+	if !session.controlled || !ok || session.size.Load() == size {
+		return
+	}
+	bridge.logger.Debug("terminal size taken back", "herdr", "core", "pane", pane, "cols", size>>16, "rows", size&0xffff)
+	if err := session.attachment.Resize(int(size>>16), int(size&0xffff)); err != nil {
+		bridge.logger.Debug("terminal size not taken back", "herdr", "core", "pane", pane, "error", err)
+	}
 }
 
 // sendKey presses one key with terminal.keys. Core may wait up to about 3 s
@@ -547,6 +654,7 @@ func (bridge *CoreTerminalBridge) sendControllerBatch(request *http.Request, han
 	if !controller.active || !controller.session.controlled || controller.request.Context().Err() != nil {
 		return terminalBatchNotSent, errors.New("controlling connection ended")
 	}
+	controller.session.keep.input(time.Now())
 	return forwardCoreBatch(request, controller.lease, controller.session.attachment, data, func() error {
 		if controller.request.Context().Err() != nil {
 			return errors.New("controlling connection ended")

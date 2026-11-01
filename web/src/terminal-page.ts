@@ -130,6 +130,11 @@ export class TerminalPage {
     this.#surface = element("div", "terminal-production-surface");
     this.#surface.setAttribute("aria-label", target.title);
     this.#terminalMount = element("div", "terminal-full-mount");
+    // A person typing or pasting here; the terminal's own replies to a
+    // program reach onData too, but they are not a person's input.
+    for (const type of ["keydown", "beforeinput", "paste"]) {
+      this.#terminalMount.addEventListener(type, () => { if (this.#canType()) this.#keepSize(); }, true);
+    }
     this.#surface.append(this.#terminalMount);
     host.className = `terminal-screen ${this.#mobile ? "terminal-reader-page terminal-shared-page" : "terminal-desktop-page"}`;
     host.replaceChildren(header, this.#surface);
@@ -199,6 +204,7 @@ export class TerminalPage {
         if (this.#readerInput?.state() !== "ready") return false;
         if (files.length) { void this.#sendFiles("submit", false); return true; }
         this.#readerTextQueued = true;
+        this.#keepSize();
         const accepted = this.#readerInput?.enqueueBatch(terminalSubmission(text)) ?? false;
         if (!accepted) this.#readerTextQueued = false;
         return accepted;
@@ -275,16 +281,22 @@ export class TerminalPage {
 
   #sendKey(key: KeySelection): boolean {
     if (!this.#canSendKey()) return false;
-    this.#fitAgain();
+    this.#keepSize();
     return this.#readerInput?.sendKey(key) ?? false;
   }
 
   // Herdr Core gives the terminal the size of the viewer used last, and a
   // program's automatic reply in the app window can take it without anyone
-  // typing. Showing Terminal, coming back into view and pressing keys take it
-  // back for this screen, once each; the server skips an unchanged size.
-  #fitAgain(): void {
-    if (this.herdr === "core" && this.#ownership === "controlling" && this.#lastDimensions) this.#session?.resizeAgain(this.#lastDimensions);
+  // typing. Switching views and coming back into view take it back for this
+  // screen, once each; the server skips an unchanged size.
+  #fitAgain(keep = false): void {
+    if (this.herdr === "core" && this.#ownership === "controlling" && this.#lastDimensions) this.#session?.resizeAgain(this.#lastDimensions, keep);
+  }
+
+  // This screen's own input, sent just before it: the size follows whoever
+  // typed last, and the server keeps it for a moment after.
+  #keepSize(): void {
+    this.#fitAgain(true);
   }
 
   async #mountTerminal(): Promise<void> {
@@ -335,7 +347,7 @@ export class TerminalPage {
     this.#reader?.setPresentation(this.#readerVisible);
     this.#present();
     this.#render();
-    if (!this.#readerVisible) this.#fitAgain();
+    this.#fitAgain();
   }
 
   #present(): void {
