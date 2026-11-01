@@ -603,3 +603,54 @@ func TestProjectCoreLeavesOddAppLabelsUnderOtherTerminals(t *testing.T) {
 		t.Fatalf("rows:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestProjectCoreSuggestsTheRepositoryFolderOfEachShownSpace(t *testing.T) {
+	root := t.TempDir()
+	for _, folder := range []string{"repo/.git", "repo/sub/deep", "plain", "stray/.git", "linked"} {
+		if err := os.MkdirAll(root+"/"+folder, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, content := range map[string]string{"repo/.git/HEAD": "ref: refs/heads/main\n", "linked/.git": "gitdir: " + root + "/repo/.git/worktrees/linked\n"} {
+		if err := os.WriteFile(root+"/"+path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(root+"/repo/sub", root+"/shortcut"); err != nil {
+		t.Fatal(err)
+	}
+	read := loadCoreRead(t, "core-read-app.json")
+	space := func(id, folder, terminal string, extra string) string {
+		return `{"id":"` + id + `","name":"","folder":` + strconvQuote(folder) + extra + `,"tabs":[{"id":"tb` + id + `","name":"","root":{"type":"block","content":{"terminal":"` + terminal + `"}}}]}`
+	}
+	read.Document = json.RawMessage(`{"spaces":[` + strings.Join([]string{
+		space("sp1", root+"/repo/sub/deep", "t3", ""),
+		space("sp2", root+"/plain", "t4", ""),
+		space("sp3", root+"/stray", "t5", ""),
+		space("sp4", root+"/linked", "t6", ""),
+		space("sp5", root+"/shortcut", "t7", ""),
+		space("sp6", root+"/repo", "t8", `,"machine":"vps"`),
+		space("sp7", root+"/missing", "t9", ""),
+		space("sp8", root+"/repo", "t99", ""),
+	}, ",") + `]}`)
+	_, home, err := ProjectCore(read, "/home/user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, workspace := range home.Workspaces {
+		got[workspace.ID] = workspace.CheckoutPath
+	}
+	// A space with no live terminal isn't shown, so sp8 suggests nothing.
+	want := map[string]string{
+		"sp1": root + "/repo", "sp2": "", "sp3": "", "sp4": root + "/linked", "sp5": root + "/repo", "sp6": "", "sp7": "",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("checkout paths = %q, want %q", got, want)
+	}
+}
+
+func strconvQuote(value string) string {
+	quoted, _ := json.Marshal(value)
+	return string(quoted)
+}

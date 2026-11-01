@@ -236,6 +236,7 @@ function render(view: HomeView, next: HomeState, overrides: Partial<HomeViewRend
     mode: "all",
     reachability: "current",
     state: next,
+    suggestedFolders: [],
     ...overrides,
   });
 }

@@ -89,6 +89,17 @@ export interface HomeFrame extends HomeSides {
   epoch: string;
 }
 
+// suggestedFolders is New space's list on both sides: the repository folders
+// open in the Herdr TUI, then in Herdr Core, each once. A Herdr that isn't
+// live adds none.
+export function suggestedFolders(sides: HomeSides): string[] {
+  const folders = [sides.tui, sides.core]
+    .filter((state) => state.connection === "live" && !state.last_known)
+    .flatMap((state) => state.home.workspaces.map((workspace) => workspace.checkout_path))
+    .filter((path): path is string => path !== undefined);
+  return Array.from(new Set(folders));
+}
+
 export const herdrNames: Readonly<Record<Herdr, string>> = { tui: "Herdr TUI", core: "Herdr Core" };
 
 export function emptyHomeState(): HomeState {

@@ -255,7 +255,7 @@ There is no retry, and Shepherdr never sends `confirmed` for anything except `sp
 | Results | Workspace closed: "Its folder and branch remain. Home will update when it is ready." (via Close terminal: "Its terminals are closed. The folder and branch remain.") | **Space closed**: "Its folder and branch remain. Home will update when it is ready." in both cases, because a Close space through the app finishes its kills after the reply |
 | Refusals | "This workspace is no longer here." / "This workspace changed. Open the action again to check the latest details." / "Another workspace action is running. Try again when it finishes." | **space** in place of workspace; a Close terminal whose terminal is gone says "This terminal is no longer here."; New space with a missing folder says "This folder doesn't exist." |
 | New refusal (3b) | — | `app_closed`: **"The Herdr app window is closed. Open it on the computer, then try again."** |
-| New space sheet | "Add a workspace for an existing folder." / Working directory / Label (optional) / Create space; suggestions from repository checkouts | "Add a **space** for an existing folder." The fields and button are unchanged. **No suggestions**: core has no checkout paths. |
+| New space sheet | "Add a workspace for an existing folder." / Working directory / Label (optional) / Create space; suggestions from repository checkouts | "Add a **space** for an existing folder." The fields and button are unchanged. Suggestions are the repository folders open in Herdr TUI or Herdr Core: for each space Home shows, the Git top folder of its app `folder`, found by read-only file checks. |
 | New space result | Space created: "Home will update when the new space is ready." | unchanged |
 | Split sheet | Split terminal: "This splits {terminal} and opens the new terminal." Beside / Below / Cancel | unchanged |
 | Rename space sheet (D4) | (Rename terminal: Name; "Leave the name blank to use the automatic name.") | **Rename {space}**: Name; the same help text; **Rename space**; result **Space renamed**: "The new name is ready on Home." |
@@ -276,7 +276,8 @@ Accessible names follow the same words ("Actions for {space}").
 | TUI concept | Core mode |
 |---|---|
 | Linked workspaces, Close group | No relation exists. Close space affects only that space. |
-| New worktree, Delete checkout, `checkout_path` and its suggestions | Hidden (D1). New space has no suggestions. |
+| New worktree, Delete checkout | Hidden (D1). |
+| `checkout_path` and its suggestions | A space's repository folder. New space suggests both Herdrs' folders. |
 | Rename terminal (manual name) | Hidden. Rename space only if D4 is approved. |
 | `focus:false` on create and split | The app has no such option. New space and Split change the window's view or focus (D3). |
 | A refused dirty checkout | n/a |

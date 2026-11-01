@@ -14,6 +14,7 @@ import {
   readRememberedHerdr,
   rememberHerdr,
   showTabHeadings,
+  suggestedFolders,
   terminalCount,
   visibleTabs,
   type Home,
@@ -169,4 +170,26 @@ test("terminal links name their Herdr; a link without one is from the Herdr TUI"
   assert.equal(terminalHash("core", "t7", "core-1:t7"), "terminal=t7&terminal_id=core-1%3At7&herdr=core");
   assert.equal(terminalHash("tui", "w1:p1"), "terminal=w1%3Ap1&herdr=tui");
   assert.deepEqual(parseTerminalRoute(`#${terminalHash("tui", "w1:p1", "a&b=c")}`), { herdr: "tui", paneID: "w1:p1", terminalID: "a&b=c" });
+});
+
+test("New space suggests each live Herdr's repository folders once, the Herdr TUI's first", () => {
+  const side = (paths: Array<string | undefined>, connection: HomeState["connection"] = "live", lastKnown = false): HomeState => ({
+    ...emptyHomeState(),
+    connection,
+    has_home: true,
+    home: {
+      blocked_count: 0, error_count: 0, working_count: 0,
+      workspaces: paths.map((path, index) => ({
+        actions: [], id: `w${index}`, label: `w${index}`, number: index + 1, tabs: [],
+        ...(path === undefined ? {} : { checkout_path: path }),
+      })),
+    },
+    last_known: lastKnown,
+  });
+  const tui = side(["/a", undefined, "/c"]);
+  const core = side(["/b", "/a", undefined, "/b"]);
+  assert.deepEqual(suggestedFolders({ tui, core }), ["/a", "/c", "/b"]);
+  assert.deepEqual(suggestedFolders({ tui: side(["/a", "/c"], "not_running", true), core }), ["/b", "/a"]);
+  assert.deepEqual(suggestedFolders({ tui, core: side(["/b"], "reconnecting", true) }), ["/a", "/c"]);
+  assert.deepEqual(suggestedFolders({ tui: emptyHomeState(), core: emptyHomeState() }), []);
 });

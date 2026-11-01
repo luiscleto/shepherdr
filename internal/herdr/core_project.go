@@ -3,6 +3,7 @@ package herdr
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -252,6 +253,11 @@ func ProjectCore(read CoreRead, homeFolder string) (Snapshot, Home, error) {
 		if len(workspace.Tabs) == 0 {
 			continue
 		}
+		// New space suggests the repository folders of the spaces Home shows.
+		// Another machine's folder isn't on this one.
+		if !space.Machine {
+			workspace.CheckoutPath = repositoryFolder(space.Folder)
+		}
 		home.Workspaces = append(home.Workspaces, workspace)
 	}
 	assignContextualTitles(&home)
@@ -440,6 +446,39 @@ func folderLabel(folder, homeFolder string) string {
 		return "~"
 	}
 	return filepath.Base(cleaned)
+}
+
+// repositoryFolder is the top folder of the Git repository that folder is
+// in, as Git names it: symlinks resolved, then the nearest folder up from it
+// with a .git folder holding HEAD, or a .git file as a linked worktree has.
+// It only looks at files. It is "" for a folder outside a repository or one
+// that doesn't exist.
+func repositoryFolder(folder string) string {
+	if !filepath.IsAbs(folder) {
+		return ""
+	}
+	current, err := filepath.EvalSymlinks(folder)
+	if err != nil {
+		return ""
+	}
+	for {
+		git := filepath.Join(current, ".git")
+		if info, err := os.Lstat(git); err == nil {
+			if info.Mode().IsRegular() {
+				return current
+			}
+			if info.IsDir() {
+				if _, err := os.Stat(filepath.Join(git, "HEAD")); err == nil {
+					return current
+				}
+			}
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return ""
+		}
+		current = parent
+	}
 }
 
 // CoreEndsWith lists the live terminals that end when address is killed: the

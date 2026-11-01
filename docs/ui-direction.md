@@ -84,7 +84,7 @@ If no complete Home exists, use one short loading or unavailable state in the li
 
 The tools row includes **New space**. A workspace row keeps its terminal action first and places a vertical three-dot menu immediately after it when current actions exist. Do not add empty menus, disabled future controls, or placeholders.
 
-**New space** starts its directory field with `~`, suggests paths from open top-level repository workspaces, and accepts the exact entered value. The label is optional.
+**New space** starts its directory field with `~`, suggests the repository folders open in Herdr TUI or Herdr Core, each once, and accepts the exact entered value. The Herdr TUI's are its open top-level repository workspaces; Herdr Core's are the repository top folders of the spaces Home shows. A Herdr that isn't running adds none. The label is optional.
 
 **New worktree** is available for a known repository workspace or an ordinary workspace whose current directory can be resolved. Its sheet says “This adds a workspace in a new folder.” Branch help says “Branch is optional. Leave it blank to let Herdr choose.” Do not fabricate a preview or infer success.
 

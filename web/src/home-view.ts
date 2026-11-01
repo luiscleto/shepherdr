@@ -79,6 +79,8 @@ export interface HomeViewRender {
     workspace?: string;
   };
   state: HomeState;
+  // suggestedFolders is New space's list, from both Herdrs.
+  suggestedFolders: string[];
 }
 
 interface WorkspaceNodes {
@@ -1463,11 +1465,7 @@ export class HomeView {
     directory.spellcheck = false;
     directoryLabel.append(directory);
 
-    const suggestions = Array.from(new Set(
-      this.#lastRender.state.home.workspaces
-        .map((workspace) => workspace.checkout_path)
-        .filter((path): path is string => path !== undefined),
-    ));
+    const suggestions = this.#lastRender.suggestedFolders;
     const suggestionRegion = element(this.#document, "div", "checkout-suggestions");
     const updateSuggestions = (): void => {
       const entered = directory.value.toLocaleLowerCase();

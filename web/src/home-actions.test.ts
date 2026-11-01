@@ -5,7 +5,7 @@ import test from "node:test";
 import { Window } from "happy-dom";
 
 import { HomeView } from "./home-view.ts";
-import type { Herdr, Home, HomeState } from "./home-model.ts";
+import { emptyHomeState, suggestedFolders, type Herdr, type Home, type HomeState } from "./home-model.ts";
 import type {
   PrepareWorkspaceActionRequest,
   PreparedWorkspaceActionResponse,
@@ -134,6 +134,7 @@ interface ViewOverrides {
   prepareTerminal?: (request: PrepareTerminalCloseRequest) => Promise<PreparedTerminalActionResponse>;
   run?: (request: RunWorkspaceActionRequest) => Promise<RunWorkspaceActionResponse>;
   runTerminal?: (request: RunTerminalActionRequest) => Promise<RunTerminalActionResponse>;
+  suggestedFolders?: string[];
 }
 
 function makeView(window: Window, overrides: ViewOverrides = {}, home = actionHome()) {
@@ -151,7 +152,12 @@ function makeView(window: Window, overrides: ViewOverrides = {}, home = actionHo
     runWorkspaceAction: overrides.run ?? (async () => ({ outcome: "succeeded" })),
     runTerminalAction: overrides.runTerminal ?? (async () => ({ outcome: "succeeded" })),
   });
-  view.render({ actionsAvailable: true, herdr: overrides.herdr ?? "tui", mode: "all", reachability: "current", state: state(home) });
+  const herdr = overrides.herdr ?? "tui";
+  const sides = { core: emptyHomeState(), tui: emptyHomeState(), [herdr]: state(home) };
+  view.render({
+    actionsAvailable: true, herdr, mode: "all", reachability: "current", state: state(home),
+    suggestedFolders: overrides.suggestedFolders ?? suggestedFolders(sides),
+  });
   return { app, view };
 }
 
@@ -933,7 +939,7 @@ test("successful terminal closes keep picker focus contained and restore the rem
   afterFirst.workspaces[0].agent_counts = { idle: 1, unknown: 1 };
   afterFirst.workspaces[0].tabs[0].terminals = [];
   afterFirst.workspaces[0].tabs[1].terminals.push({ ...thirdTerminal, actions: [...thirdTerminal.actions] });
-  view.render({ actionsAvailable: true, herdr: "tui", mode: "all", reachability: "current", state: state(afterFirst) });
+  view.render({ actionsAvailable: true, herdr: "tui", mode: "all", reachability: "current", state: state(afterFirst), suggestedFolders: [] });
   requiredElement<HTMLButtonElement>(app, ".home-action-panel button").click();
   assert.equal((window.document.activeElement as HTMLElement | null)?.className, "terminal-picker-close");
   assert.equal(requiredElement(app, ".terminal-picker-layer").hidden, false);
@@ -950,7 +956,7 @@ test("successful terminal closes keep picker focus contained and restore the rem
     ...afterSecond.workspaces[0].tabs[1],
     terminals: [{ ...thirdTerminal, actions: [...thirdTerminal.actions] }],
   }];
-  view.render({ actionsAvailable: true, herdr: "tui", mode: "all", reachability: "current", state: state(afterSecond) });
+  view.render({ actionsAvailable: true, herdr: "tui", mode: "all", reachability: "current", state: state(afterSecond), suggestedFolders: [] });
   assert.equal(requiredElement(app, ".terminal-picker-layer").hidden, true);
   assert.equal(window.scrollY, 0);
   requiredElement<HTMLButtonElement>(app, ".home-action-panel button").click();
@@ -1000,7 +1006,7 @@ test("literal Herdr 0.8.1 remains openable while Home infers no management actio
   });
   const unverified = state(home);
   unverified.herdr_version = "0.8.1";
-  view.render({ actionsAvailable: true, herdr: "tui", mode: "all", reachability: "current", state: unverified });
+  view.render({ actionsAvailable: true, herdr: "tui", mode: "all", reachability: "current", state: unverified, suggestedFolders: [] });
 
   assert.equal(app.querySelectorAll(".workspace-menu-trigger").length, 0);
   assert.equal(app.querySelectorAll(".new-space-action").length, 1);
@@ -1394,7 +1400,7 @@ function coreAppHome(): Home {
   return home;
 }
 
-test("Herdr Core shows New space only while the app window offers it, with no suggestions", async () => {
+test("Herdr Core shows New space only while the app window offers it, with both Herdrs' folders", async () => {
   const window = new Window({ url: "http://localhost/" });
   let request: RunWorkspaceActionRequest | undefined;
   const { app } = makeView(window, {
@@ -1403,11 +1409,15 @@ test("Herdr Core shows New space only while the app window offers it, with no su
       request = value;
       return { outcome: "succeeded" };
     },
+    suggestedFolders: ["/repo/<tui>", "/repo/core"],
   }, coreAppHome());
   requiredElement<HTMLButtonElement>(app, ".new-space-action").click();
   const panel = requiredElement(app, ".home-action-panel");
   assert.equal(requiredElement(panel, ".home-action-copy").textContent, "Add a space for an existing folder.");
-  assert.equal(panel.querySelectorAll(".checkout-suggestion").length, 0);
+  assert.deepEqual(
+    Array.from(panel.querySelectorAll(".checkout-suggestion"), (node) => node.textContent),
+    ["/repo/<tui>", "/repo/core"],
+  );
   requiredElement<HTMLInputElement>(panel, 'input[name="working_directory"]').value = "~/repo";
   requiredElement<HTMLInputElement>(panel, 'input[name="label"]').value = "api <b>";
   requiredElement<HTMLFormElement>(panel, ".home-action-form")

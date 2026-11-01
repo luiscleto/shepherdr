@@ -24,6 +24,7 @@ import {
   herdrSwitchShown,
   readRememberedHerdr,
   rememberHerdr,
+  suggestedFolders,
   terminalCount,
   viewCount,
   type Herdr,
@@ -406,6 +407,7 @@ function renderHome(): void {
         }
       : undefined,
     state,
+    suggestedFolders: suggestedFolders(sides),
   });
   homeFocusPane = undefined;
   homeFocusWorkspace = undefined;
