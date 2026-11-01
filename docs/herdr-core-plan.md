@@ -337,7 +337,7 @@ The browser gets both Herdrs' states in each Home message (`tui`, `core`) and wo
 @@ ## Home and attention
 +### With the Herdr app
 +
-+Home lists the app's spaces and tabs in the app's order and with the app's names. Terminals that no space contains appear once in a last group, **Other terminals**. The app has no worktree groups, so none appear, and there are no space or terminal actions. Terminal offers **Control** and **Release** but no **Take over**: the phone and the app window can both type, and the size follows whoever typed last, or who last showed the terminal or pressed keys in Shepherdr. **Send keys** shows only keys Herdr can send.
++Home lists the app's spaces and tabs in the app's order and with the app's names. Terminals that no space contains appear once in a last group, **Other terminals**. The app has no worktree groups, so none appear, and there are no space or terminal actions. Terminal offers **Control** and **Release** but no **Take over**: the phone and the app window can both type, and the size follows whoever typed last, or who last showed the full terminal, came back to the page or pressed keys in Shepherdr. **Send keys** shows only keys Herdr can send.
 +
 ```
 

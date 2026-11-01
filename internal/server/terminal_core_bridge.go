@@ -170,6 +170,11 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 	stream := make(chan coreStreamItem, 32)
 	go func() {
 		err := attachment.Run(func(event herdr.CoreStreamEvent) error {
+			// Kept here, not where the browser loop takes the event, so a
+			// slow browser link can't leave the size behind core's.
+			if event.Data == nil && !event.Closed {
+				session.size.Store(coreSize(event.Cols, event.Rows))
+			}
 			select {
 			case stream <- coreStreamItem{event: event}:
 				return nil
@@ -253,7 +258,6 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 			}
 			if event.Data == nil {
 				cols, rows = event.Cols, event.Rows
-				session.size.Store(coreSize(cols, rows))
 				continue
 			}
 			if !lease.Valid() {
