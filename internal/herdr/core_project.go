@@ -3,7 +3,6 @@ package herdr
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -118,8 +117,15 @@ func stringOrEmpty(value any) string {
 }
 
 // ProjectCore turns one complete core read into the same Snapshot and Home
-// contract the Herdr TUI produces. homeFolder names the app's "~".
+// contract the Herdr TUI produces. homeFolder names the app's "~". It sets no
+// checkout_path: only Home's New space suggestions need one.
 func ProjectCore(read CoreRead, homeFolder string) (Snapshot, Home, error) {
+	return projectCore(read, homeFolder, nil)
+}
+
+// projectCore is ProjectCore with each shown space's repository folder from
+// repositories, which only reads what is already known.
+func projectCore(read CoreRead, homeFolder string, repositories func(folder string) string) (Snapshot, Home, error) {
 	spaces, err := parseAppDocument(read.Document)
 	if err != nil {
 		return Snapshot{}, Home{}, err
@@ -255,8 +261,8 @@ func ProjectCore(read CoreRead, homeFolder string) (Snapshot, Home, error) {
 		}
 		// New space suggests the repository folders of the spaces Home shows.
 		// Another machine's folder isn't on this one.
-		if !space.Machine {
-			workspace.CheckoutPath = repositoryFolder(space.Folder)
+		if repositories != nil && !space.Machine {
+			workspace.CheckoutPath = repositories(space.Folder)
 		}
 		home.Workspaces = append(home.Workspaces, workspace)
 	}
@@ -446,40 +452,6 @@ func folderLabel(folder, homeFolder string) string {
 		return "~"
 	}
 	return filepath.Base(cleaned)
-}
-
-// repositoryFolder is the top folder of the Git repository that folder is
-// in, as Git names it: symlinks resolved, then the nearest folder up from it
-// with a .git folder holding HEAD. As on the Herdr TUI, only a top-level
-// repository counts: a .git file, as a linked worktree or a submodule has,
-// gives "". It only looks at files. It is "" for a folder outside a
-// repository or one that doesn't exist.
-func repositoryFolder(folder string) string {
-	if !filepath.IsAbs(folder) {
-		return ""
-	}
-	current, err := filepath.EvalSymlinks(folder)
-	if err != nil {
-		return ""
-	}
-	for {
-		git := filepath.Join(current, ".git")
-		if info, err := os.Lstat(git); err == nil {
-			if info.Mode().IsRegular() {
-				return ""
-			}
-			if info.IsDir() {
-				if _, err := os.Stat(filepath.Join(git, "HEAD")); err == nil {
-					return current
-				}
-			}
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return ""
-		}
-		current = parent
-	}
 }
 
 // CoreEndsWith lists the live terminals that end when address is killed: the

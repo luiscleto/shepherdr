@@ -152,7 +152,7 @@ func (p *Projector) followCore(ctx context.Context, subscription *CoreSubscripti
 	// one complete Home.
 	latchDirty(window.ask)
 	takeSignals := func() bool {
-		dirty := takeRefreshSignals(changed, nil)
+		dirty := takeRefreshSignals(changed, p.repositories.resolved)
 		if takeRefreshSignals(nil, p.refresh) {
 			latchDirty(window.ask)
 			dirty = true
@@ -167,10 +167,11 @@ func (p *Projector) followCore(ctx context.Context, subscription *CoreSubscripti
 			return true, err
 		}
 		read.AppWindow = window.state
-		snapshot, home, err := ProjectCore(read, p.homeFolder)
+		snapshot, home, err := projectCore(read, p.homeFolder, p.repositories.lookup)
 		if err != nil {
 			return true, err
 		}
+		p.repositories.settle()
 		p.publishHome(snapshot, home, baseline)
 		baseline = false
 		if takeSignals() {
@@ -184,6 +185,8 @@ func (p *Projector) followCore(ctx context.Context, subscription *CoreSubscripti
 			case err := <-lost:
 				return false, err
 			case <-changed:
+				break wait
+			case <-p.repositories.resolved:
 				break wait
 			case <-p.refresh:
 				latchDirty(window.ask)

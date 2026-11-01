@@ -176,7 +176,7 @@ The core read becomes the existing internal `Snapshot` / `Home` contract, so Hom
 | Terminal `title` | the agent name, else the core `name`, else the terminal `title`, else **Terminal**. Today's single-terminal and duplicate-numbering rules still apply. |
 | Terminal `manual_name` | never set (core has no rename) |
 | Terminal and space `actions` | as section 3.5 |
-| Worktrees, `checkout_path` | never set (hidden in core mode) |
+| Worktrees, `checkout_path` | Worktrees stay hidden in core mode. `checkout_path` is set only for New space suggestions: a space's top-level repository folder. |
 
 Status words: `idle`, `working`, `done`, `blocked` and `error` pass through unchanged. `unknown` never occurs in core. Any other word fails the read, as the TUI does today (`InvalidStatusError`).
 

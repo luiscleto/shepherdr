@@ -53,6 +53,8 @@ type Projector struct {
 	app        AppWindow
 	homeFolder string
 	refresh    chan struct{}
+	// repositories serves Herdr Core's New space suggestions.
+	repositories *repositoryFolders
 
 	mu        sync.RWMutex
 	state     State
@@ -80,7 +82,9 @@ func NewProjector(client *Client) *Projector {
 // NewCoreProjector serves Home from herdr-core. homeFolder is shown as "~",
 // as the Herdr app does.
 func NewCoreProjector(core *CoreClient, homeFolder string) *Projector {
-	return newProjector(nil, core, homeFolder, ConnectionReconnecting)
+	projector := newProjector(nil, core, homeFolder, ConnectionReconnecting)
+	projector.repositories = newRepositoryFolders(repositoryFolder)
+	return projector
 }
 
 // NewNotFollowedProjector stands for a Herdr that Shepherdr does not follow:

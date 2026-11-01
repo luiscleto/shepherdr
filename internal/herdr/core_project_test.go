@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -605,41 +606,27 @@ func TestProjectCoreLeavesOddAppLabelsUnderOtherTerminals(t *testing.T) {
 }
 
 func TestProjectCoreSuggestsTheRepositoryFolderOfEachShownSpace(t *testing.T) {
-	root := t.TempDir()
-	for _, folder := range []string{"repo/.git", "repo/sub/deep", "repo/module/src", "plain", "stray/.git", "linked"} {
-		if err := os.MkdirAll(root+"/"+folder, 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for path, content := range map[string]string{
-		"repo/.git/HEAD":   "ref: refs/heads/main\n",
-		"linked/.git":      "gitdir: " + root + "/repo/.git/worktrees/linked\n",
-		"repo/module/.git": "gitdir: ../.git/modules/module\n",
-	} {
-		if err := os.WriteFile(root+"/"+path, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.Symlink(root+"/repo/sub", root+"/shortcut"); err != nil {
-		t.Fatal(err)
-	}
 	read := loadCoreRead(t, "core-read-app.json")
-	read.Terminals = append(read.Terminals, CoreTerminal{Address: "t10", Title: "module"})
+	// Without app labels, the terminals the document doesn't place are Other
+	// terminals rather than waiting spaces.
+	for index := range read.Terminals {
+		read.Terminals[index].Labels = nil
+	}
 	space := func(id, folder, terminal string, extra string) string {
 		return `{"id":"` + id + `","name":"","folder":` + strconvQuote(folder) + extra + `,"tabs":[{"id":"tb` + id + `","name":"","root":{"type":"block","content":{"terminal":"` + terminal + `"}}}]}`
 	}
 	read.Document = json.RawMessage(`{"spaces":[` + strings.Join([]string{
-		space("sp1", root+"/repo/sub/deep", "t3", ""),
-		space("sp2", root+"/plain", "t4", ""),
-		space("sp3", root+"/stray", "t5", ""),
-		space("sp4", root+"/linked", "t6", ""),
-		space("sp5", root+"/shortcut", "t7", ""),
-		space("sp6", root+"/repo", "t8", `,"machine":"vps"`),
-		space("sp7", root+"/missing", "t9", ""),
-		space("sp8", root+"/repo", "t99", ""),
-		space("sp9", root+"/repo/module/src", "t10", ""),
+		space("sp1", "/w/repo/sub", "t3", ""),
+		space("sp2", "/w/plain", "t4", ""),
+		space("sp3", "/w/repo", "t5", `,"machine":"vps"`),
+		space("sp4", "/w/repo", "t99", ""),
 	}, ",") + `]}`)
-	_, home, err := ProjectCore(read, "/home/user")
+	asked := []string{}
+	repositories := func(folder string) string {
+		asked = append(asked, folder)
+		return map[string]string{"/w/repo/sub": "/w/repo", "/w/repo": "/w/repo"}[folder]
+	}
+	_, home, err := projectCore(read, "/home/user", repositories)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -647,14 +634,100 @@ func TestProjectCoreSuggestsTheRepositoryFolderOfEachShownSpace(t *testing.T) {
 	for _, workspace := range home.Workspaces {
 		got[workspace.ID] = workspace.CheckoutPath
 	}
-	// Only a top-level repository counts, as on the Herdr TUI: a linked
-	// worktree (sp4) and a submodule (sp9) suggest nothing. A space with no
-	// live terminal isn't shown, so sp8 suggests nothing.
-	want := map[string]string{
-		"sp1": root + "/repo", "sp2": "", "sp3": "", "sp4": "", "sp5": root + "/repo", "sp6": "", "sp7": "", "sp9": "",
-	}
-	if !reflect.DeepEqual(got, want) {
+	// Another machine's space (sp3) and a space with no live terminal (sp4)
+	// ask for nothing and suggest nothing.
+	if want := map[string]string{"sp1": "/w/repo", "sp2": "", "sp3": "", OtherTerminalsID: ""}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("checkout paths = %q, want %q", got, want)
+	}
+	if want := []string{"/w/repo/sub", "/w/plain"}; !reflect.DeepEqual(asked, want) {
+		t.Fatalf("asked = %q, want %q", asked, want)
+	}
+	// The action views project without suggestions.
+	_, plain, err := ProjectCore(read, "/home/user")
+	if err != nil || plain.Workspaces[0].CheckoutPath != "" {
+		t.Fatalf("ProjectCore checkout path = %q, %v", plain.Workspaces[0].CheckoutPath, err)
+	}
+}
+
+func TestRepositoryFolderCountsOnlyTopLevelRepositories(t *testing.T) {
+	root := t.TempDir()
+	for _, folder := range []string{"repo/.git", "repo/sub/deep", "repo/module/src", "repo/inner/.git", "plain", "stray/.git", "linked", "separate", "real/.git", "symlinked"} {
+		if err := os.MkdirAll(root+"/"+folder, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, content := range map[string]string{
+		"repo/.git/HEAD":   "ref: refs/heads/main\n",
+		"real/.git/HEAD":   "ref: refs/heads/main\n",
+		"linked/.git":      "gitdir: " + root + "/repo/.git/worktrees/linked\n",
+		"repo/module/.git": "gitdir: ../.git/modules/module\n",
+		"separate/.git":    "gitdir: " + root + "/real/.git\n",
+	} {
+		if err := os.WriteFile(root+"/"+path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for link, target := range map[string]string{"shortcut": root + "/repo/sub", "symlinked/.git": root + "/real/.git"} {
+		if err := os.Symlink(target, root+"/"+link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Any .git entry that isn't a real folder holding HEAD ends the search,
+	// so a parent repository is never suggested for it.
+	for folder, want := range map[string]string{
+		"repo/sub/deep":   root + "/repo",
+		"repo":            root + "/repo",
+		"shortcut":        root + "/repo",
+		"repo/module/src": "",
+		"repo/inner":      "",
+		"plain":           "",
+		"stray":           "",
+		"linked":          "",
+		"separate":        "",
+		"symlinked":       "",
+		"missing":         "",
+	} {
+		if got := repositoryFolder(root + "/" + folder); got != want {
+			t.Errorf("%s: %q, want %q", folder, got, want)
+		}
+	}
+	if got := repositoryFolder("repo"); got != "" {
+		t.Errorf("relative folder: %q", got)
+	}
+}
+
+func TestRepositoryFoldersCheckEachFolderOnceOffTheProjection(t *testing.T) {
+	release := make(chan struct{})
+	var checks atomic.Int32
+	folders := newRepositoryFolders(func(folder string) string {
+		checks.Add(1)
+		<-release
+		return folder + "-repo"
+	})
+	// A new folder suggests nothing yet; its check runs in the background,
+	// and a stalled check is never started twice.
+	for range 3 {
+		if got := folders.lookup("/a"); got != "" {
+			t.Fatalf("unchecked lookup = %q", got)
+		}
+		folders.settle()
+	}
+	close(release)
+	<-folders.resolved
+	if got := folders.lookup("/a"); got != "/a-repo" || checks.Load() != 1 {
+		t.Fatalf("lookup = %q after %d checks", got, checks.Load())
+	}
+	folders.settle()
+	// A folder no shown space uses is forgotten and checked again when it
+	// comes back.
+	folders.settle()
+	if got := folders.lookup("/a"); got != "" {
+		t.Fatalf("forgotten lookup = %q", got)
+	}
+	folders.settle()
+	<-folders.resolved
+	if got := folders.lookup("/a"); got != "/a-repo" || checks.Load() != 2 {
+		t.Fatalf("lookup = %q after %d checks", got, checks.Load())
 	}
 }
 
