@@ -4,7 +4,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-11-01
+## [0.5.1] - 2026-11-01
 
 ### Added
 
@@ -161,8 +161,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Works with Herdr 0.8.0 through 0.8.2. Older versions do not start; newer versions start with a warning that they have not been tested.
 - macOS downloads are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.5.0...HEAD
-[0.5.0]: https://github.com/luiscleto/shepherdr/compare/v0.4.3...v0.5.0
+[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/luiscleto/shepherdr/compare/v0.4.3...v0.5.1
 [0.4.3]: https://github.com/luiscleto/shepherdr/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/luiscleto/shepherdr/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/luiscleto/shepherdr/compare/v0.3.1...v0.4.1
