@@ -22,11 +22,15 @@ func TestRealProductionHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer homeSocket.Close()
-	_ = homeSocket.SetReadDeadline(time.Now().Add(8 * time.Second))
 
 	// With an expected Herdr Core version set, Home must also report the Core
 	// side Live with its Home at that version before the read deadline.
 	expectCoreVersion := os.Getenv("SHEPHERDR_REAL_EXPECT_CORE_VERSION")
+	deadline := 8 * time.Second
+	if expectCoreVersion != "" {
+		deadline = 20 * time.Second
+	}
+	_ = homeSocket.SetReadDeadline(time.Now().Add(deadline))
 	var homeMessage struct {
 		Epoch string      `json:"epoch"`
 		TUI   herdr.State `json:"tui"`

@@ -1,9 +1,9 @@
 package herdr
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -142,7 +142,8 @@ func TestAppClientWindowOpenOnlyWhenStatusAnswers(t *testing.T) {
 
 func TestNewAppClientGatesVersionAndCommands(t *testing.T) {
 	app, client := newFakeApp(t)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
 	commands := `[{"name":"space.new","args":[{"name":"name"},{"name":"folder"},{"name":"tab"}]},` +
 		`{"name":"pane.split","args":[{"name":"direction"},{"name":"pane"}]},` +
 		`{"name":"space.rename","args":[{"name":"id"},{"name":"name"}]}]`
@@ -168,7 +169,17 @@ esac
 	}
 	write("version", "0.1.11")
 	if _, err := NewAppClient(context.Background(), client.path, logger); err != nil {
+		t.Fatalf("validated app: %v", err)
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("validated apps logged %q", logs.String())
+	}
+	write("version", "0.1.12")
+	if _, err := NewAppClient(context.Background(), client.path, logger); err != nil {
 		t.Fatalf("newer app: %v", err)
+	}
+	if !strings.Contains(logs.String(), "Herdr app 0.1.12 is newer than the validated Herdr app 0.1.10 through 0.1.11; continuing best-effort") {
+		t.Fatalf("newer app logged %q", logs.String())
 	}
 	write("version", "0.1.9")
 	if _, err := NewAppClient(context.Background(), client.path, logger); err == nil {

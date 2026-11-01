@@ -69,8 +69,8 @@ jobs:
             runner_arch: X64
             herdr_asset: herdr-linux-x86_64
             herdr_sha256: 14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d
-            herdr_core_url: https://releases.herdr.dev/core/0.1.15/herdr-core-linux-x86_64.tar.gz
-            herdr_core_sha256: efbb1382da3d5053cb20c60c166a62ec34e73d8299977fb1f5abed28ddec8d66
+            herdr_core_url: https://releases.herdr.dev/core/0.1.16/herdr-core-linux-x86_64.tar.gz
+            herdr_core_sha256: 58d6861176dc6fe905b58880d5bff07a9959be613a98e5d66b4583b04b6cfa45
           - goos: linux
             goarch: arm64
             runner: ubuntu-24.04-arm
@@ -78,8 +78,8 @@ jobs:
             runner_arch: ARM64
             herdr_asset: herdr-linux-aarch64
             herdr_sha256: 17d7536f2da50859523680ef279dffcac8e4a235f4e46fe8da6c2ec44141897c
-            herdr_core_url: https://releases.herdr.dev/core/0.1.15/herdr-core-linux-aarch64.tar.gz
-            herdr_core_sha256: e4939faa57cd1597eb2a07ea34b84cc8f861992c943a08f5e685b41d4d0bfa4f
+            herdr_core_url: https://releases.herdr.dev/core/0.1.16/herdr-core-linux-aarch64.tar.gz
+            herdr_core_sha256: b6573137d70baff24fb346c957a9879af6bdc4c641188cdf9e47a7b2a677bc92
           - goos: darwin
             goarch: amd64
             runner: macos-15-intel
@@ -87,8 +87,8 @@ jobs:
             runner_arch: X64
             herdr_asset: herdr-macos-x86_64
             herdr_sha256: 5fb0a908ec7f6745e3e245738b06bfad56c46391c391ab3c0955fbead01f1369
-            herdr_core_url: https://releases.herdr.dev/core/0.1.15/herdr-core-macos-x86_64.tar.gz
-            herdr_core_sha256: 55acac7e0ba75c829028655cd7e7964d138b10a03946fd73628508a2821b1118
+            herdr_core_url: https://releases.herdr.dev/core/0.1.16/herdr-core-macos-x86_64.tar.gz
+            herdr_core_sha256: 6af081cdb35c8612c5752d3f64c6a378e6a0313968b6d4fbc4c03c95691b2872
           - goos: darwin
             goarch: arm64
             runner: macos-15
@@ -96,8 +96,8 @@ jobs:
             runner_arch: ARM64
             herdr_asset: herdr-macos-aarch64
             herdr_sha256: fb77c2232a05a8035421382c894392f4174e4e38a18e48af3dd0290157c3a7e2
-            herdr_core_url: https://releases.herdr.dev/core/0.1.15/herdr-core-macos-aarch64.tar.gz
-            herdr_core_sha256: 47eba8367e0626a1efced8795fcb03d5434b2541c5a84d78c50cc02c8fb49fc8
+            herdr_core_url: https://releases.herdr.dev/core/0.1.16/herdr-core-macos-aarch64.tar.gz
+            herdr_core_sha256: 698d8f0c44f4e4b15fec174d52a39d57a014cfd71added44b53a0753b469d0fd
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     env:
@@ -194,7 +194,7 @@ jobs:
           test -f "$extract_root/$archive_base/LICENSE"
           test "$("$extract_root/$archive_base/shepherdr" --version)" = "shepherdr v0.4.3"
 
-      - name: Exercise the native packaged binary with Herdr 0.9.5 and herdr-core 0.1.15
+      - name: Exercise the native packaged binary with Herdr 0.9.5 and herdr-core 0.1.16
         env:
           GH_TOKEN: ${{ github.token }}
           HERDR_ASSET: ${{ matrix.herdr_asset }}
@@ -221,19 +221,19 @@ jobs:
           test "$(PATH="$tools_dir:$PATH" command -v herdr)" = "$herdr_binary"
 
           # herdr-core publishes its builds and checksums in a release manifest, not
-          # on GitHub; the matrix pins the URL and SHA-256 from its 0.1.15 manifest.
+          # on GitHub; the matrix pins the URL and SHA-256 from its 0.1.16 manifest.
           if [[ -z "$HERDR_CORE_URL" || -z "$HERDR_CORE_SHA256" ]]; then
-            echo "no herdr-core 0.1.15 build is pinned for $TARGET_GOOS/$TARGET_GOARCH" >&2
+            echo "no herdr-core 0.1.16 build is pinned for $TARGET_GOOS/$TARGET_GOARCH" >&2
             exit 1
           fi
           downloaded_core="$tools_dir/${HERDR_CORE_URL##*/}"
           curl --fail --silent --show-error --location --proto '=https' --output "$downloaded_core" "$HERDR_CORE_URL"
           printf '%s  %s\n' "$HERDR_CORE_SHA256" "$downloaded_core" | shasum -a 256 -c -
-          mkdir "$tools_dir/herdr-core-0.1.15"
-          tar -xzf "$downloaded_core" -C "$tools_dir/herdr-core-0.1.15" herdr-core
-          core_binary="$tools_dir/herdr-core-0.1.15/herdr-core"
+          mkdir "$tools_dir/herdr-core-0.1.16"
+          tar -xzf "$downloaded_core" -C "$tools_dir/herdr-core-0.1.16" herdr-core
+          core_binary="$tools_dir/herdr-core-0.1.16/herdr-core"
           test -x "$core_binary"
-          test "$("$core_binary" --version)" = "hc 0.1.15"
+          test "$("$core_binary" --version)" = "hc 0.1.16"
 
           # The core runs in its own session with scratch XDG folders, and its
           # update source points nowhere. The names stay short: core refuses
@@ -406,7 +406,7 @@ jobs:
           test "$(ps -o uid= -p "$core_pid" | tr -d ' ')" = "$(id -u)"
           run_core server status --json >"$smoke_root/core-status.json"
           grep -F "\"pid\":$core_pid," "$smoke_root/core-status.json"
-          grep -F '"version":"0.1.15"' "$smoke_root/core-status.json"
+          grep -F '"version":"0.1.16"' "$smoke_root/core-status.json"
 
           mkdir -p "$smoke_root/sign-in-off/config" "$smoke_root/sign-in-off/uploads"
           XDG_CONFIG_HOME="$smoke_root/sign-in-off/config" PATH="$tools_dir:$PATH" "$packaged_binary" -no-sign-in -listen 127.0.0.1:18787 -herdr-socket "$smoke_root/herdr/herdr.sock" -herdr-core-socket "$core_socket" -upload-parent "$smoke_root/sign-in-off/uploads" >"$smoke_root/sign-in-off.log" 2>&1 &
@@ -428,8 +428,8 @@ jobs:
           fi
           grep -F "herdr_core_socket=$core_socket" "$smoke_root/sign-in-off.log"
           # The Home check waits, bounded, until Home reports the Herdr TUI side
-          # Live and the Herdr Core side Live with its Home at version 0.1.15.
-          SHEPHERDR_REAL_URL=http://127.0.0.1:18787 SHEPHERDR_REAL_EXPECT_CORE_VERSION=0.1.15 go test ./internal/server -run '^TestRealProductionHome$' -count=1 -v
+          # Live and the Herdr Core side Live with its Home at version 0.1.16.
+          SHEPHERDR_REAL_URL=http://127.0.0.1:18787 SHEPHERDR_REAL_EXPECT_CORE_VERSION=0.1.16 go test ./internal/server -run '^TestRealProductionHome$' -count=1 -v
           kill -TERM "$shepherdr_pid"
           wait_bounded "$shepherdr_pid" "sign-in-off Shepherdr" 15 false
           shepherdr_pid=
@@ -561,16 +561,25 @@ jobs:
             exit 1
           fi
 
+          # Release changes address the checked release by its ID, never by tag,
+          # and each one first confirms that the release is still a draft.
           release_id=
+          require_draft() {
+            if [[ "$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" --jq '.draft')" != "true" ]]; then
+              echo "release $release_id is no longer a draft; refusing to change it" >&2
+              exit 1
+            fi
+          }
           if [[ "$draft_count" == "1" ]]; then
             release_id=$(jq -r '.[0].id | select(type == "number" and . > 0 and . == floor)' <<<"$tagged")
             if [[ ! "$release_id" =~ ^[1-9][0-9]*$ ]]; then
               echo "draft release lookup returned an invalid release ID" >&2
               exit 1
             fi
+            # Without a draft field, the PATCH keeps the release a draft.
+            require_draft
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
               -f name="Shepherdr v0.4.3" \
-              -F draft=true \
               -F prerelease=false \
               -F body=@release-body.md >/dev/null
           else
@@ -588,15 +597,7 @@ jobs:
             exit 1
           fi
 
-          # Asset changes address the checked release by its ID, never by tag,
-          # and each one first confirms that the release is still a draft.
           release_path="repos/$GITHUB_REPOSITORY/releases/$release_id"
-          require_draft() {
-            if [[ "$(gh api "$release_path" --jq '.draft')" != "true" ]]; then
-              echo "release $release_id is no longer a draft; refusing to change its assets" >&2
-              exit 1
-            fi
-          }
           require_draft
           upload_url=$(gh api "$release_path" --jq '.upload_url')
           upload_url=${upload_url%%\{*}

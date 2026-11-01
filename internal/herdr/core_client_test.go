@@ -171,7 +171,7 @@ func TestCoreClientGate(t *testing.T) {
 		}, detail: "This Herdr Core can't serve Shepherdr: it doesn't offer protocol generation 1."},
 		{name: "older", change: func(hello map[string]any) {
 			hello["version"] = "0.1.14"
-		}, detail: "Herdr Core 0.1.14 is older than the supported range; Shepherdr supports Herdr Core 0.1.15 through 0.1.15."},
+		}, detail: "Herdr Core 0.1.14 is older than the supported range; Shepherdr supports Herdr Core 0.1.15 through 0.1.16."},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			core, path := newTestCore(t)
@@ -190,7 +190,7 @@ func TestCoreClientGate(t *testing.T) {
 
 func TestCoreClientWarnsOnceForANewerCore(t *testing.T) {
 	core, path := newTestCore(t)
-	core.set(func(core *testCore) { core.hello["version"] = "0.1.16" })
+	core.set(func(core *testCore) { core.hello["version"] = "0.1.17" })
 	var logs bytes.Buffer
 	client := NewCoreClient(path, slog.New(slog.NewTextHandler(&logs, nil)))
 	for range 2 {
@@ -198,7 +198,7 @@ func TestCoreClientWarnsOnceForANewerCore(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if strings.Count(logs.String(), "Herdr Core 0.1.16 is outside Shepherdr's supported Herdr Core range 0.1.15 through 0.1.15; continuing best-effort") != 1 {
+	if strings.Count(logs.String(), "Herdr Core 0.1.17 is outside Shepherdr's supported Herdr Core range 0.1.15 through 0.1.16; continuing best-effort") != 1 {
 		t.Fatalf("logs = %q", logs.String())
 	}
 }

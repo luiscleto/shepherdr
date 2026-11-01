@@ -29,6 +29,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 ### Compatibility
 
 - Support herdr-core 0.1.15 with the Herdr app 0.1.10. Newer versions run best effort with a warning. For Herdr Core there is no **Take over**, and **Send keys** offers only keys it can send. **New space**, **New terminal** and **Rename space** need `herdr-app` on `PATH`, and **Rename space** needs the app window open; there are no worktree actions and no terminal rename.
+- Support Herdr Core 0.1.16 and the Herdr app 0.1.11.
 
 ## [0.4.3] - 2026-10-16
 

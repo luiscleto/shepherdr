@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	validatedAppVersion   = "0.1.10"
-	appCommandTimeout     = 10 * time.Second
-	appStatusTimeout      = 2 * time.Second
-	appWindowDidNotAnswer = "the window did not answer"
+	minimumValidatedAppVersion = "0.1.10"
+	maximumValidatedAppVersion = "0.1.11"
+	appCommandTimeout          = 10 * time.Second
+	appStatusTimeout           = 2 * time.Second
+	appWindowDidNotAnswer      = "the window did not answer"
 )
 
 // ErrAppWindowClosed means no Herdr app window answered, so a command was
@@ -57,11 +58,11 @@ func NewAppClient(ctx context.Context, path string, logger *slog.Logger) (*AppCl
 	parsed, ok := parseSemanticVersion(version)
 	switch {
 	case !ok:
-		logger.Warn(fmt.Sprintf("Herdr app reported version %q, which Shepherdr could not verify; Shepherdr validated Herdr app %s; continuing best-effort", version, validatedAppVersion))
-	case semver.Compare(parsed, "v"+validatedAppVersion) < 0:
-		return nil, fmt.Errorf("Herdr app %s is older than the validated Herdr app %s", version, validatedAppVersion)
-	case semver.Compare(parsed, "v"+validatedAppVersion) > 0 || semver.Prerelease(parsed) != "":
-		logger.Warn(fmt.Sprintf("Herdr app %s is newer than the validated Herdr app %s; continuing best-effort", version, validatedAppVersion))
+		logger.Warn(fmt.Sprintf("Herdr app reported version %q, which Shepherdr could not verify; Shepherdr validated Herdr app %s through %s; continuing best-effort", version, minimumValidatedAppVersion, maximumValidatedAppVersion))
+	case semver.Compare(parsed, "v"+minimumValidatedAppVersion) < 0:
+		return nil, fmt.Errorf("Herdr app %s is older than the validated Herdr app %s through %s", version, minimumValidatedAppVersion, maximumValidatedAppVersion)
+	case semver.Compare(parsed, "v"+maximumValidatedAppVersion) > 0 || semver.Prerelease(parsed) != "":
+		logger.Warn(fmt.Sprintf("Herdr app %s is newer than the validated Herdr app %s through %s; continuing best-effort", version, minimumValidatedAppVersion, maximumValidatedAppVersion))
 	}
 	output, _, err = client.run(ctx, "commands")
 	if err != nil {
