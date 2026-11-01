@@ -42,6 +42,10 @@ function action(text: string, run: () => void, className?: string): HTMLButtonEl
   return node;
 }
 
+// The size a core terminal keeps while this page controls it (section 4 of
+// docs/herdr-core-plan.md).
+const coreSizeNote = "While you control here, the Herdr app window shows this screen's size. Release gives it back.";
+
 // A page the browser keeps for Back must not hold its terminal open. Leaving
 // closes the terminal page as any leave does, and returning opens it again.
 export function closeTerminalWhileCached(target: Window, close: () => void, reopen: () => void): void {
@@ -90,9 +94,7 @@ export class TerminalPage {
   #uploadAttempt = 0;
   #uploadState: ReaderInputState = "ready";
   #uploadIntent: "insert" | "submit" = "submit";
-  #visibilityChanged = (): void => {
-    if (document.visibilityState === "visible") this.#fitAgain();
-  };
+  #visibilityChanged = (): void => this.#fitAgain();
   #viewportChanged = (): void => {
     if (this.#mobile && window.visualViewport) {
       this.#host.style.height = `${window.visualViewport.height}px`;
@@ -134,7 +136,7 @@ export class TerminalPage {
     // program reach onData too, but they are not a person's input.
     const personInput = personInputFilter();
     for (const type of ["keydown", "keyup", "beforeinput", "paste"] as const) {
-      this.#terminalMount.addEventListener(type, () => { if (personInput(type) && this.#canType()) this.#keepSize(); }, true);
+      this.#terminalMount.addEventListener(type, () => { if (personInput(type) && this.#canType()) this.#fitAgain(); }, true);
     }
     this.#surface.append(this.#terminalMount);
     host.className = `terminal-screen ${this.#mobile ? "terminal-reader-page terminal-shared-page" : "terminal-desktop-page"}`;
@@ -205,7 +207,7 @@ export class TerminalPage {
         if (this.#readerInput?.state() !== "ready") return false;
         if (files.length) { void this.#sendFiles("submit", false); return true; }
         this.#readerTextQueued = true;
-        this.#keepSize();
+        this.#fitAgain();
         const accepted = this.#readerInput?.enqueueBatch(terminalSubmission(text)) ?? false;
         if (!accepted) this.#readerTextQueued = false;
         return accepted;
@@ -282,22 +284,20 @@ export class TerminalPage {
 
   #sendKey(key: KeySelection): boolean {
     if (!this.#canSendKey()) return false;
-    this.#keepSize();
+    this.#fitAgain();
     return this.#readerInput?.sendKey(key) ?? false;
   }
 
-  // Herdr Core gives the terminal the size of the viewer used last, and a
-  // program's automatic reply in the app window can take it without anyone
-  // typing. Switching views and coming back into view take it back for this
-  // screen, once each; the server skips an unchanged size.
-  #fitAgain(keep = false): void {
-    if (this.herdr === "core" && this.#ownership === "controlling" && this.#lastDimensions) this.#session?.resizeAgain(this.#lastDimensions, keep);
-  }
-
-  // This screen's own input, sent just before it: the size follows whoever
-  // typed last, and the server keeps it for a moment after.
-  #keepSize(): void {
-    this.#fitAgain(true);
+  // Herdr Core gives the terminal the size of the viewer used last. While
+  // this page is in view and controlling, the server keeps this screen's size
+  // against the Herdr app window. Taking control, coming back into view,
+  // switching views and this screen's own input ask for it again, so the
+  // latest person's input decides between two Shepherdr screens; the server
+  // skips an unchanged size. Going out of view lets the size go.
+  #fitAgain(): void {
+    if (this.herdr === "core" && this.#ownership === "controlling" && this.#lastDimensions) {
+      this.#session?.resizeAgain(this.#lastDimensions, document.visibilityState === "visible");
+    }
   }
 
   async #mountTerminal(): Promise<void> {
@@ -397,6 +397,7 @@ export class TerminalPage {
           if (mode !== "observe") {
             this.#ownership = "controlling";
             if (this.#lastDimensions) session.resize(this.#lastDimensions);
+            this.#fitAgain();
           }
           else if (this.#ownership !== "occupied") this.#ownership = "observing";
           this.#render();
@@ -546,6 +547,7 @@ export class TerminalPage {
     this.#controlAction.hidden = control === undefined;
     this.#controlAction.disabled = state === "forwarding" || state === "requesting";
     this.#controlAction.textContent = control === "release" ? "Release" : control === "takeover" ? "Take over" : "Control";
+    this.#controlAction.title = control === "release" && this.herdr === "core" ? coreSizeNote : "";
     const status = state === "forwarding" ? "Forwarding input" : this.#uploadState === "requesting" ? "Sending files" : ({
       controlling: "Controlling", observing: "Observing", occupied: "Controlled elsewhere · observing",
       requesting: "Requesting control", waiting: this.#hasConnected ? "Reconnecting" : "Connecting",

@@ -186,51 +186,102 @@ func TestCoreResizeIsSentOnlyWhenItChangesTheSize(t *testing.T) {
 	_, _ = (&CoreTerminalBridge{}).applyCommand(httptest.NewRequest(http.MethodGet, "/", nil), session, nil, "t1", command)
 }
 
-func TestCoreSizeIsTakenBackOnceSoonAfterThisBrowsersInput(t *testing.T) {
-	phone, composer, app := coreSize(46, 41), coreSize(46, 35), coreSize(7, 14)
-	start := time.Unix(1_000, 0)
-	at := func(ms int) time.Time { return start.Add(time.Duration(ms) * time.Millisecond) }
-	var keep coreSizeKeep
-	keep.asked(composer)
-	keep.asked(phone)
-	if keep.changed(phone, app, at(0)) {
-		t.Fatal("without input, another viewer taking the size is left alone")
+func TestCoreSizeIsHeldOnlyWhileThePageIsInView(t *testing.T) {
+	session := &coreLiveSession{controlled: true}
+	session.size.Store(coreSize(46, 41))
+	bridge := &CoreTerminalBridge{}
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	apply := func(message string) {
+		t.Helper()
+		command, err := validatedTerminalCommand([]byte(message))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The session has no attachment, so sending a resize would panic.
+		if _, err := bridge.applyCommand(request, session, nil, "t1", command); err != nil {
+			t.Fatal(err)
+		}
 	}
-	keep.input(at(1_000))
-	if keep.changed(app, app, at(1_010)) || keep.changed(app, composer, at(1_050)) || keep.changed(composer, phone, at(1_100)) {
-		t.Fatal("an unchanged size and this browser's own sizes are not taken back")
+	apply(`{"type":"terminal.resize","cols":46,"rows":41}`)
+	if _, holding := session.hold.wanted(); holding {
+		t.Fatal("a size is held only once the page says it is in view")
 	}
-	if !keep.changed(phone, app, at(1_170)) {
-		t.Fatal("a size taken soon after the input is taken back")
+	apply(`{"type":"terminal.resize","cols":46,"rows":41,"keep":true}`)
+	if size, holding := session.hold.wanted(); !holding || size != coreSize(46, 41) {
+		t.Fatalf("in view: wanted %x, holding %v", size, holding)
 	}
-	if keep.changed(app, phone, at(1_180)) || keep.changed(phone, app, at(1_300)) {
-		t.Fatal("at most once per input, so a resend never leads to another")
+	session.size.Store(coreSize(120, 40))
+	apply(`{"type":"terminal.resize","cols":46,"rows":41,"keep":false}`)
+	if _, holding := session.hold.wanted(); holding {
+		t.Fatal("out of view, the size is no longer held")
 	}
-	keep.reached(at(1_400))
-	if keep.changed(phone, app, at(1_500)) {
-		t.Fatal("a spent input stays spent")
-	}
-	if size, _ := keep.wanted(); size != phone {
-		t.Fatalf("wanted %x, not the latest size asked for", size)
-	}
+}
 
-	keep.input(at(5_000))
-	if keep.changed(phone, app, at(5_000).Add(keepSizeAfterInput+time.Millisecond)) {
-		t.Fatal("a size change after the window is left alone")
+// Two Shepherdr browsers holding one terminal, and the Herdr app window.
+// Core applies each resize in turn, and every holder sees each size change
+// as the stream's size callback does.
+func TestTwoHoldingBrowsersNeverAnswerEachOther(t *testing.T) {
+	bridge := &CoreTerminalBridge{holders: make(map[*coreLiveSession]struct{})}
+	phone, desktop, other := &coreLiveSession{terminal: "t1"}, &coreLiveSession{terminal: "t1"}, &coreLiveSession{terminal: "t2"}
+	for _, holder := range []*coreLiveSession{phone, desktop, other} {
+		bridge.holders[holder] = struct{}{}
+		holder.hold.set(true)
 	}
-	keep.reached(at(9_000))
-	if !keep.changed(app, coreSize(120, 40), at(9_000).Add(keepSizeAfterInput)) {
-		t.Fatal("a key core held back restarts the window when it is pressed")
+	phone.hold.asked(coreSize(46, 35))
+	phone.hold.asked(coreSize(46, 41))
+	desktop.hold.asked(coreSize(160, 48))
+	other.hold.asked(coreSize(120, 40))
+	app := coreSize(120, 40)
+	if !bridge.shepherdrSize("t1", coreSize(46, 35)) || !bridge.shepherdrSize("t1", coreSize(160, 48)) || bridge.shepherdrSize("t1", app) {
+		t.Fatal("only sizes the browsers on this terminal asked for are theirs")
+	}
+	for _, step := range []struct {
+		from, to, want uint32
+		takeBacks      int
+	}{
+		{coreSize(46, 41), app, coreSize(46, 41), 1},
+		{coreSize(160, 48), app, coreSize(160, 48), 1},
+		{coreSize(46, 35), app, coreSize(46, 41), 1},
+		{coreSize(46, 41), coreSize(160, 48), coreSize(160, 48), 0},
+		{coreSize(160, 48), coreSize(46, 41), coreSize(46, 41), 0},
+		{app, coreSize(46, 41), coreSize(46, 41), 0},
+	} {
+		for _, holder := range []*coreLiveSession{phone, desktop} {
+			holder.size.Store(step.from)
+		}
+		current, pending, takeBacks := step.from, []uint32{step.to}, 0
+		for len(pending) > 0 && takeBacks < 100 {
+			next := pending[0]
+			pending = pending[1:]
+			if next == current {
+				continue
+			}
+			current = next
+			for _, holder := range []*coreLiveSession{phone, desktop} {
+				previous := holder.size.Swap(next)
+				if holder.hold.owns(previous) && !bridge.shepherdrSize("t1", next) {
+					size, _ := holder.hold.wanted()
+					pending = append(pending, size)
+					takeBacks++
+				}
+			}
+		}
+		if current != step.want || takeBacks != step.takeBacks {
+			t.Fatalf("%x to %x: ended at %x after %d take-backs, want %x after %d", step.from, step.to, current, takeBacks, step.want, step.takeBacks)
+		}
 	}
 }
 
 func TestOnlyACoreResizeCarriesKeep(t *testing.T) {
-	command, err := validatedTerminalCommand([]byte(`{"type":"terminal.resize","cols":46,"rows":41,"keep":true}`))
-	if err != nil || !command.keepSize {
-		t.Fatalf("keep resize: %+v %v", command, err)
+	for _, message := range []string{
+		`{"type":"terminal.resize","cols":46,"rows":41,"keep":true}`,
+		`{"type":"terminal.resize","cols":46,"rows":41,"keep":false}`,
+	} {
+		if command, err := validatedTerminalCommand([]byte(message)); err != nil || command.holdSize == nil {
+			t.Fatalf("keep resize %s: %+v %v", message, command, err)
+		}
 	}
 	for _, message := range []string{
-		`{"type":"terminal.resize","cols":46,"rows":41,"keep":false}`,
 		`{"type":"terminal.input","text":"x","request_id":1,"keep":true}`,
 		`{"type":"terminal.release","keep":true}`,
 	} {

@@ -226,26 +226,26 @@ export class TerminalSession implements TerminalSessionLike {
   }
 
   resize(dimensions: TerminalDimensions): void {
-    this.#resize(dimensions, false, false);
+    this.#resize(dimensions, false);
   }
 
   // Asks for this size again even if it was sent before. Herdr Core gives a
   // terminal the size of the viewer used last; the server sends the size
-  // only when core's differs. keep says a person here is typing or pressing
-  // keys, so the server also takes the size back if another viewer takes it
-  // a moment later.
-  resizeAgain(dimensions: TerminalDimensions, keep = false): void {
+  // only when core's differs. keep says whether this page is in view, so the
+  // server keeps the size against other viewers, or out of view, so it only
+  // stops keeping it.
+  resizeAgain(dimensions: TerminalDimensions, keep: boolean): void {
     this.#resize(dimensions, true, keep);
   }
 
-  #resize(dimensions: TerminalDimensions, again: boolean, keep: boolean): void {
+  #resize(dimensions: TerminalDimensions, again: boolean, keep?: boolean): void {
     if (!boundedDimension(dimensions.cols, 2) || !boundedDimension(dimensions.rows, 1)) return;
     const size = `${dimensions.cols}x${dimensions.rows}`;
     if (!again && size === this.#lastSize) return;
     this.#lastSize = size;
     this.#events.onLog("viewport.resize", dimensions);
     if (this.#mode === "observe") return;
-    this.#send({ type: "terminal.resize", ...dimensions, ...(keep ? { keep: true } : {}) });
+    this.#send({ type: "terminal.resize", ...dimensions, ...(keep === undefined ? {} : { keep }) });
   }
 
   scroll(scroll: TerminalScroll): boolean {

@@ -155,8 +155,9 @@ type terminalBrowserCommand struct {
 	childCommands []any
 	release       bool
 	requestID     uint64
-	// keepSize marks a resize sent with a person's own input on Herdr Core.
-	keepSize bool
+	// holdSize, on a Herdr Core resize, says whether this page is in view
+	// and controlling, so the server keeps its size, or went out of view.
+	holdSize *bool
 }
 
 func validatedTerminalCommand(message []byte) (terminalBrowserCommand, error) {
@@ -224,11 +225,11 @@ func validatedTerminalCommand(message []byte) (terminalBrowserCommand, error) {
 		return terminalBrowserCommand{childCommands: commands, requestID: envelope.RequestID}, nil
 	case "terminal.resize":
 		if envelope.RequestID != 0 || envelope.Text != nil || envelope.Bytes != nil || len(envelope.Chunks) > 0 || envelope.Direction != "" || envelope.Lines != 0 ||
-			envelope.Column != nil || envelope.Modifiers != nil || envelope.Row != nil || envelope.Source != nil || envelope.Keep != nil && !*envelope.Keep ||
+			envelope.Column != nil || envelope.Modifiers != nil || envelope.Row != nil || envelope.Source != nil ||
 			envelope.Cols < 2 || envelope.Cols > 1000 || envelope.Rows < 1 || envelope.Rows > 1000 {
 			return terminalBrowserCommand{}, errors.New("resize fields are invalid")
 		}
-		return terminalBrowserCommand{childCommands: []any{map[string]any{"type": envelope.Type, "cols": envelope.Cols, "rows": envelope.Rows}}, keepSize: envelope.Keep != nil}, nil
+		return terminalBrowserCommand{childCommands: []any{map[string]any{"type": envelope.Type, "cols": envelope.Cols, "rows": envelope.Rows}}, holdSize: envelope.Keep}, nil
 	case "terminal.scroll":
 		if envelope.RequestID != 0 || envelope.Text != nil || envelope.Bytes != nil || len(envelope.Chunks) > 0 || envelope.Cols != 0 || envelope.Rows != 0 || envelope.Keep != nil ||
 			(envelope.Direction != "up" && envelope.Direction != "down") || envelope.Lines < 1 || envelope.Lines > 1000 ||

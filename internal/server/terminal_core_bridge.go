@@ -30,6 +30,7 @@ type CoreTerminalBridge struct {
 	upgrader websocket.Upgrader
 
 	controllers map[string]*coreLiveController
+	holders     map[*coreLiveSession]struct{} // controlling streams
 	mutex       sync.Mutex
 }
 
@@ -38,6 +39,7 @@ func NewCoreTerminalBridge(client *herdr.CoreClient, logger *slog.Logger, target
 	return &CoreTerminalBridge{
 		client: client, context: ctx, cancel: cancel, logger: logger, targets: targets,
 		controllers: make(map[string]*coreLiveController),
+		holders:     make(map[*coreLiveSession]struct{}),
 		upgrader:    websocket.Upgrader{HandshakeTimeout: 5 * time.Second},
 	}
 }
@@ -96,84 +98,63 @@ func (bridge *CoreTerminalBridge) productionRead(writer http.ResponseWriter, req
 // command loop to give the terminal this browser's size again.
 type coreLiveSession struct {
 	attachment *herdr.CoreAttachment
+	terminal   string
 	controlled bool
 	writeMutex sync.Mutex
 	ended      chan struct{}
 	size       atomic.Uint32
-	keep       coreSizeKeep
+	hold       coreSizeHold
 	takeBack   chan struct{}
 }
 
 func coreSize(cols, rows int) uint32 { return uint32(cols)<<16 | uint32(rows)&0xffff }
 
-// keepSizeAfterInput covers a program started by this browser's input coming
-// up and the Herdr app window answering it, which took 150-200 ms in real
-// runs, with room for a slower start. It stays short so that a person at the
-// computer acting a moment later keeps the size.
-const keepSizeAfterInput = 2 * time.Second
-
-// coreSizeKeep applies "the size follows whoever typed last". Herdr Core
-// counts a program's automatic reply in the Herdr app window as activity and
-// gives the terminal the app's size. Soon after this browser's own input, a
-// change to a size this browser didn't ask for is taken back, once per input.
-type coreSizeKeep struct {
-	mutex sync.Mutex
-	until time.Time
-	spent bool
-	own   []uint32 // this browser's recent sizes, newest first
+// coreSizeHold keeps this browser's size while its page is in view and
+// controlling. Herdr Core gives the terminal the size of the viewer used
+// last, and focus, layout changes, typing and a program's automatic replies
+// in the Herdr app window all count; each width change leaves a program's
+// redrawn screen in history. The page says when it comes into view and when
+// it goes out of view; Release and leaving end the stream.
+type coreSizeHold struct {
+	mutex   sync.Mutex
+	holding bool
+	own     []uint32 // this browser's recent sizes, newest first
 }
 
 // asked records a size this browser asked for.
-func (keep *coreSizeKeep) asked(size uint32) {
-	keep.mutex.Lock()
-	defer keep.mutex.Unlock()
+func (hold *coreSizeHold) asked(size uint32) {
+	hold.mutex.Lock()
+	defer hold.mutex.Unlock()
 	own := []uint32{size}
-	for _, previous := range keep.own {
+	for _, previous := range hold.own {
 		if previous != size && len(own) < 8 {
 			own = append(own, previous)
 		}
 	}
-	keep.own = own
+	hold.own = own
 }
 
-// input opens the window as this browser's input is sent.
-func (keep *coreSizeKeep) input(now time.Time) {
-	keep.mutex.Lock()
-	defer keep.mutex.Unlock()
-	keep.until, keep.spent = now.Add(keepSizeAfterInput), false
+func (hold *coreSizeHold) set(holding bool) {
+	hold.mutex.Lock()
+	defer hold.mutex.Unlock()
+	hold.holding = holding
 }
 
-// reached restarts the window for input that reached the terminal later than
-// it was sent, as a key core holds back after typing. A spent input stays
-// spent.
-func (keep *coreSizeKeep) reached(now time.Time) {
-	keep.mutex.Lock()
-	defer keep.mutex.Unlock()
-	if !keep.until.IsZero() && !keep.spent {
-		keep.until = now.Add(keepSizeAfterInput)
-	}
+// owns reports a size this browser asked for, even one arriving late.
+func (hold *coreSizeHold) owns(size uint32) bool {
+	hold.mutex.Lock()
+	defer hold.mutex.Unlock()
+	return slices.Contains(hold.own, size)
 }
 
-// changed reports core's size change and whether to take this browser's size
-// back. Sizes this browser asked for are its own, even when they arrive late.
-func (keep *coreSizeKeep) changed(previous, next uint32, now time.Time) bool {
-	keep.mutex.Lock()
-	defer keep.mutex.Unlock()
-	if previous == next || keep.spent || now.After(keep.until) || slices.Contains(keep.own, next) {
-		return false
-	}
-	keep.spent = true
-	return true
-}
-
-// wanted is the size this browser asked for last.
-func (keep *coreSizeKeep) wanted() (uint32, bool) {
-	keep.mutex.Lock()
-	defer keep.mutex.Unlock()
-	if len(keep.own) == 0 {
+// wanted is the size to keep, while holding.
+func (hold *coreSizeHold) wanted() (uint32, bool) {
+	hold.mutex.Lock()
+	defer hold.mutex.Unlock()
+	if !hold.holding || len(hold.own) == 0 {
 		return 0, false
 	}
-	return keep.own[0], true
+	return hold.own[0], true
 }
 
 type coreLiveController struct {
@@ -225,10 +206,18 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 		_ = writeTerminalStatus(connection, "Could not open this Herdr terminal")
 		return
 	}
-	session := &coreLiveSession{attachment: attachment, controlled: control, ended: make(chan struct{}), takeBack: make(chan struct{}, 1)}
+	session := &coreLiveSession{attachment: attachment, terminal: settings.pane, controlled: control, ended: make(chan struct{}), takeBack: make(chan struct{}, 1)}
 	session.size.Store(coreSize(attachment.Cols, attachment.Rows))
-	session.keep.asked(coreSize(settings.cols, settings.rows))
+	session.hold.asked(coreSize(settings.cols, settings.rows))
+	if control {
+		bridge.mutex.Lock()
+		bridge.holders[session] = struct{}{}
+		bridge.mutex.Unlock()
+	}
 	defer func() {
+		bridge.mutex.Lock()
+		delete(bridge.holders, session)
+		bridge.mutex.Unlock()
 		session.writeMutex.Lock()
 		session.controlled = false
 		session.writeMutex.Unlock()
@@ -249,7 +238,7 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 			// slow browser link can't leave the size behind core's.
 			if event.Data == nil && !event.Closed {
 				next := coreSize(event.Cols, event.Rows)
-				if session.keep.changed(session.size.Swap(next), next, time.Now()) {
+				if previous := session.size.Swap(next); previous != next && session.hold.owns(previous) && !bridge.shepherdrSize(session.terminal, next) {
 					select {
 					case session.takeBack <- struct{}{}:
 					default:
@@ -451,7 +440,8 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 // applyCommand carries out one browser command. Text, keys and resizes need
 // control; Herdr Core has no scroll command, so wheel scrolling stays local.
 // A resize to the size the terminal already has is not sent: core counts a
-// resize as activity, and the browser asks again at a person's actions.
+// resize as activity, and the browser asks again at a person's actions. A
+// page going out of view only stops holding its size.
 func (bridge *CoreTerminalBridge) applyCommand(request *http.Request, session *coreLiveSession, lease *terminalTargetLease, pane string, command terminalBrowserCommand) (terminalBatchOutcome, error) {
 	session.writeMutex.Lock()
 	defer session.writeMutex.Unlock()
@@ -463,11 +453,7 @@ func (bridge *CoreTerminalBridge) applyCommand(request *http.Request, session *c
 		return terminalBatchNotSent, errors.New("terminal is not controlled")
 	}
 	if command.isKey {
-		outcome, err := bridge.sendKey(request, session, lease, pane, command.keySelection)
-		if outcome == terminalBatchForwarded {
-			session.keep.reached(time.Now())
-		}
-		return outcome, err
+		return bridge.sendKey(request, session, lease, pane, command.keySelection)
 	}
 	chunks, resize, err := coreCommandBytes(command)
 	if err != nil {
@@ -475,11 +461,11 @@ func (bridge *CoreTerminalBridge) applyCommand(request *http.Request, session *c
 	}
 	if resize != nil {
 		size := coreSize(resize[0], resize[1])
-		session.keep.asked(size)
-		if command.keepSize {
-			session.keep.input(time.Now())
+		session.hold.asked(size)
+		if command.holdSize != nil {
+			session.hold.set(*command.holdSize)
 		}
-		if session.size.Load() == size {
+		if command.holdSize != nil && !*command.holdSize || session.size.Load() == size {
 			return terminalBatchNotSent, nil
 		}
 		return terminalBatchNotSent, session.attachment.Resize(resize[0], resize[1])
@@ -490,12 +476,28 @@ func (bridge *CoreTerminalBridge) applyCommand(request *http.Request, session *c
 	return forwardCoreBatch(request, lease, session.attachment, chunks, nil)
 }
 
+// shepherdrSize reports a size a controlling Shepherdr browser on this
+// terminal asked for. Only another size replacing this browser's own is
+// taken back, and a take-back asks for the holder's own size, so two holding
+// browsers never answer each other, and the one whose input came last keeps
+// the size against the Herdr app window.
+func (bridge *CoreTerminalBridge) shepherdrSize(terminal string, size uint32) bool {
+	bridge.mutex.Lock()
+	defer bridge.mutex.Unlock()
+	for holder := range bridge.holders {
+		if holder.terminal == terminal && holder.hold.owns(size) {
+			return true
+		}
+	}
+	return false
+}
+
 // takeSizeBack gives the terminal this browser's size again after another
-// viewer took it soon after this browser's own input.
+// viewer took it while this page was in view and controlling.
 func (bridge *CoreTerminalBridge) takeSizeBack(session *coreLiveSession, pane string) {
 	session.writeMutex.Lock()
 	defer session.writeMutex.Unlock()
-	size, ok := session.keep.wanted()
+	size, ok := session.hold.wanted()
 	if !session.controlled || !ok || session.size.Load() == size {
 		return
 	}
@@ -654,7 +656,6 @@ func (bridge *CoreTerminalBridge) sendControllerBatch(request *http.Request, han
 	if !controller.active || !controller.session.controlled || controller.request.Context().Err() != nil {
 		return terminalBatchNotSent, errors.New("controlling connection ended")
 	}
-	controller.session.keep.input(time.Now())
 	return forwardCoreBatch(request, controller.lease, controller.session.attachment, data, func() error {
 		if controller.request.Context().Err() != nil {
 			return errors.New("controlling connection ended")

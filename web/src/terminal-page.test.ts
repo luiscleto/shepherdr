@@ -221,6 +221,24 @@ test("a Herdr Core terminal opens controlling, releases to observing without Tak
   assert.equal(host.textContent?.includes("Take over"), false);
 });
 
+test("a Herdr Core page keeps its size while in view, lets it go out of view, and Release says so", async t => {
+  const { host, browser, sockets } = pageBrowser(t, false, undefined, "core");
+  await tick(); sockets[0].frame();
+  const control = host.querySelector<HTMLButtonElement>(".terminal-control-action")!;
+  assert.equal(control.title, "While you control here, the Herdr app window shows this screen's size. Release gives it back.");
+  let visibility = "visible";
+  Object.defineProperty(browser.document, "visibilityState", { configurable: true, get: () => visibility });
+  visibility = "hidden";
+  browser.document.dispatchEvent(new browser.Event("visibilitychange"));
+  visibility = "visible";
+  browser.document.dispatchEvent(new browser.Event("visibilitychange"));
+  const resizes = sockets[0].commands.filter(command => command.type === "terminal.resize");
+  assert.equal(resizes.map(command => `${command.cols}x${command.rows}:${String(command.keep)}`).join(","), "40x20:true,40x20:false,40x20:true");
+  control.click();
+  await tick(); sockets[1].frame();
+  assert.equal(`${control.textContent} ${control.title}`, "Control ");
+});
+
 test("a key combination Herdr Core refuses says the program can't receive it, and other not-sent keys still say Check control", async t => {
   const { host, sockets } = pageBrowser(t, true, undefined, "core");
   await tick(); sockets[0].frame();
