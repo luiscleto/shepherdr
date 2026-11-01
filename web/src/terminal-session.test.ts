@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { TerminalFrameSequence } from "./terminal/session";
+import { TerminalFrameSequence, TerminalSession } from "./terminal/session";
 
 function frame(full: boolean, seq: number, extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -43,4 +43,32 @@ test("a reconnect has a fresh frame fence while hostile frame shapes are rejecte
   assert.throws(() => reconnected.accept(frame(false, 2, { extra: true })), /fields are invalid/);
   assert.throws(() => reconnected.accept(frame(false, 2, { bytes: "not base64" })), /frame bytes/);
   assert.throws(() => reconnected.accept(frame(false, 2, { width: 0 })), /fields are invalid/);
+});
+
+test("a size is sent once unless the page asks for it again", (t) => {
+  const sent: string[] = [];
+  class Socket extends EventTarget {
+    static OPEN = 1;
+    static CLOSED = 3;
+    readyState = 1;
+    send(data: string): void { sent.push(data); }
+    close(): void { this.readyState = 3; }
+  }
+  const globals = globalThis as Record<string, unknown>;
+  const previous = { WebSocket: globals.WebSocket, location: globals.location, window: globals.window };
+  globals.window = { setTimeout: () => 0, clearTimeout: () => undefined };
+  globals.WebSocket = Socket;
+  globals.location = { protocol: "http:", host: "127.0.0.1" };
+  t.after(() => Object.assign(globals, previous));
+  const noop = (): void => undefined;
+  const session = new TerminalSession("control", {
+    onFrame: noop, onInputForwarded: noop, onKeyResult: noop, onLog: noop, onStatus: noop,
+  }, { endpoint: "/api/terminal", herdr: "core" });
+  session.connect("t1", { cols: 46, rows: 41 });
+  session.resize({ cols: 46, rows: 41 });
+  session.resize({ cols: 46, rows: 35 });
+  session.resize({ cols: 46, rows: 35 });
+  session.resizeAgain({ cols: 46, rows: 35 });
+  assert.deepEqual(sent.map(message => JSON.parse(message).rows), [35, 35]);
+  session.disconnect();
 });

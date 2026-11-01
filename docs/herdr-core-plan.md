@@ -242,7 +242,7 @@ The browser keeps its WebSocket protocol, and the server holds the core channel.
 
 | Browser need | Core |
 |---|---|
-| Open, mode `control` | `terminal.attach {terminal, cols, rows, observe:false, history:0, display}` with the browser's cols and rows, as a Herdr TUI terminal opens. `display` holds the browser terminal's colours, so core answers a program's colour queries with them while Shepherdr controls. Core treats the attach itself as activity, so the terminal takes this size until someone types in the app window. It is never "occupied". (Decided by the human 2026-10-31; before, it opened observing.) |
+| Open, mode `control` | `terminal.attach {terminal, cols, rows, observe:false, history:0, display}` with the browser's cols and rows, as a Herdr TUI terminal opens. `display` holds the browser terminal's colours, so core answers a program's colour queries with them while Shepherdr controls. Core treats the attach itself as activity, so the terminal takes this size until the app window is active (see the size rule below). It is never "occupied". (Decided by the human 2026-10-31; before, it opened observing.) |
 | **Control** (mode `control`), after **Release** | Close the observe channel, then `terminal.attach {observe:false, display}` with the browser's cols and rows. This size applies, as when opening. |
 | **Release** | Close the active channel, then reattach with `observe:true`. Observing never resizes, and observe attaches send no `display` (core 0.1.15 never answers from an observer's colours). |
 | mode `takeover` | Rejected (400) in core mode. The browser never sends it, because ownership is never "occupied". |
@@ -251,12 +251,12 @@ The browser keeps its WebSocket protocol, and the server holds the core channel.
 | Flow control | Send CREDIT for the bytes forwarded to the WebSocket. A fresh repaint after 4 MiB of backlog arrives inside the byte stream as a delta; it resets the screen itself. (Amended 2026-10-31.) |
 | **Message** text and Enter | The existing chunks (bracketed paste, then `\r`), written as DATA on the active channel, in order and under the existing write lock. **Accepted** means the bytes were written to the core socket. A failed or partial write is **unknown**. There is no retry. |
 | **Send keys** | `terminal.keys {terminal, keys:[name]}`, only while controlling. Core waits up to ~3 s after the last typing ("quiet rule"); note this as a known limitation. |
-| Resize while controlling | A RESIZE frame (u16 cols, u16 rows) on the active channel. Never while observing. |
+| Resize while controlling | A RESIZE frame (u16 cols, u16 rows) on the active channel, only when the terminal's current size differs. Never while observing. |
 | Files (Reader Send, full-terminal Insert) | Unchanged local staging, with core records kept in their own file (`uploads-core.json`), apart from the Herdr TUI's. **Other terminals** keeps its files while the group is listed. Paths are sent as Message chunks. **Add files** shows only while the terminal has a non-null status. `terminal.put` is not used. |
 | Program ends, or `lost` | Core CLOSE `{reason, …}` → a `terminal.status` with that reason, then the stream ends. The page's existing reconnect then attaches to the restarted shell once core has it: a phone page retries about every second in its last mode, and a desktop page reconnects observing. (Decided 2026-10-31.) |
 | Exact target | Valid while Home is live and not last-known, and the latest Home still contains `pane=address` with the same `terminal_id=core.id:address`. There is no layout-rectangle check in core mode. |
 
-The phone and the app window can both type. Size follows whichever typed last. There is no note about this (decision 4).
+The phone and the app window can both type. The size follows whoever typed last, or who last showed Terminal, came back to the page or pressed keys on Shepherdr. A program's automatic reply in the app window can take the size (Claude Code's start-up graphics query, which the app answers); the next of those actions on the phone takes it back with one resize. Shepherdr never resizes in reply to a size change. There is no note about this (decision 4). (Amended 2026-11-01.)
 
 **First paint amendment (approved 2026-10-31).** Core 0.1.15 does not send the first paint as one DATA frame. It sends stream bytes in chunks of up to 16 KiB, and live output can share the paint's last chunk. The attach result carries no paint length, and neither the published API nor core's own `hc attach` and `hc read` mark where the paint ends. In 0.1.15 every paint ends with `CSI ?9001h` or `CSI ?9001l`, followed only by status reports, and every paint resets the screen itself. So Reader cuts the paint at the first such marker, and the live stream marks only its first chunk as full. Reader's renderer can't show a raw paint, so Reader gets it cleaned as the Reader row says. This relies on core 0.1.15 behaviour and is validated per version, like the rest of the core range.
 
@@ -337,7 +337,7 @@ The browser gets both Herdrs' states in each Home message (`tui`, `core`) and wo
 @@ ## Home and attention
 +### With the Herdr app
 +
-+Home lists the app's spaces and tabs in the app's order and with the app's names. Terminals that no space contains appear once in a last group, **Other terminals**. The app has no worktree groups, so none appear, and there are no space or terminal actions. Terminal offers **Control** and **Release** but no **Take over**: the phone and the app window can both type, and the size follows whoever typed last. **Send keys** shows only keys Herdr can send.
++Home lists the app's spaces and tabs in the app's order and with the app's names. Terminals that no space contains appear once in a last group, **Other terminals**. The app has no worktree groups, so none appear, and there are no space or terminal actions. Terminal offers **Control** and **Release** but no **Take over**: the phone and the app window can both type, and the size follows whoever typed last, or who last showed the terminal or pressed keys in Shepherdr. **Send keys** shows only keys Herdr can send.
 +
 ```
 
@@ -528,8 +528,8 @@ Wave 2 starts from the approved integrated wave 1b commit. With both Herdrs foll
   - tests and a `web/dist` rebuild.
 - **First step:** confirm on a disposable core how the first paint arrives (one DATA frame?). Stop and report if it doesn't.
 - **Acceptance gate:**
-  1. Reader shows history with colors, then live output. An OSC 8 link printed after opening opens through **Open link?** in full Terminal. Opening controls the terminal, so it takes the opening browser's size until someone types in the app window, and typing in the app is unaffected. (Amended 2026-10-31: core terminals open in control.)
-  2. **Control**: Message sends text and Enter into Claude Code. Send keys sends Esc, Ctrl+C, the arrows, F5, Tab, an uppercase letter (as Shift) and a Super combination. Unsupported characters are not offered. The size follows the phone while it types and returns when the app window is used.
+  1. Reader shows history with colors, then live output. An OSC 8 link printed after opening opens through **Open link?** in full Terminal. Opening controls the terminal, so it takes the opening browser's size until the app window is active, and typing in the app is unaffected. Starting Claude Code from Reader and then showing Terminal fits the phone with no typing. (Amended 2026-10-31: core terminals open in control.)
+  2. **Control**: Message sends text and Enter into Claude Code. Send keys sends Esc, Ctrl+C, the arrows, F5, Tab, an uppercase letter (as Shift) and a Super combination. Unsupported characters are not offered. The size follows the phone while it types or presses keys and returns when the app window is used.
   3. **Release** goes back to observing, and the size is no longer the phone's once the app types. No **Take over** appears anywhere.
   4. Files: exact bytes are staged and their paths inserted, for a terminal with status. **Add files** is absent for a shell and for an agent on its trust prompt.
   5. A `restarted` terminal ends the open stream honestly, and the page's existing reconnect then shows the new shell. A closed space makes Terminal unavailable, with no fallback.

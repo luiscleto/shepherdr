@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -89,13 +90,17 @@ func (bridge *CoreTerminalBridge) productionRead(writer http.ResponseWriter, req
 }
 
 // coreLiveSession is one browser stream. writeMutex orders text, keys, files
-// and resizes on the attach.
+// and resizes on the attach. size is the terminal's current size in core,
+// cols<<16 | rows, from the attach and core's size events.
 type coreLiveSession struct {
 	attachment *herdr.CoreAttachment
 	controlled bool
 	writeMutex sync.Mutex
 	ended      chan struct{}
+	size       atomic.Uint32
 }
+
+func coreSize(cols, rows int) uint32 { return uint32(cols)<<16 | uint32(rows)&0xffff }
 
 type coreLiveController struct {
 	handle  string
@@ -147,6 +152,7 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 		return
 	}
 	session := &coreLiveSession{attachment: attachment, controlled: control, ended: make(chan struct{})}
+	session.size.Store(coreSize(attachment.Cols, attachment.Rows))
 	defer func() {
 		session.writeMutex.Lock()
 		session.controlled = false
@@ -247,6 +253,7 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 			}
 			if event.Data == nil {
 				cols, rows = event.Cols, event.Rows
+				session.size.Store(coreSize(cols, rows))
 				continue
 			}
 			if !lease.Valid() {
@@ -356,6 +363,8 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 
 // applyCommand carries out one browser command. Text, keys and resizes need
 // control; Herdr Core has no scroll command, so wheel scrolling stays local.
+// A resize to the size the terminal already has is not sent: core counts a
+// resize as activity, and the browser asks again at a person's actions.
 func (bridge *CoreTerminalBridge) applyCommand(request *http.Request, session *coreLiveSession, lease *terminalTargetLease, pane string, command terminalBrowserCommand) (terminalBatchOutcome, error) {
 	session.writeMutex.Lock()
 	defer session.writeMutex.Unlock()
@@ -374,6 +383,9 @@ func (bridge *CoreTerminalBridge) applyCommand(request *http.Request, session *c
 		return terminalBatchNotSent, err
 	}
 	if resize != nil {
+		if session.size.Load() == coreSize(resize[0], resize[1]) {
+			return terminalBatchNotSent, nil
+		}
 		return terminalBatchNotSent, session.attachment.Resize(resize[0], resize[1])
 	}
 	if chunks == nil {

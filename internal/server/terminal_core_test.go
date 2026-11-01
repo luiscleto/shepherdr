@@ -164,3 +164,24 @@ func TestCoreTargetStaysCurrentWhenTheAppMovesTheTerminal(t *testing.T) {
 		t.Fatal("a replaced terminal must end the stream")
 	}
 }
+
+func TestCoreResizeIsSentOnlyWhenItChangesTheSize(t *testing.T) {
+	session := &coreLiveSession{controlled: true}
+	session.size.Store(coreSize(46, 41))
+	command, err := validatedTerminalCommand([]byte(`{"type":"terminal.resize","cols":46,"rows":41}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The session has no attachment, so sending a resize would panic.
+	outcome, err := (&CoreTerminalBridge{}).applyCommand(httptest.NewRequest(http.MethodGet, "/", nil), session, nil, "t1", command)
+	if outcome != terminalBatchNotSent || err != nil {
+		t.Fatalf("outcome %v, error %v", outcome, err)
+	}
+	session.size.Store(coreSize(7, 14))
+	defer func() {
+		if recover() == nil {
+			t.Fatal("a resize to a different size was not sent")
+		}
+	}()
+	_, _ = (&CoreTerminalBridge{}).applyCommand(httptest.NewRequest(http.MethodGet, "/", nil), session, nil, "t1", command)
+}

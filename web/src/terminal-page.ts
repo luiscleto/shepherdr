@@ -90,6 +90,9 @@ export class TerminalPage {
   #uploadAttempt = 0;
   #uploadState: ReaderInputState = "ready";
   #uploadIntent: "insert" | "submit" = "submit";
+  #visibilityChanged = (): void => {
+    if (document.visibilityState === "visible") this.#fitAgain();
+  };
   #viewportChanged = (): void => {
     if (this.#mobile && window.visualViewport) {
       this.#host.style.height = `${window.visualViewport.height}px`;
@@ -140,6 +143,7 @@ export class TerminalPage {
       occupied: () => this.#ownership === "occupied", acquire: takeover => this.#acquire(takeover) });
     this.#mountKeyActions();
     this.#render();
+    document.addEventListener("visibilitychange", this.#visibilityChanged);
     void this.#mountTerminal();
   }
 
@@ -163,6 +167,7 @@ export class TerminalPage {
     this.#uploadAttempt++;
     this.#uploadAbort?.abort();
     this.#layoutObserver?.disconnect();
+    document.removeEventListener("visibilitychange", this.#visibilityChanged);
     window.visualViewport?.removeEventListener("resize", this.#viewportChanged);
     window.visualViewport?.removeEventListener("scroll", this.#viewportChanged);
     this.#reader?.destroy();
@@ -269,7 +274,17 @@ export class TerminalPage {
   }
 
   #sendKey(key: KeySelection): boolean {
-    return this.#canSendKey() && (this.#readerInput?.sendKey(key) ?? false);
+    if (!this.#canSendKey()) return false;
+    this.#fitAgain();
+    return this.#readerInput?.sendKey(key) ?? false;
+  }
+
+  // Herdr Core gives the terminal the size of the viewer used last, and a
+  // program's automatic reply in the app window can take it without anyone
+  // typing. Showing Terminal, coming back into view and pressing keys take it
+  // back for this screen, once each; the server skips an unchanged size.
+  #fitAgain(): void {
+    if (this.herdr === "core" && this.#ownership === "controlling" && this.#lastDimensions) this.#session?.resizeAgain(this.#lastDimensions);
   }
 
   async #mountTerminal(): Promise<void> {
@@ -320,6 +335,7 @@ export class TerminalPage {
     this.#reader?.setPresentation(this.#readerVisible);
     this.#present();
     this.#render();
+    if (!this.#readerVisible) this.#fitAgain();
   }
 
   #present(): void {

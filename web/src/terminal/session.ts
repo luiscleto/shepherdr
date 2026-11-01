@@ -235,6 +235,14 @@ export class TerminalSession implements TerminalSessionLike {
     this.#send({ type: "terminal.resize", ...dimensions });
   }
 
+  // Asks for this size again even if it was sent before. Herdr Core gives a
+  // terminal the size of the viewer used last; the server sends the size
+  // only when core's differs.
+  resizeAgain(dimensions: TerminalDimensions): void {
+    this.#lastSize = undefined;
+    this.resize(dimensions);
+  }
+
   scroll(scroll: TerminalScroll): boolean {
     if (this.#mode === "observe" || this.#herdr === "core") return false;
     return this.#send({ type: "terminal.scroll", source: "wheel", ...scroll });
