@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -704,12 +705,18 @@ func TestRepositoryFolderCountsOnlyTopLevelRepositories(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// The answer has symlinks resolved, including any above the temporary
+	// folder, such as /var on macOS.
+	top, err := filepath.EvalSymlinks(root + "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Any .git entry that isn't a real folder holding HEAD ends the search,
 	// so a parent repository is never suggested for it.
 	for folder, want := range map[string]string{
-		"repo/sub/deep":   root + "/repo",
-		"repo":            root + "/repo",
-		"shortcut":        root + "/repo",
+		"repo/sub/deep":   top,
+		"repo":            top,
+		"shortcut":        top,
 		"repo/module/src": "",
 		"repo/inner":      "",
 		"plain":           "",
