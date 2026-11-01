@@ -31,6 +31,7 @@ type CoreTerminalBridge struct {
 
 	controllers map[string]*coreLiveController
 	holders     map[*coreLiveSession]struct{} // controlling streams
+	keeps       atomic.Uint64                 // orders the pages' keep:true
 	mutex       sync.Mutex
 }
 
@@ -113,11 +114,19 @@ func coreSize(cols, rows int) uint32 { return uint32(cols)<<16 | uint32(rows)&0x
 // controlling. Herdr Core gives the terminal the size of the viewer used
 // last, and focus, layout changes, typing and a program's automatic replies
 // in the Herdr app window all count; each width change leaves a program's
-// redrawn screen in history. The page says when it comes into view and when
-// it goes out of view; Release and leaving end the stream.
+// redrawn screen in history. The page says when it comes into view, with a
+// person's input and on a view switch (keep:true), and when it goes out of
+// view; Release and leaving end the stream.
+//
+// Each keep:true allows one take-back. A program can answer every size
+// change with something the app window replies to, which gives the app the
+// size again, so a second foreign size before the next keep:true leaves the
+// size with the app until then.
 type coreSizeHold struct {
 	mutex   sync.Mutex
 	holding bool
+	armed   bool     // a take-back is allowed
+	kept    uint64   // order of this page's latest keep:true
 	own     []uint32 // this browser's recent sizes, newest first
 }
 
@@ -134,10 +143,36 @@ func (hold *coreSizeHold) asked(size uint32) {
 	hold.own = own
 }
 
-func (hold *coreSizeHold) set(holding bool) {
+// keep starts holding, or holds again, and allows one take-back. order is
+// the bridge's count of keep:true across pages.
+func (hold *coreSizeHold) keep(order uint64) {
 	hold.mutex.Lock()
 	defer hold.mutex.Unlock()
-	hold.holding = holding
+	hold.holding, hold.armed, hold.kept = true, true, order
+}
+
+// stop ends holding while the page is out of view.
+func (hold *coreSizeHold) stop() {
+	hold.mutex.Lock()
+	defer hold.mutex.Unlock()
+	hold.holding, hold.armed = false, false
+}
+
+// latest reports whether this page holds, and the order of its latest
+// keep:true.
+func (hold *coreSizeHold) latest() (uint64, bool) {
+	hold.mutex.Lock()
+	defer hold.mutex.Unlock()
+	return hold.kept, hold.holding
+}
+
+// spend uses this page's one take-back, if it has it.
+func (hold *coreSizeHold) spend() bool {
+	hold.mutex.Lock()
+	defer hold.mutex.Unlock()
+	armed := hold.armed
+	hold.armed = false
+	return armed
 }
 
 // owns reports a size this browser asked for, even one arriving late.
@@ -200,14 +235,9 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 	})
 
 	control := settings.mode == "control"
-	attachment, err := bridge.client.Attach(request.Context(), settings.pane, settings.cols, settings.rows, !control, true, 0)
-	if err != nil {
-		bridge.logger.Info("terminal attach failed", "herdr", "core", "pane", settings.pane, "mode", settings.mode, "error", err)
-		_ = writeTerminalStatus(connection, "Could not open this Herdr terminal")
-		return
-	}
-	session := &coreLiveSession{attachment: attachment, terminal: settings.pane, controlled: control, ended: make(chan struct{}), takeBack: make(chan struct{}, 1)}
-	session.size.Store(coreSize(attachment.Cols, attachment.Rows))
+	session := &coreLiveSession{terminal: settings.pane, controlled: control, ended: make(chan struct{}), takeBack: make(chan struct{}, 1)}
+	// Known with its asked size before attaching, so another holder never
+	// takes this browser's first size for a foreign one.
 	session.hold.asked(coreSize(settings.cols, settings.rows))
 	if control {
 		bridge.mutex.Lock()
@@ -218,6 +248,16 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 		bridge.mutex.Lock()
 		delete(bridge.holders, session)
 		bridge.mutex.Unlock()
+	}()
+	attachment, err := bridge.client.Attach(request.Context(), settings.pane, settings.cols, settings.rows, !control, true, 0)
+	if err != nil {
+		bridge.logger.Info("terminal attach failed", "herdr", "core", "pane", settings.pane, "mode", settings.mode, "error", err)
+		_ = writeTerminalStatus(connection, "Could not open this Herdr terminal")
+		return
+	}
+	session.attachment = attachment
+	session.size.Store(coreSize(attachment.Cols, attachment.Rows))
+	defer func() {
 		session.writeMutex.Lock()
 		session.controlled = false
 		session.writeMutex.Unlock()
@@ -238,7 +278,7 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 			// slow browser link can't leave the size behind core's.
 			if event.Data == nil && !event.Closed {
 				next := coreSize(event.Cols, event.Rows)
-				if previous := session.size.Swap(next); previous != next && session.hold.owns(previous) && !bridge.shepherdrSize(session.terminal, next) {
+				if previous := session.size.Swap(next); previous != next && bridge.takesSizeBack(session, next) {
 					select {
 					case session.takeBack <- struct{}{}:
 					default:
@@ -462,8 +502,10 @@ func (bridge *CoreTerminalBridge) applyCommand(request *http.Request, session *c
 	if resize != nil {
 		size := coreSize(resize[0], resize[1])
 		session.hold.asked(size)
-		if command.holdSize != nil {
-			session.hold.set(*command.holdSize)
+		if command.holdSize != nil && *command.holdSize {
+			session.hold.keep(bridge.keeps.Add(1))
+		} else if command.holdSize != nil {
+			session.hold.stop()
 		}
 		if command.holdSize != nil && !*command.holdSize || session.size.Load() == size {
 			return terminalBatchNotSent, nil
@@ -476,20 +518,28 @@ func (bridge *CoreTerminalBridge) applyCommand(request *http.Request, session *c
 	return forwardCoreBatch(request, lease, session.attachment, chunks, nil)
 }
 
-// shepherdrSize reports a size a controlling Shepherdr browser on this
-// terminal asked for. Only another size replacing this browser's own is
-// taken back, and a take-back asks for the holder's own size, so two holding
-// browsers never answer each other, and the one whose input came last keeps
-// the size against the Herdr app window.
-func (bridge *CoreTerminalBridge) shepherdrSize(terminal string, size uint32) bool {
+// takesSizeBack reports whether this browser takes a new size back. Only a
+// size no controlling Shepherdr browser on this terminal asked for is taken
+// back, and only by the holding page whose keep:true came last, once per
+// keep:true. A take-back asks for the holder's own size, so two holding
+// browsers never answer each other, and a hidden page never takes it back.
+func (bridge *CoreTerminalBridge) takesSizeBack(session *coreLiveSession, size uint32) bool {
 	bridge.mutex.Lock()
 	defer bridge.mutex.Unlock()
+	var latest *coreLiveSession
+	var latestKept uint64
 	for holder := range bridge.holders {
-		if holder.terminal == terminal && holder.hold.owns(size) {
-			return true
+		if holder.terminal != session.terminal {
+			continue
+		}
+		if holder.hold.owns(size) {
+			return false
+		}
+		if kept, holding := holder.hold.latest(); holding && (latest == nil || kept > latestKept) {
+			latest, latestKept = holder, kept
 		}
 	}
-	return false
+	return latest == session && session.hold.spend()
 }
 
 // takeSizeBack gives the terminal this browser's size again after another

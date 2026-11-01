@@ -210,46 +210,41 @@ func TestCoreSizeIsHeldOnlyWhileThePageIsInView(t *testing.T) {
 	if size, holding := session.hold.wanted(); !holding || size != coreSize(46, 41) {
 		t.Fatalf("in view: wanted %x, holding %v", size, holding)
 	}
+	if !session.hold.spend() || session.hold.spend() {
+		t.Fatal("each keep:true allows one take-back")
+	}
+	apply(`{"type":"terminal.resize","cols":46,"rows":41,"keep":true}`)
 	session.size.Store(coreSize(120, 40))
 	apply(`{"type":"terminal.resize","cols":46,"rows":41,"keep":false}`)
-	if _, holding := session.hold.wanted(); holding {
+	if _, holding := session.hold.wanted(); holding || session.hold.spend() {
 		t.Fatal("out of view, the size is no longer held")
 	}
 }
 
 // Two Shepherdr browsers holding one terminal, and the Herdr app window.
 // Core applies each resize in turn, and every holder sees each size change
-// as the stream's size callback does.
-func TestTwoHoldingBrowsersNeverAnswerEachOther(t *testing.T) {
+// as the stream's size callback does. A program may answer each size change
+// with something the app window replies to, which gives the app the size.
+func TestCoreTakeBacksAreBoundedAndNeverAnswerEachOther(t *testing.T) {
 	bridge := &CoreTerminalBridge{holders: make(map[*coreLiveSession]struct{})}
 	phone, desktop, other := &coreLiveSession{terminal: "t1"}, &coreLiveSession{terminal: "t1"}, &coreLiveSession{terminal: "t2"}
 	for _, holder := range []*coreLiveSession{phone, desktop, other} {
 		bridge.holders[holder] = struct{}{}
-		holder.hold.set(true)
 	}
 	phone.hold.asked(coreSize(46, 35))
 	phone.hold.asked(coreSize(46, 41))
 	desktop.hold.asked(coreSize(160, 48))
 	other.hold.asked(coreSize(120, 40))
-	app := coreSize(120, 40)
-	if !bridge.shepherdrSize("t1", coreSize(46, 35)) || !bridge.shepherdrSize("t1", coreSize(160, 48)) || bridge.shepherdrSize("t1", app) {
-		t.Fatal("only sizes the browsers on this terminal asked for are theirs")
+	other.hold.keep(bridge.keeps.Add(1))
+	phoneSize, desktopSize, app := coreSize(46, 41), coreSize(160, 48), coreSize(120, 40)
+	current := phoneSize
+	for _, holder := range []*coreLiveSession{phone, desktop} {
+		holder.size.Store(current)
 	}
-	for _, step := range []struct {
-		from, to, want uint32
-		takeBacks      int
-	}{
-		{coreSize(46, 41), app, coreSize(46, 41), 1},
-		{coreSize(160, 48), app, coreSize(160, 48), 1},
-		{coreSize(46, 35), app, coreSize(46, 41), 1},
-		{coreSize(46, 41), coreSize(160, 48), coreSize(160, 48), 0},
-		{coreSize(160, 48), coreSize(46, 41), coreSize(46, 41), 0},
-		{app, coreSize(46, 41), coreSize(46, 41), 0},
-	} {
-		for _, holder := range []*coreLiveSession{phone, desktop} {
-			holder.size.Store(step.from)
-		}
-		current, pending, takeBacks := step.from, []uint32{step.to}, 0
+	// run gives the terminal a size and plays out what follows.
+	run := func(to uint32, programAnswers bool) int {
+		t.Helper()
+		pending, takeBacks := []uint32{to}, 0
 		for len(pending) > 0 && takeBacks < 100 {
 			next := pending[0]
 			pending = pending[1:]
@@ -258,18 +253,55 @@ func TestTwoHoldingBrowsersNeverAnswerEachOther(t *testing.T) {
 			}
 			current = next
 			for _, holder := range []*coreLiveSession{phone, desktop} {
-				previous := holder.size.Swap(next)
-				if holder.hold.owns(previous) && !bridge.shepherdrSize("t1", next) {
+				if previous := holder.size.Swap(next); previous != next && bridge.takesSizeBack(holder, next) {
 					size, _ := holder.hold.wanted()
 					pending = append(pending, size)
 					takeBacks++
 				}
 			}
+			if programAnswers && next != app {
+				pending = append(pending, app)
+			}
 		}
-		if current != step.want || takeBacks != step.takeBacks {
-			t.Fatalf("%x to %x: ended at %x after %d take-backs, want %x after %d", step.from, step.to, current, takeBacks, step.want, step.takeBacks)
+		return takeBacks
+	}
+	keep := func(holder *coreLiveSession) { holder.hold.keep(bridge.keeps.Add(1)) }
+	check := func(name string, takeBacks, wantTakeBacks int, want uint32) {
+		t.Helper()
+		if current != want || takeBacks != wantTakeBacks {
+			t.Fatalf("%s: ended at %x after %d take-backs, want %x after %d", name, current, takeBacks, want, wantTakeBacks)
 		}
 	}
+
+	if run(app, false) != 0 || current != app {
+		t.Fatal("a page that has not said it is in view does not hold")
+	}
+	keep(phone)
+	check("phone comes into view", run(phoneSize, false), 0, phoneSize)
+	keep(desktop)
+	check("desktop's input", run(desktopSize, false), 0, desktopSize)
+	check("app after desktop's input", run(app, false), 1, desktopSize)
+	check("app again before desktop's next keep", run(app, false), 0, app)
+	keep(phone)
+	check("phone's input", run(phoneSize, false), 0, phoneSize)
+	check("app after phone's input", run(app, false), 1, phoneSize)
+	keep(phone)
+	check("a program answering every size change", run(app, true), 1, app)
+	keep(desktop)
+	check("desktop's input after the loop", run(desktopSize, true), 1, app)
+	keep(desktop)
+	check("desktop switches view", run(desktopSize, false), 0, desktopSize)
+	keep(phone)
+	check("phone switches view", run(phoneSize, false), 0, phoneSize)
+	phone.hold.stop()
+	check("phone out of view: the desktop in view holds", run(app, false), 1, desktopSize)
+	desktop.hold.stop()
+	check("both out of view", run(app, false), 0, app)
+	keep(desktop)
+	keep(phone)
+	run(phoneSize, false)
+	check("Shepherdr sizes between pages", run(desktopSize, false), 0, desktopSize)
+	check("and back", run(phoneSize, false), 0, phoneSize)
 }
 
 func TestOnlyACoreResizeCarriesKeep(t *testing.T) {
