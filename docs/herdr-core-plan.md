@@ -120,8 +120,8 @@ Each Herdr has its own badge state; Home shows the state of the Herdr it is show
 |---|---|---|
 | Socket missing or refused | **Herdr is not running** | as today |
 | hello generation ≠ 1, or a required method or feature missing | **Cannot use this Herdr** | "This Herdr Core can't serve Shepherdr: it doesn't offer <method>." |
-| Core version < 0.1.15 | **Cannot use this Herdr** | "Herdr Core <v> is older than the supported range; Shepherdr supports Herdr Core 0.1.15 through 0.1.15." |
-| Core version > 0.1.15 | **Live** + the existing best-effort warning in the log | as for the TUI |
+| Core version < 0.1.15 | **Cannot use this Herdr** | "Herdr Core <v> is older than the supported range; Shepherdr supports Herdr Core 0.1.15 through 0.1.16." |
+| Core version > 0.1.16 | **Live** + the existing best-effort warning in the log | as for the TUI |
 | `herdr-app` document present but not the expected shape (section 3.1) | **Cannot use this Herdr** | "The Herdr app's layout could not be read." |
 | Live, then the socket drops | **Reconnecting**, then **Offline** after 45 s | unchanged loop |
 
@@ -138,7 +138,7 @@ Liveness: core's 15 s `heartbeat` on the event connection counts as liveness, li
   - wave 3c adds `terminal.run`.
 - `terminal.run` is used only for two labelled runs while the Herdr app window is closed: **New space** and **New terminal** (wave 3c, `docs/herdr-core-closed-create-plan.md`). Each is `{cwd, labels: {herdr.space, herdr.tab}, keep: true}`, with no `argv`, `name`, `env` or caller. Stale-id rule: a labelled run for a space or tab the app has closed brings it back, so New terminal takes its ids from a fresh complete read just before the run (while the window is closed only the app writes the document, so it can't change), and New space uses new ids that aren't in that read.
 - Never used: `terminal.read` (it scrolls full-screen apps), `terminal.send`, `doc.set`, `terminal.put`, `machine.*`, `server.*`, `exec`/`file.*`, and `terminal.run` for anything else.
-- Validated range: 0.1.15 only. Newer runs best effort with a warning. Add each version to the range only after the real acceptance below.
+- Validated range: 0.1.15 through 0.1.16 (0.1.16 added 2026-11-01 after its parity run). Newer runs best effort with a warning. Add each version to the range only after the real acceptance below.
 
 ---
 
@@ -192,6 +192,7 @@ Only live terminals (`terminal.list` without `all`) and only this machine's (an 
    - otherwise (the tab id belongs to another space, or the space id is `other`) → unchanged, under **Other terminals**.
 
    Such a terminal counts as placed for rule 2, so its workers follow it. A waiting space offers **Close space** but not **Rename space**, and its terminals **Close terminal** but not **New terminal**, because they have no pane yet. The app keeps these labels when it adopts a terminal and rule 1 always wins, so each complete read shows every terminal once, and a terminal moves from rule 1b to rule 1 in one Home update.
+   While the window is open, a terminal started after Shepherdr saw it open doesn't start a space of its own: the app adds that space itself (approved 2026-11-01). Until the app's document arrives, that terminal shows under **Other terminals** for one update, and the space's notice carries its real name.
 2. A live terminal not placed by the document whose `parent` is placed (directly or through other parents) goes in its top parent's tab, right after that parent, ordered by `created_ms`. This matches how the app nests sub-agents.
 3. Every other live terminal goes in one last group, **Other terminals**, in `created_ms` order. Its fixed id `other` can't clash with the app's `sp…` ids. The group is listed only when it has terminals. It has no actions and never triggers space notices. (Decision A.)
 4. A tab with no live terminals is left out, and so is a space with no tabs left.
@@ -284,7 +285,7 @@ The existing Super note stays: it reaches only programs that turned on enhanced 
 ## 4b. App window actions (wave 3b)
 
 - Shepherdr runs `herdr-app` from `PATH` only as `--version`, `commands`, `status` and `do <command> <one JSON object>`, with no shell. It never runs bare `herdr-app`, which opens the window. If `herdr-app` is missing, or Shepherdr follows a non-default core socket, app actions are off and this is logged once.
-- Gate: herdr-app 0.1.10 validated; newer runs best effort with a warning. `commands` must list `space.new {name, folder}`, `pane.split {direction, pane}` and `space.rename {id, name}`.
+- Gate: herdr-app 0.1.10 through 0.1.11 validated; newer runs best effort with a warning. `commands` must list `space.new {name, folder}`, `pane.split {direction, pane}` and `space.rename {id, name}`.
 - Window open = `herdr-app status` exits 0 within 2 s. Home asks every 5 s and after each action, apart from the core reads, so a window that stops answering reads as closed without holding up Home. Each app action also asks first. A change publishes one complete Home.
 - Results: exit 0 = succeeded; "the window did not answer", "the window hung up", or a timeout = unknown; "no Herdr window" = not sent ("The Herdr app window is closed. Open it on the computer, then try again."); other errors = refused, with the app's message. There is no retry. Afterwards, one complete core read.
 - New space shows the new space in the app window. New terminal focuses the new pane when its tab is shown there.
@@ -365,7 +366,7 @@ The human also approved a matching one-line note in `docs/north-star.md` ("Uses 
 - **The app document is private to the app** and has no format version. A format change shows **Cannot use this Herdr** (if the shape breaks) or moves terminals into **Other terminals** (if node types change). Either way it's visible, never a silent loss.
 - **Core releases daily.** Validate each version before claiming it; newer versions run best effort.
 - **`where` flicker on app start:** an unnamed space's name briefly shows its folder, then the git top.
-- **First paint end marker:** core does not delimit the first paint, so Reader cuts at the paint's own end marker (see the First paint amendment in section 4). It relies on core 0.1.15's paint layout and must be re-checked for each new core version.
+- **First paint end marker:** core does not delimit the first paint, so Reader cuts at the paint's own end marker (see the First paint amendment in section 4). It relies on core 0.1.15's paint layout (re-checked on 0.1.16) and must be re-checked for each new core version.
 - **No acknowledgement for raw input:** a Message is "accepted" once written to the core socket. The TUI's acknowledgement is not stronger in substance, but the wording must stay "sent to the terminal".
 - **Keys can wait up to ~3 s** under core's quiet rule while someone is typing in the app.
 - **Shared input:** the phone and the app window can type into the same terminal at once (approved, no note).

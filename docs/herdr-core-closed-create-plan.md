@@ -138,6 +138,8 @@ Adoption in the app source (`window.rs` `reconcile` / `start_adoption` / `adopt`
 > - otherwise (the tab id belongs to another space, or the space id is `other`) → unchanged, under **Other terminals**.
 >
 > Such a terminal counts as placed for rule 2, so its workers follow it. A waiting space offers **Close space** but not **Rename space**. Its terminals offer **Close terminal** but not **New terminal**, because they have no pane yet.
+>
+> While the window is open, a terminal started after Shepherdr saw it open doesn't start a space of its own: the app adds that space itself (approved 2026-11-01).
 
 Implementation is one pre-pass in `ProjectCore`. It appends these to the parsed `spaces` and `tabs` before today's code runs, so rules 2–5, counts, notifications and Close facts work unchanged. It also predicts terminals labelled by agents following the app skill, which the app adopts anyway.
 
