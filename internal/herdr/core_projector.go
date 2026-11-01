@@ -25,11 +25,12 @@ func (p *Projector) SetAppWindow(app AppWindow) {
 // hung window never holds up core reads, events or reconnects. The loop asks
 // through ask and takes the latest answer from answers; state is the answer
 // Home shows, and only the core loop uses it. It stays AppWindowUnpaired until
-// the first answer.
+// the first answer. opened is when state last became AppWindowOpen.
 type appWindowWatch struct {
 	ask     chan struct{}
 	answers chan bool
 	state   AppWindowState
+	opened  time.Time
 }
 
 // watchAppWindow asks the window every appWindowInterval and on each ask.
@@ -82,6 +83,9 @@ func (w *appWindowWatch) changed(open bool) bool {
 		return false
 	}
 	w.state = state
+	if open {
+		w.opened = time.Now()
+	}
 	return true
 }
 
@@ -166,7 +170,7 @@ func (p *Projector) followCore(ctx context.Context, subscription *CoreSubscripti
 		if err != nil {
 			return true, err
 		}
-		read.AppWindow = window.state
+		read.AppWindow, read.AppWindowOpened = window.state, window.opened
 		snapshot, home, err := projectCore(read, p.homeFolder, p.repositories.lookup)
 		if err != nil {
 			return true, err

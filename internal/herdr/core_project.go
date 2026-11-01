@@ -168,7 +168,15 @@ func projectCore(read CoreRead, homeFolder string, repositories func(folder stri
 		}
 	}
 
-	spaces = placeWaiting(spaces, live, placedIn)
+	// While the window is open, the app writes a space it starts into the
+	// document a moment after its terminal, with the space's name. So only a
+	// terminal started before Shepherdr saw the window open waits in a space
+	// of its own.
+	var newSpacesBefore uint64
+	if read.AppWindow == AppWindowOpen && !read.AppWindowOpened.IsZero() {
+		newSpacesBefore = uint64(read.AppWindowOpened.UnixMilli())
+	}
+	spaces = placeWaiting(spaces, live, placedIn, newSpacesBefore)
 
 	// A worker the app doesn't place goes right after its top placed parent,
 	// as the app nests sub-agents. Everything else goes to Other terminals.
@@ -306,10 +314,11 @@ func projectCore(read CoreRead, homeFolder string, repositories func(folder stri
 // that id at the end of its space; or in a space with that id after the
 // document's, unnamed, in its first terminal's folder. Waiting terminals go in
 // created_ms order and count as placed for their workers. A tab id that
-// belongs to another space, or the space id "other", leaves it under Other
+// belongs to another space, the space id "other", or a new space for a
+// terminal created at or after a nonzero newSpacesBefore leaves it under Other
 // terminals. The app keeps these labels when it adopts a terminal, and the
 // document always wins, so each read shows every terminal once.
-func placeWaiting(spaces []appSpace, live map[string]CoreTerminal, placedIn map[string]struct{}) []appSpace {
+func placeWaiting(spaces []appSpace, live map[string]CoreTerminal, placedIn map[string]struct{}, newSpacesBefore uint64) []appSpace {
 	waiting := make([]CoreTerminal, 0)
 	for address, terminal := range live {
 		if _, placed := placedIn[address]; placed {
@@ -335,6 +344,9 @@ func placeWaiting(spaces []appSpace, live map[string]CoreTerminal, placedIn map[
 			continue
 		}
 		index, known := spaceOf[spaceID]
+		if !known && newSpacesBefore != 0 && terminal.CreatedMS >= newSpacesBefore {
+			continue
+		}
 		if !known {
 			spaces = append(spaces, appSpace{ID: spaceID, Folder: terminal.CWD, Waiting: true})
 			index = len(spaces) - 1

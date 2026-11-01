@@ -55,6 +55,9 @@ type CoreRead struct {
 	// AppWindow is the Herdr app window's state just before this read, which
 	// picks the actions Home offers. Read leaves it AppWindowUnpaired.
 	AppWindow AppWindowState
+	// AppWindowOpened is when Shepherdr first saw the window open, while
+	// AppWindow is AppWindowOpen. Zero leaves it unknown.
+	AppWindowOpened time.Time
 }
 
 // AppWindowState is what Shepherdr knows about the Herdr app window.

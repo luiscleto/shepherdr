@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // The fixtures are complete reads captured from herdr-core 0.1.15 driven by
@@ -572,6 +574,36 @@ func TestProjectCoreShowsWaitingTerminalsWhereTheAppPutsThem(t *testing.T) {
 		if got := open.Workspaces[len(open.Workspaces)-1].Actions; !reflect.DeepEqual(got, wantSpace) || open.AppWindow != "" {
 			t.Fatalf("read %d open: space actions %v, window %q", index, got, open.AppWindow)
 		}
+	}
+}
+
+// With the window open, the app writes a space it starts into the document a
+// moment after its terminal, with the space's name. A terminal started after
+// Shepherdr saw the window open waits for that write under Other terminals, so
+// the space first shows, and is announced, under its own name. Terminals
+// started before, which the app adopts on open, wait as before.
+func TestProjectCoreLeavesTheAppTheSpacesItStarts(t *testing.T) {
+	read := loadCoreReads(t, "core-reads-closed-reopen.jsonl")[1]
+	read.AppWindow = AppWindowOpen
+	rows := func(opened time.Time) []string {
+		read.AppWindowOpened = opened
+		_, home, err := ProjectCore(read, "/home/user")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return spaceRows(home)
+	}
+	// t19 starts the new space at 1793483004368, t1b ends alpha / main just
+	// after, and t1c is t19's worker.
+	placed := []string{
+		"alpha | main: t1 t18 t2 t6 t17 t1b | third: t14 | 3: t15",
+		"plain | 1: t4", "plain | 1: t10", "repo | 1: t8 t9", "plain | 1: t11", "plain | 1: t16",
+	}
+	if got, want := rows(time.UnixMilli(1793483005000)), append(slices.Clone(placed), "sub | 1: t19 t1c"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("opened after the runs:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if got, want := rows(time.UnixMilli(1793483004368)), append(slices.Clone(placed), "Other terminals | Other terminals: t19 t1c"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("opened before the runs:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
 
