@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { initialTerminalWheelState, terminalWheelRows, touchScrollsArea } from "./terminal/adapter";
+import { initialTerminalWheelState, personInputFilter, terminalWheelRows, touchScrollsArea } from "./terminal/adapter";
 
 test("desktop wheel and trackpad deltas become bounded terminal history rows", () => {
   const initial = initialTerminalWheelState();
@@ -46,4 +46,11 @@ test("a swipe scrolls the terminal area only along an axis the terminal overflow
   assert.equal(touchScrollsArea(2, -30, true, false), false);
   assert.equal(touchScrollsArea(2, -30, false, true), true);
   assert.equal(touchScrollsArea(2, -30, false, false), false);
+});
+
+test("a keydown and the beforeinput or paste it causes are one person's input", () => {
+  const input = personInputFilter();
+  const seen = (["keydown", "beforeinput", "keyup", "keydown", "keyup", "beforeinput", "beforeinput", "keydown", "paste", "keyup", "paste"] as const)
+    .map(type => input(type));
+  assert.deepEqual(seen, [true, false, false, true, false, true, true, true, false, false, true]);
 });

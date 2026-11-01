@@ -79,6 +79,22 @@ export function touchScrollsArea(dx: number, dy: number, overflowsX: boolean, ov
   return Math.abs(dx) > Math.abs(dy) ? overflowsX : overflowsY;
 }
 
+// One person's input can raise several DOM events: a keydown, then the
+// beforeinput or paste it causes. The filter answers true once per input. An
+// IME may send beforeinput with no keydown, which counts on its own.
+export function personInputFilter(): (type: "keydown" | "keyup" | "beforeinput" | "paste") => boolean {
+  let keyDown = false;
+  return (type) => {
+    if (type === "keyup") {
+      keyDown = false;
+      return false;
+    }
+    const caused = type !== "keydown" && keyDown;
+    keyDown = type === "keydown";
+    return !caused;
+  };
+}
+
 export interface TerminalAdapterEvents {
   onData(data: string): void;
   onResize(dimensions: TerminalDimensions): void;

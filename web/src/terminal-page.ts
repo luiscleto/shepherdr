@@ -3,7 +3,7 @@ import { coreCanSend, keyLabel, type KeySelection } from "./terminal/keys";
 import { KeysSheet } from "./terminal/keys-sheet";
 import { LinkSheet } from "./terminal/link-sheet";
 import { settingsAction } from "./settings-action";
-import type { TerminalDimensions } from "./terminal/adapter";
+import { personInputFilter, type TerminalDimensions } from "./terminal/adapter";
 import { terminalReaderForDevice } from "./terminal/device";
 import { sendTerminalFiles, uploadStateAfterLastFileRemoved } from "./terminal/file-uploads";
 import { terminalOwnershipAction, type TerminalOwnership } from "./terminal/ownership";
@@ -132,8 +132,9 @@ export class TerminalPage {
     this.#terminalMount = element("div", "terminal-full-mount");
     // A person typing or pasting here; the terminal's own replies to a
     // program reach onData too, but they are not a person's input.
-    for (const type of ["keydown", "beforeinput", "paste"]) {
-      this.#terminalMount.addEventListener(type, () => { if (this.#canType()) this.#keepSize(); }, true);
+    const personInput = personInputFilter();
+    for (const type of ["keydown", "keyup", "beforeinput", "paste"] as const) {
+      this.#terminalMount.addEventListener(type, () => { if (personInput(type) && this.#canType()) this.#keepSize(); }, true);
     }
     this.#surface.append(this.#terminalMount);
     host.className = `terminal-screen ${this.#mobile ? "terminal-reader-page terminal-shared-page" : "terminal-desktop-page"}`;
