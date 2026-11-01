@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { initialTerminalWheelState, terminalWheelRows } from "./terminal/adapter";
+import { initialTerminalWheelState, terminalWheelRows, touchScrollsArea } from "./terminal/adapter";
 
 test("desktop wheel and trackpad deltas become bounded terminal history rows", () => {
   const initial = initialTerminalWheelState();
@@ -38,4 +38,12 @@ test("the likely-trackpad boundary matches xterm mouse-report and alternate-scro
   assert.equal(damped.state.applicationRemainder, -0.3);
 
   assert.equal(terminalWheelRows(-50, 0, 50, 24, initial).lines, -1);
+});
+
+test("a swipe scrolls the terminal area only along an axis the terminal overflows", () => {
+  assert.equal(touchScrollsArea(-40, 3, true, false), true);
+  assert.equal(touchScrollsArea(-40, 3, false, false), false);
+  assert.equal(touchScrollsArea(2, -30, true, false), false);
+  assert.equal(touchScrollsArea(2, -30, false, true), true);
+  assert.equal(touchScrollsArea(2, -30, false, false), false);
 });

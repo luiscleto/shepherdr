@@ -71,6 +71,14 @@ export function terminalWheelRows(
   };
 }
 
+// A terminal bigger than its area, such as one another viewer sized, keeps
+// its overflow inside the area. A swipe along an axis that overflows scrolls
+// the area, so all of the terminal stays reachable; any other swipe stays a
+// terminal gesture.
+export function touchScrollsArea(dx: number, dy: number, overflowsX: boolean, overflowsY: boolean): boolean {
+  return Math.abs(dx) > Math.abs(dy) ? overflowsX : overflowsY;
+}
+
 export interface TerminalAdapterEvents {
   onData(data: string): void;
   onResize(dimensions: TerminalDimensions): void;

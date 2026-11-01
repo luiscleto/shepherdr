@@ -4,6 +4,7 @@ import { terminalPaste } from "../terminal-input";
 import {
   initialTerminalWheelState,
   terminalWheelRows,
+  touchScrollsArea,
   type TerminalAdapter,
   type TerminalAdapterEvents,
   type TerminalDimensions,
@@ -118,7 +119,7 @@ export class XTermAdapter implements TerminalAdapter {
       if (accepted) event.preventDefault();
       return !accepted;
     });
-    let touch: { x: number; y: number } | undefined;
+    let touch: { x: number; y: number; area?: boolean } | undefined;
     const start = (event: TouchEvent): void => {
       if (event.touches.length !== 1 || !this.#inputEnabled) return;
       touch = { x: event.touches[0].clientX, y: event.touches[0].clientY };
@@ -126,9 +127,18 @@ export class XTermAdapter implements TerminalAdapter {
     };
     const move = (event: TouchEvent): void => {
       if (!touch || event.touches.length !== 1 || !this.#inputEnabled) return;
+      const point = event.touches[0];
+      if (touch.area === undefined) {
+        const dx = point.clientX - touch.x, dy = point.clientY - touch.y;
+        if (dx === 0 && dy === 0) return;
+        touch.area = touchScrollsArea(dx, dy, host.scrollWidth > host.clientWidth + 1, host.scrollHeight > host.clientHeight + 1);
+      }
+      if (touch.area) {
+        event.stopImmediatePropagation();
+        return;
+      }
       const bounds = terminal.element?.querySelector(".xterm-screen")?.getBoundingClientRect();
       if (!bounds || bounds.height <= 0 || bounds.width <= 0) return;
-      const point = event.touches[0];
       const lines = Math.trunc((touch.y - point.clientY) / (bounds.height / terminal.rows));
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -138,7 +148,7 @@ export class XTermAdapter implements TerminalAdapter {
         column: Math.max(0, Math.min(terminal.cols - 1, Math.floor((touch.x - bounds.left) * terminal.cols / bounds.width))),
         row: Math.max(0, Math.min(terminal.rows - 1, Math.floor((point.clientY - bounds.top) * terminal.rows / bounds.height))),
       });
-      touch = { x: point.clientX, y: point.clientY };
+      touch = { x: point.clientX, y: point.clientY, area: false };
     };
     const end = (): void => { touch = undefined; };
     host.addEventListener("touchstart", start, { capture: true, passive: true });
