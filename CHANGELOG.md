@@ -4,6 +4,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-02
+
 ### Changed
 
 - In Herdr Core, a space with several tabs lists them as rows under the space, which opens and closes like a worktree group, instead of one row with a picker of all its terminals. A tab with one terminal opens it from its row; a split tab opens the picker for its own terminals.
@@ -165,7 +167,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Works with Herdr 0.8.0 through 0.8.2. Older versions do not start; newer versions start with a warning that they have not been tested.
 - macOS downloads are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/luiscleto/shepherdr/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/luiscleto/shepherdr/compare/v0.4.3...v0.5.1
 [0.4.3]: https://github.com/luiscleto/shepherdr/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/luiscleto/shepherdr/compare/v0.4.1...v0.4.2
