@@ -22,10 +22,10 @@ import {
   findTerminal,
   herdrPresent,
   herdrSwitchShown,
+  homeRowFor,
   readRememberedHerdr,
   rememberHerdr,
   suggestedFolders,
-  terminalCount,
   viewCount,
   type Herdr,
   type HomeMode,
@@ -522,12 +522,9 @@ function showStatusTerminals(status: "blocked" | "error"): void {
   const firstBlocked = allTerminals(shownState().home).find(({ terminal }) => terminal.agent?.status === status);
   homeMode = status;
   homeScroll = 0;
-  homeFocusPane = firstBlocked && terminalCount(firstBlocked.workspace) === 1
-    ? firstBlocked.terminal.pane_id
-    : undefined;
-  homeFocusWorkspace = firstBlocked && terminalCount(firstBlocked.workspace) > 1
-    ? firstBlocked.workspace.id
-    : undefined;
+  const firstRow = firstBlocked ? homeRowFor(firstBlocked, shownHerdr ?? "tui") : undefined;
+  homeFocusPane = firstRow && "pane" in firstRow ? firstRow.pane : undefined;
+  homeFocusWorkspace = firstRow && "workspace" in firstRow ? firstRow.workspace : undefined;
   restoreHomePlace = true;
   renderHome();
 }

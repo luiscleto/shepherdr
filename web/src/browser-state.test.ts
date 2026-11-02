@@ -5,7 +5,7 @@ import test from "node:test";
 import { Window } from "happy-dom";
 
 import { HomeView, type HomeViewRender } from "./home-view";
-import { automaticAllTerminalsPlace, type Home, type HomeState } from "./home-model";
+import { automaticAllTerminalsPlace, tabRowKey, type Home, type HomeState } from "./home-model";
 
 function flatHome(): Home {
   return {
@@ -794,8 +794,9 @@ test("With the Herdr app, Home says space, offers N error and Error, and has no 
 
   render(view, current, { herdr: "core", mode: "error" });
   assert.equal(requiredElement(app, "h1").textContent, "Error");
-  assert.deepEqual(Array.from(app.querySelectorAll(".terminal-row .terminal-name"), (node) => node.textContent), ["alpha <img src=x onerror=alert(1)>"]);
-  assert.equal(requiredWorkspaceRow(view, "sp-alpha").querySelector(".terminal-count-badge")?.textContent, "4");
+  // alpha lists its tabs; Error keeps only tab 2, which holds the error.
+  assert.deepEqual(Array.from(app.querySelectorAll(".terminal-row .terminal-name"), (node) => node.textContent), ["2"]);
+  assert.equal(requiredWorkspaceRow(view, tabRowKey("sp-alpha", "tb-two")).querySelector(".terminal-count-badge")?.textContent, "2");
   assert.deepEqual(
     Array.from(app.querySelectorAll(".attention-bar > :not([hidden])"), (node) => node.textContent),
     ["0 working", "Show all terminals"],
@@ -893,5 +894,176 @@ test("an agent with an empty name adds no empty part to its row or accessible na
   assert.equal(name.split(", ").some((part) => part.trim() === ""), false, name);
   assert.equal(name, "Open Terminal, space Other terminals, idle");
   assert.equal(app.querySelectorAll(".status-idle").length > 0, true);
+  window.close();
+});
+
+function douroHome(): Home {
+  const claude = (pane: string, status: "working" | "blocked" | "done" | "idle") => ({
+    actions: ["split_terminal" as const, "close_terminal" as const],
+    agent: { kind: "claude-code", name: "claude-code", status },
+    pane_id: pane,
+    terminal_id: `core:${pane}`,
+    title: "claude-code",
+  });
+  const tab = (id: string, label: string, number: number, terminals: ReturnType<typeof claude>[]) => ({
+    current: number === 1, id, label, number, terminals,
+  });
+  return {
+    blocked_count: 0,
+    error_count: 0,
+    working_count: 1,
+    workspaces: [
+      {
+        actions: ["rename_space", "close_workspace"],
+        agent_counts: { working: 1, done: 4 },
+        id: "sp-douro",
+        label: "Douro",
+        number: 1,
+        tabs: [
+          tab("tb-a", "Software 001 devenv", 1, [claude("t1", "done")]),
+          tab("tb-b", "Ops setup", 2, [claude("t2", "done")]),
+          tab("tb-c", "4", 3, [claude("t3", "working")]),
+          tab("tb-d", "Hardware backplane", 4, [claude("t4", "done"), claude("t5", "done")]),
+        ],
+      },
+      {
+        actions: ["rename_space", "close_workspace"],
+        agent_counts: { done: 1 },
+        id: "sp-quiet",
+        label: "Quiet",
+        number: 2,
+        tabs: [
+          tab("tb-q1", "one", 1, [claude("t6", "done")]),
+          tab("tb-q2", "two", 2, [{ ...claude("t7", "done"), agent: undefined, title: "zsh" } as unknown as ReturnType<typeof claude>]),
+        ],
+      },
+      {
+        actions: ["rename_space", "close_workspace"],
+        agent_counts: { idle: 2 },
+        id: "sp-split",
+        label: "Split",
+        number: 3,
+        tabs: [tab("tb-s", "main", 1, [claude("t8", "idle"), claude("t9", "idle")])],
+      },
+    ],
+  } as Home;
+}
+
+test("Herdr Core lists a space's several tabs under the space; one tab keeps its row", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const opened: string[] = [];
+  const { app, view } = makeView(window, { onOpen: (entry) => opened.push(entry.terminal.pane_id) });
+  render(view, state(douroHome()), { herdr: "core" });
+
+  const douro = requiredWorkspaceRow(view, "sp-douro");
+  assert.equal(douro.getAttribute("aria-expanded"), "true");
+  assert.equal(douro.getAttribute("aria-label"), "Collapse Douro tabs, 1 working, 4 done");
+  assert.deepEqual(Array.from(douro.querySelectorAll(".workspace-summary-status"), (node) => node.textContent), ["1 working", "4 done"]);
+  assert.equal(douro.parentElement?.querySelector(".workspace-menu-trigger")?.getAttribute("aria-label"), "Actions for Douro");
+  const section = douro.closest(".space-tabs")!;
+  assert.deepEqual(
+    Array.from(section.querySelectorAll(".space-tabs-list .terminal-row"), (row) => [
+      row.querySelector(".terminal-name")?.textContent,
+      row.querySelector(".terminal-agent")?.textContent,
+      row.querySelector(".status")?.textContent ?? "",
+      row.querySelector(".terminal-count-badge")?.textContent ?? "",
+      row.getAttribute("aria-label"),
+    ]),
+    [
+      ["Software 001 devenv", "claude-code", "done", "", "Open Software 001 devenv, space Douro, claude-code, done"],
+      ["Ops setup", "claude-code", "done", "", "Open Ops setup, space Douro, claude-code, done"],
+      ["4", "claude-code", "working", "", "Open 4, space Douro, claude-code, working"],
+      ["Hardware backplane", undefined, "", "2", "Choose a terminal in Hardware backplane, space Douro, 2 terminals, 2 done"],
+    ],
+  );
+  // A tab's one terminal keeps its own actions; a split tab has no menu of its own.
+  assert.deepEqual(
+    Array.from(section.querySelectorAll(".space-tabs-list .workspace-menu-trigger"), (node) => node.getAttribute("aria-label")),
+    ["Actions for Software 001 devenv", "Actions for Ops setup", "Actions for 4"],
+  );
+  requiredRow(view, "t3").click();
+  assert.deepEqual(opened, ["t3"]);
+
+  // The split tab's picker lists only that tab's terminals.
+  requiredWorkspaceRow(view, tabRowKey("sp-douro", "tb-d")).click();
+  assert.equal(requiredElement(app, ".terminal-picker-title").textContent, "Douro");
+  assert.equal(requiredElement(app, ".terminal-picker-count").textContent, "2 terminals");
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".terminal-picker-body h3, .terminal-picker-body .terminal-name"), (node) => node.textContent),
+    ["Hardware backplane", "claude-code", "claude-code"],
+  );
+  requiredElement(app, ".terminal-picker-close").click();
+
+  // Only nonzero counts; a tab's plain terminal shows its title and no status.
+  const quiet = requiredWorkspaceRow(view, "sp-quiet");
+  assert.equal(quiet.getAttribute("aria-expanded"), "false");
+  assert.equal(quiet.closest(".space-tabs")!.querySelector<HTMLElement>(".workspace-set-body")!.hidden, true);
+  assert.equal(requiredRow(view, "t7").querySelector(".terminal-agent")?.textContent, "zsh");
+  assert.equal(requiredRow(view, "t7").querySelector<HTMLElement>(".terminal-meta > :last-child")!.hidden, true);
+
+  // One split tab: today's row and its whole-space picker.
+  const split = requiredWorkspaceRow(view, "sp-split");
+  assert.equal(split.classList.contains("workspace-terminal-trigger"), true);
+  assert.equal(requiredElement(split, ".terminal-count-badge").textContent, "2");
+  assert.equal(app.querySelectorAll(".space-tabs").length, 2);
+  window.close();
+});
+
+test("Herdr Core tab lists open and close by choice, Expand all, the filter and Blocked", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window);
+  const current = state(douroHome());
+  render(view, current, { herdr: "core" });
+  const expandAction = requiredElement(app, ".workspace-expand-action");
+  assert.equal(expandAction.hidden, false);
+  assert.equal(expandAction.textContent, "Expand all");
+
+  requiredWorkspaceRow(view, "sp-douro").click();
+  assert.equal(requiredWorkspaceRow(view, "sp-douro").getAttribute("aria-expanded"), "false");
+  render(view, current, { herdr: "core" });
+  assert.equal(requiredWorkspaceRow(view, "sp-douro").getAttribute("aria-expanded"), "false");
+
+  expandAction.click();
+  assert.deepEqual(
+    ["sp-douro", "sp-quiet"].map((id) => requiredWorkspaceRow(view, id).getAttribute("aria-expanded")),
+    ["true", "true"],
+  );
+  assert.equal(expandAction.textContent, "Collapse all");
+  expandAction.click();
+  assert.deepEqual(
+    ["sp-douro", "sp-quiet"].map((id) => requiredWorkspaceRow(view, id).getAttribute("aria-expanded")),
+    ["false", "false"],
+  );
+
+  // A tab name match shows its closed space open with only that row, and keeps the choice.
+  const filter = requiredElement(app, ".home-filter input") as HTMLInputElement;
+  filter.value = "ops";
+  filter.dispatchEvent(new window.Event("input", { bubbles: true }));
+  assert.equal(requiredWorkspaceRow(view, "sp-douro").getAttribute("aria-expanded"), "true");
+  assert.deepEqual(Array.from(app.querySelectorAll(".terminal-row .terminal-name"), (node) => node.textContent), ["Ops setup"]);
+  assert.equal(expandAction.hidden, true);
+  filter.value = "";
+  filter.dispatchEvent(new window.Event("input", { bubbles: true }));
+  assert.equal(requiredWorkspaceRow(view, "sp-douro").getAttribute("aria-expanded"), "false");
+
+  // Blocked shows the space open with only the tabs that hold a blocked agent.
+  const blocked = douroHome();
+  blocked.blocked_count = 1;
+  blocked.workspaces[0].agent_counts = { working: 1, blocked: 1, done: 3 };
+  blocked.workspaces[0].tabs[1].terminals[0].agent!.status = "blocked";
+  render(view, state(blocked), { herdr: "core", mode: "blocked" });
+  assert.equal(requiredWorkspaceRow(view, "sp-douro").getAttribute("aria-expanded"), "true");
+  assert.deepEqual(Array.from(app.querySelectorAll(".terminal-row .terminal-name"), (node) => node.textContent), ["Ops setup"]);
+  assert.equal(app.querySelectorAll(".workspace-menu").length, 0);
+  window.close();
+});
+
+test("The Herdr TUI keeps one row with a picker for a workspace with several tabs", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window);
+  render(view, state(douroHome()));
+  assert.equal(app.querySelectorAll(".space-tabs").length, 0);
+  assert.equal(requiredElement(requiredWorkspaceRow(view, "sp-douro"), ".terminal-count-badge").textContent, "5");
+  assert.equal(requiredElement(app, ".workspace-expand-action").hidden, true);
   window.close();
 });

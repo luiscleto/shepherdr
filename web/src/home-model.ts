@@ -219,6 +219,36 @@ export function visibleTabs(workspace: Workspace, only?: AgentStatus): Array<{ t
     .filter(({ terminals }) => terminals.length > 0);
 }
 
+// In Herdr Core, a space with several tabs lists its tabs as rows under the
+// space instead of one row with a terminal picker.
+export function listsTabs(herdr: Herdr, workspace: Workspace): boolean {
+  return herdr === "core" && showTabHeadings(workspace);
+}
+
+// tabRowKey names one tab's row on Home; workspace and tab ids are opaque.
+export function tabRowKey(workspaceID: string, tabID: string): string {
+  return JSON.stringify([workspaceID, tabID]);
+}
+
+export function tabAgentCounts(tab: Tab): AgentCounts {
+  const counts: AgentCounts = {};
+  for (const terminal of tab.terminals) {
+    if (terminal.agent) counts[terminal.agent.status] = (counts[terminal.agent.status] ?? 0) + 1;
+  }
+  return counts;
+}
+
+// homeRowFor says which Home row stands for a terminal: its own row when it
+// opens directly, else the row whose picker lists it.
+export function homeRowFor(entry: TerminalEntry, herdr: Herdr): { pane: string } | { workspace: string } {
+  if (listsTabs(herdr, entry.workspace)) {
+    return entry.tab.terminals.length === 1
+      ? { pane: entry.terminal.pane_id }
+      : { workspace: tabRowKey(entry.workspace.id, entry.tab.id) };
+  }
+  return terminalCount(entry.workspace) === 1 ? { pane: entry.terminal.pane_id } : { workspace: entry.workspace.id };
+}
+
 export function spaceWord(herdr: Herdr): string {
   return herdr === "core" ? "space" : "workspace";
 }
@@ -228,6 +258,20 @@ export function accessibleTerminalName(entry: TerminalEntry, tabsShown: boolean,
   if (tabsShown) parts.push(`tab ${entry.tab.label}`);
   if (entry.terminal.agent) {
     if (entry.terminal.agent.name !== "" && entry.terminal.agent.name !== entry.terminal.title) {
+      parts.push(entry.terminal.agent.name);
+    }
+    parts.push(entry.terminal.agent.status);
+  }
+  return parts.join(", ");
+}
+
+// accessibleTabTerminalName names a tab row that opens the tab's one terminal.
+export function accessibleTabTerminalName(entry: TerminalEntry): string {
+  const parts = [`Open ${entry.tab.label}`, `space ${entry.workspace.label}`];
+  if (entry.terminal.title !== entry.tab.label) parts.push(entry.terminal.title);
+  if (entry.terminal.agent) {
+    if (entry.terminal.agent.name !== "" && entry.terminal.agent.name !== entry.terminal.title &&
+      entry.terminal.agent.name !== entry.tab.label) {
       parts.push(entry.terminal.agent.name);
     }
     parts.push(entry.terminal.agent.status);

@@ -4,6 +4,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+- In Herdr Core, a space with several tabs lists them as rows under the space, which opens and closes like a worktree group, instead of one row with a picker of all its terminals. A tab with one terminal opens it from its row; a split tab opens the picker for its own terminals.
+
 ## [0.5.1] - 2026-11-01
 
 ### Added

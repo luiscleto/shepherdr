@@ -11,10 +11,12 @@ import {
   herdrPresent,
   herdrSettled,
   herdrSwitchShown,
+  homeRowFor,
   readRememberedHerdr,
   rememberHerdr,
   showTabHeadings,
   suggestedFolders,
+  tabRowKey,
   terminalCount,
   visibleTabs,
   type Home,
@@ -192,4 +194,16 @@ test("New space suggests each live Herdr's repository folders once, the Herdr TU
   assert.deepEqual(suggestedFolders({ tui: side(["/a", "/c"], "not_running", true), core }), ["/b", "/a"]);
   assert.deepEqual(suggestedFolders({ tui, core: side(["/b"], "reconnecting", true) }), ["/a", "/c"]);
   assert.deepEqual(suggestedFolders({ tui: emptyHomeState(), core: emptyHomeState() }), []);
+});
+
+test("Home's row for a terminal follows Herdr Core's tab rows", () => {
+  const terminal = (pane_id: string) => ({ actions: [], pane_id, terminal_id: pane_id, title: pane_id });
+  const one = { current: true, id: "a", label: "a", number: 1, terminals: [terminal("t1")] };
+  const two = { current: false, id: "b", label: "b", number: 2, terminals: [terminal("t2"), terminal("t3")] };
+  const workspace = { actions: [], id: "w", label: "w", number: 1, tabs: [one, two] };
+  assert.deepEqual(homeRowFor({ workspace, tab: one, terminal: one.terminals[0] }, "core"), { pane: "t1" });
+  assert.deepEqual(homeRowFor({ workspace, tab: two, terminal: two.terminals[0] }, "core"), { workspace: tabRowKey("w", "b") });
+  assert.deepEqual(homeRowFor({ workspace, tab: one, terminal: one.terminals[0] }, "tui"), { workspace: "w" });
+  const single = { ...workspace, tabs: [one] };
+  assert.deepEqual(homeRowFor({ workspace: single, tab: one, terminal: one.terminals[0] }, "core"), { pane: "t1" });
 });

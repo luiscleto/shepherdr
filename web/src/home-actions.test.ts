@@ -1289,10 +1289,9 @@ test("Herdr Core Close terminal on a space's last terminal confirms Close space"
   requiredMatchingElement<HTMLButtonElement>(
     app, ".workspace-menu-trigger", (node) => node.getAttribute("aria-label") === "Actions for Core <img src=x>",
   ).click();
-  // The space opens in the picker; Codex's menu offers Close terminal.
-  requiredElement<HTMLButtonElement>(app, ".workspace-terminal-trigger").click();
+  // Codex is alone in tab 2, so that tab's row has its menu, with Close terminal.
   const codexTrigger = requiredMatchingElement<HTMLButtonElement>(
-    app, ".workspace-menu-trigger", (node) => node.getAttribute("aria-label") === "Actions for Codex",
+    app, ".workspace-menu-trigger", (node) => node.getAttribute("aria-label") === "Actions for 2",
   );
   codexTrigger.click();
   requiredMatchingElement<HTMLButtonElement>(app, '[role="menuitem"]', (node) => node.textContent === "Close terminal").click();

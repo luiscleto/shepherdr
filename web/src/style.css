@@ -707,6 +707,32 @@ h3 {
   margin-top: 0.65rem;
 }
 
+/* A Herdr Core space with several tabs: the whole header opens and closes its tab rows. */
+.space-tabs-header {
+  grid-template-columns: minmax(0, 1fr);
+  padding-right: 1rem;
+}
+
+.space-tabs-disclosure {
+  width: 100%;
+  grid-template-columns: 44px minmax(0, 1fr);
+  place-items: center stretch;
+  text-align: left;
+}
+
+.space-tabs-disclosure .workspace-set-marker {
+  justify-self: center;
+}
+
+.space-tabs-disclosure .workspace-set-heading {
+  padding-right: 0.5rem;
+}
+
+/* A split tab's row has no menu; keep its terminal glyph in line with the others. */
+.space-tabs-list:has(.workspace-menu) > li > .terminal-row {
+  padding-right: 44px;
+}
+
 .count {
   font-variant-numeric: tabular-nums;
   font-weight: 750;

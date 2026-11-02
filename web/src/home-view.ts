@@ -1,13 +1,16 @@
 import {
+  accessibleTabTerminalName,
   accessibleTerminalName,
   allTerminals,
   allWorkspaces,
   herdrNames,
+  listsTabs,
   showTabHeadings,
   spaceWord,
+  tabAgentCounts,
+  tabRowKey,
   terminalCount,
   visibleTabs,
-  workspaceSets,
   type AgentCounts,
   type AgentStatus,
   type Herdr,
@@ -112,6 +115,21 @@ interface WorkspaceSetNodes {
   disclosure: HTMLButtonElement;
   header: HTMLElement;
   heading: HTMLElement;
+  marker: HTMLElement;
+  section: HTMLElement;
+  summary: HTMLElement;
+  summaryStatuses: Map<keyof AgentCounts, HTMLElement>;
+  title: HTMLElement;
+}
+
+// A Herdr Core space with several tabs: a header that opens and closes the
+// list of its tabs.
+interface SpaceTabsNodes {
+  body: HTMLElement;
+  disclosure: HTMLButtonElement;
+  header: HTMLElement;
+  heading: HTMLHeadingElement;
+  list: HTMLUListElement;
   marker: HTMLElement;
   section: HTMLElement;
   summary: HTMLElement;
@@ -254,6 +272,9 @@ export class HomeView {
   readonly #workspaces = new Map<string, WorkspaceNodes>();
   readonly #workspacePickerRows = new Map<string, WorkspacePickerRowNodes>();
   readonly #workspaceSets = new Map<string, WorkspaceSetNodes>();
+  readonly #spaceTabs = new Map<string, SpaceTabsNodes>();
+  readonly #tabItems = new Map<string, HTMLLIElement>();
+  readonly #tabPickerRows = new Map<string, WorkspacePickerRowNodes>();
   readonly #workspaceMenus = new Map<string, WorkspaceMenuNodes>();
   readonly #terminalMenus = new Map<string, WorkspaceMenuNodes>();
   readonly #workspaceValues = new Map<string, Workspace>();
@@ -265,10 +286,15 @@ export class HomeView {
   #openMenuKey: string | undefined;
   #pickerReturnFocus: HTMLElement | undefined;
   #pickerScroll = 0;
+  // pickerTabID limits the picker to one tab of a space that lists its tabs.
+  #pickerTabID: string | undefined;
   #pickerWorkspaceID: string | undefined;
   #returnFocus: HTMLElement | undefined;
   #terminalActionSheetKey: string | undefined;
   #terminalActionSheetPickerScroll = 0;
+  #renderedSpaceTabs = new Set<string>();
+  #renderedTabRows = new Set<string>();
+  #spaceTabsSequence = 0;
   #workspaceHeadingSequence = 0;
   #workspaceSetSequence = 0;
 
@@ -333,7 +359,7 @@ export class HomeView {
 
     this.#expandAction = this.#button("", () => {
       const home = this.#lastRender?.state.home ?? { blocked_count: 0, error_count: 0, working_count: 0, workspaces: [] };
-      const sets = workspaceSets(home);
+      const sets = this.#disclosureGroups(home);
       const expand = sets.some((workspace) => !this.#expandedSets.get(workspace.id));
       for (const workspace of sets) {
         this.#expandedSets.set(workspace.id, expand);
@@ -464,6 +490,8 @@ export class HomeView {
   render(model: HomeViewRender): void {
     if (this.#lastRender && this.#lastRender.herdr !== model.herdr) this.#forgetShownHerdr();
     this.#lastRender = model.restore ? { ...model, restore: undefined } : model;
+    this.#renderedSpaceTabs = new Set();
+    this.#renderedTabRows = new Set();
     const view = this.#document.defaultView;
     const oldScroll = model.restore?.scroll ?? view?.scrollY ?? 0;
     setClass(this.#app, "home");
@@ -510,14 +538,16 @@ export class HomeView {
       if (model.mode !== "all") {
         if (empty) desired.push(this.#empty);
         for (const workspace of allWorkspaceValues) {
-          const section = this.#renderWorkspace(workspace, model.mode, model.actionsAvailable, false);
+          const section = this.#listsTabs(workspace)
+            ? this.#renderSpaceTabs(workspace, model.mode, model.actionsAvailable, false, true)
+            : this.#renderWorkspace(workspace, model.mode, model.actionsAvailable, false);
           if (section) desired.push(section);
         }
       } else {
-        const sets = workspaceSets(visibleHome);
+        const sets = this.#disclosureGroups(visibleHome);
         for (const workspace of sets) {
           if (!this.#expandedSets.has(workspace.id)) {
-            const counts = workspace.group_agent_counts ?? {};
+            const counts = (this.#listsTabs(workspace) ? workspace.agent_counts : workspace.group_agent_counts) ?? {};
             this.#expandedSets.set(workspace.id, (counts.working ?? 0) > 0 || (counts.blocked ?? 0) > 0);
           }
         }
@@ -545,6 +575,16 @@ export class HomeView {
               managementAvailable,
               filterActive,
             ));
+            continue;
+          }
+          if (this.#listsTabs(workspace)) {
+            desired.push(this.#renderSpaceTabs(
+              workspace,
+              undefined,
+              model.actionsAvailable,
+              managementAvailable,
+              filterActive,
+            )!);
             continue;
           }
           const section = this.#renderWorkspace(
@@ -582,13 +622,13 @@ export class HomeView {
       const row = this.#rows.get(model.restore.pane)?.row;
       if (row) view?.scrollTo(0, (view?.scrollY ?? oldScroll) + row.getBoundingClientRect().top - model.restore.anchorTop);
     } else if (model.restore?.anchorTop !== undefined && model.restore.workspace) {
-      const row = this.#workspacePickerRows.get(model.restore.workspace)?.row;
+      const row = this.workspaceRow(model.restore.workspace);
       if (row) view?.scrollTo(0, (view?.scrollY ?? oldScroll) + row.getBoundingClientRect().top - model.restore.anchorTop);
     }
     if (model.restore?.focusPane) {
       this.#rows.get(model.restore.focusPane)?.row.focus({ preventScroll: true });
     } else if (model.restore?.focusWorkspace) {
-      this.#workspacePickerRows.get(model.restore.focusWorkspace)?.row.focus({ preventScroll: true });
+      this.workspaceRow(model.restore.focusWorkspace)?.focus({ preventScroll: true });
     }
     if (automaticallyClosedPicker) this.#restoreAutomaticallyClosedPicker(automaticallyClosedPicker);
   }
@@ -598,8 +638,12 @@ export class HomeView {
   #forgetShownHerdr(): void {
     this.#closeMenu();
     this.#pickerWorkspaceID = undefined;
+    this.#pickerTabID = undefined;
     this.#pickerReturnFocus = undefined;
     reconcileChildren(this.#picker.body, []);
+    this.#spaceTabs.clear();
+    this.#tabItems.clear();
+    this.#tabPickerRows.clear();
     this.#rows.clear();
     this.#items.clear();
     this.#tabs.clear();
@@ -619,8 +663,11 @@ export class HomeView {
     return this.#rows.get(paneID)?.row;
   }
 
+  // workspaceRow finds a space or workspace's picker row, a tab's picker row
+  // by its tabRowKey, or the header of a space that lists its tabs.
   workspaceRow(workspaceID: string): HTMLElement | undefined {
-    return this.#workspacePickerRows.get(workspaceID)?.row;
+    return this.#workspacePickerRows.get(workspaceID)?.row ?? this.#tabPickerRows.get(workspaceID)?.row ??
+      this.#spaceTabs.get(workspaceID)?.disclosure;
   }
 
   #button(text: string, action: () => void): HTMLButtonElement {
@@ -738,6 +785,144 @@ export class HomeView {
     }
     reconcileChildren(nodes.contents, contents);
     return nodes.section;
+  }
+
+  #listsTabs(workspace: Workspace): boolean {
+    return listsTabs(this.#shownHerdr(), this.#workspaceValues.get(workspace.id) ?? workspace);
+  }
+
+  // Worktree groups and the Herdr Core spaces that list their tabs open and close.
+  #disclosureGroups(home: Home): Workspace[] {
+    return home.workspaces.filter((workspace) => (workspace.worktrees?.length ?? 0) > 0 || this.#listsTabs(workspace));
+  }
+
+  // renderSpaceTabs shows a Herdr Core space with several tabs: its header,
+  // then a row for each tab the shown workspace keeps, in the app's order.
+  #renderSpaceTabs(
+    workspace: Workspace,
+    only: AgentStatus | undefined,
+    actionsAvailable: boolean,
+    managementAvailable: boolean,
+    forceExpanded: boolean,
+  ): HTMLElement | undefined {
+    const full = this.#workspaceValues.get(workspace.id) ?? workspace;
+    const shownTabIDs = new Set(visibleTabs(workspace, only).map(({ tab }) => tab.id));
+    const tabs = full.tabs.filter((tab) => tab.terminals.length > 0 && shownTabIDs.has(tab.id));
+    if (only && tabs.length === 0) return undefined;
+    // The space's single-row nodes, kept from when it had one tab, don't stand for it now.
+    this.#workspaces.delete(full.id);
+    this.#workspacePickerRows.delete(full.id);
+    this.#renderedSpaceTabs.add(full.id);
+    const nodes = this.#spaceTabsNodes(full.id);
+    const expanded = forceExpanded || (this.#expandedSets.get(full.id) ?? false);
+    const counts = full.agent_counts ?? {};
+    const totals = this.#groupSummaryLabel(counts);
+    setAttribute(nodes.disclosure, "aria-expanded", String(expanded));
+    setAttribute(nodes.disclosure, "aria-label", `${expanded ? "Collapse" : "Expand"} ${full.label} tabs${totals ? `, ${totals}` : ""}`);
+    setText(nodes.marker, expanded ? "⌄" : "›");
+    setText(nodes.heading, full.label);
+    setText(nodes.title, full.label);
+    this.#updateSummary(nodes.summary, nodes.summaryStatuses, counts);
+    setHidden(nodes.body, !expanded);
+    reconcileChildren(nodes.header, [this.#workspaceActionRow(full, nodes.disclosure, managementAvailable)]);
+    reconcileChildren(nodes.list, tabs.map((tab) => this.#tabItem(full, tab, actionsAvailable, managementAvailable)));
+    return nodes.section;
+  }
+
+  #spaceTabsNodes(workspaceID: string): SpaceTabsNodes {
+    const existing = this.#spaceTabs.get(workspaceID);
+    if (existing) return existing;
+    const section = element(this.#document, "section", "workspace-set space-tabs");
+    const heading = element(this.#document, "h2", "visually-hidden");
+    const sequence = ++this.#spaceTabsSequence;
+    heading.id = `space-tabs-heading-${sequence}`;
+    section.setAttribute("aria-labelledby", heading.id);
+    const header = element(this.#document, "div", "workspace-set-header space-tabs-header");
+    const disclosure = this.#button("", () => {
+      this.#expandedSets.set(workspaceID, !this.#expandedSets.get(workspaceID));
+      if (this.#lastRender) this.render(this.#lastRender);
+    });
+    disclosure.className = "workspace-set-disclosure space-tabs-disclosure";
+    const marker = element(this.#document, "span", "workspace-set-marker");
+    marker.setAttribute("aria-hidden", "true");
+    const headingText = element(this.#document, "span", "workspace-set-heading");
+    const title = element(this.#document, "span", "workspace-set-title");
+    const summary = element(this.#document, "span", "workspace-set-summary");
+    headingText.append(title, summary);
+    disclosure.append(marker, headingText);
+    const body = element(this.#document, "div", "workspace-set-body");
+    body.id = `space-tabs-contents-${sequence}`;
+    disclosure.setAttribute("aria-controls", body.id);
+    const contents = element(this.#document, "div", "workspace-set-contents");
+    const list = element(this.#document, "ul", "terminal-list space-tabs-list");
+    contents.append(list);
+    body.append(contents);
+    section.append(heading, header, body);
+    const nodes = {
+      body,
+      disclosure,
+      header,
+      heading,
+      list,
+      marker,
+      section,
+      summary,
+      summaryStatuses: new Map<keyof AgentCounts, HTMLElement>(),
+      title,
+    };
+    this.#spaceTabs.set(workspaceID, nodes);
+    return nodes;
+  }
+
+  // A tab with one terminal opens it and has its menu. A split tab opens the
+  // picker for its terminals, which keep their menus there.
+  #tabItem(workspace: Workspace, tab: Tab, actionsAvailable: boolean, managementAvailable: boolean): HTMLLIElement {
+    const key = tabRowKey(workspace.id, tab.id);
+    this.#renderedTabRows.add(key);
+    let item = this.#tabItems.get(key);
+    if (!item) {
+      item = element(this.#document, "li");
+      this.#tabItems.set(key, item);
+    }
+    if (tab.terminals.length === 1) {
+      const entry = { workspace, tab, terminal: tab.terminals[0] };
+      const row = this.#terminalRow(entry, true, actionsAvailable, true).row;
+      reconcileChildren(item, [this.#terminalActionRow(entry, row, managementAvailable, false, `Actions for ${tab.label}`)]);
+    } else {
+      reconcileChildren(item, [this.#tabPickerRow(workspace, tab, actionsAvailable)]);
+    }
+    return item;
+  }
+
+  #tabPickerRow(workspace: Workspace, tab: Tab, actionsAvailable: boolean): HTMLElement {
+    const key = tabRowKey(workspace.id, tab.id);
+    let nodes = this.#tabPickerRows.get(key);
+    if (!nodes || (nodes.row.localName === "button") !== actionsAvailable) {
+      nodes = this.#pickerRowNodes(
+        actionsAvailable,
+        (row) => this.#openTerminalPicker(workspace.id, row, tab.id),
+        () => this.#actions.onFocusWorkspace?.(key),
+      );
+      nodes.row.dataset.workspaceKey = key;
+      this.#tabPickerRows.set(key, nodes);
+    }
+    const counts = tabAgentCounts(tab);
+    const count = tab.terminals.length;
+    setClass(nodes.row, actionsAvailable
+      ? "terminal-row workspace-terminal-trigger"
+      : "terminal-row workspace-terminal-trigger terminal-row-stale");
+    if (actionsAvailable) {
+      const totals = this.#groupSummaryLabel(counts);
+      setAttribute(
+        nodes.row,
+        "aria-label",
+        `Choose a terminal in ${tab.label}, space ${workspace.label}, ${count} terminals${totals ? `, ${totals}` : ""}`,
+      );
+    }
+    setText(nodes.name, tab.label);
+    setText(nodes.badge, String(count));
+    this.#updateSummary(nodes.summary, nodes.summaryStatuses, counts);
+    return nodes.row;
   }
 
   #workspaceSet(workspace: Workspace): WorkspaceSetNodes {
@@ -889,37 +1074,12 @@ export class HomeView {
     let nodes = this.#workspacePickerRows.get(workspace.id);
     const rowIsAction = nodes?.row.localName === "button";
     if (!nodes || rowIsAction !== actionsAvailable) {
-      let row: HTMLElement;
-      if (actionsAvailable) {
-        const button = element(this.#document, "button");
-        button.type = "button";
-        button.addEventListener("click", () => this.#openTerminalPicker(workspace.id, button));
-        button.addEventListener("focus", () => this.#actions.onFocusWorkspace?.(workspace.id));
-        row = button;
-      } else {
-        row = element(this.#document, "div");
-      }
-      const main = element(this.#document, "span", "terminal-main");
-      const name = element(this.#document, "span", "terminal-name");
-      const summary = element(this.#document, "span", "workspace-set-summary workspace-picker-summary");
-      main.append(name, summary);
-      const control = element(this.#document, "span", "terminal-picker-control");
-      const badge = element(this.#document, "span", "terminal-count-badge");
-      badge.setAttribute("aria-hidden", "true");
-      const chevron = element(this.#document, "span", "terminal-chevron");
-      chevron.setAttribute("aria-hidden", "true");
-      control.append(badge, chevron);
-      row.append(main, control);
-      row.dataset.workspaceKey = workspace.id;
-      nodes = {
-        badge,
-        chevron,
-        main,
-        name,
-        row,
-        summary,
-        summaryStatuses: new Map<keyof AgentCounts, HTMLElement>(),
-      };
+      nodes = this.#pickerRowNodes(
+        actionsAvailable,
+        (row) => this.#openTerminalPicker(workspace.id, row),
+        () => this.#actions.onFocusWorkspace?.(workspace.id),
+      );
+      nodes.row.dataset.workspaceKey = workspace.id;
       this.#workspacePickerRows.set(workspace.id, nodes);
     }
 
@@ -941,11 +1101,56 @@ export class HomeView {
     return nodes.row;
   }
 
-  #openTerminalPicker(workspaceID: string, returnFocus: HTMLElement): void {
+  #pickerRowNodes(
+    actionsAvailable: boolean,
+    open: (row: HTMLElement) => void,
+    focus: () => void,
+  ): WorkspacePickerRowNodes {
+    let row: HTMLElement;
+    if (actionsAvailable) {
+      const button = element(this.#document, "button");
+      button.type = "button";
+      button.addEventListener("click", () => open(button));
+      button.addEventListener("focus", focus);
+      row = button;
+    } else {
+      row = element(this.#document, "div");
+    }
+    const main = element(this.#document, "span", "terminal-main");
+    const name = element(this.#document, "span", "terminal-name");
+    const summary = element(this.#document, "span", "workspace-set-summary workspace-picker-summary");
+    main.append(name, summary);
+    const control = element(this.#document, "span", "terminal-picker-control");
+    const badge = element(this.#document, "span", "terminal-count-badge");
+    badge.setAttribute("aria-hidden", "true");
+    const chevron = element(this.#document, "span", "terminal-chevron");
+    chevron.setAttribute("aria-hidden", "true");
+    control.append(badge, chevron);
+    row.append(main, control);
+    return {
+      badge,
+      chevron,
+      main,
+      name,
+      row,
+      summary,
+      summaryStatuses: new Map<keyof AgentCounts, HTMLElement>(),
+    };
+  }
+
+  // The picker lists a space or workspace's terminals, or one tab's in a space
+  // that lists its tabs, while there are several.
+  #pickerShows(workspace: Workspace, tabID: string | undefined): boolean {
+    if (tabID === undefined) return terminalCount(workspace) > 1 && !this.#listsTabs(workspace);
+    return (workspace.tabs.find((tab) => tab.id === tabID)?.terminals.length ?? 0) > 1;
+  }
+
+  #openTerminalPicker(workspaceID: string, returnFocus: HTMLElement, tabID?: string): void {
     const workspace = this.#workspaceValues.get(workspaceID);
-    if (!workspace || terminalCount(workspace) <= 1 || !this.#lastRender) return;
+    if (!workspace || !this.#pickerShows(workspace, tabID) || !this.#lastRender) return;
     this.#closeMenu();
     this.#pickerWorkspaceID = workspaceID;
+    this.#pickerTabID = tabID;
     this.#pickerReturnFocus = returnFocus;
     this.#pickerScroll = this.#document.defaultView?.scrollY ?? 0;
     this.#picker.body.scrollTop = 0;
@@ -968,23 +1173,31 @@ export class HomeView {
       return;
     }
     const workspace = this.#workspaceValues.get(this.#pickerWorkspaceID);
-    if (!workspace || terminalCount(workspace) <= 1) {
-      const remaining = workspace ? visibleTabs(workspace)[0]?.terminals[0] : undefined;
+    if (!workspace || !this.#pickerShows(workspace, this.#pickerTabID)) {
+      const pickerTab = workspace?.tabs.find((tab) => tab.id === this.#pickerTabID);
+      const remaining = this.#pickerTabID === undefined
+        ? (workspace ? visibleTabs(workspace)[0]?.terminals[0] : undefined)
+        : (pickerTab?.terminals.length === 1 ? pickerTab.terminals[0] : undefined);
       const closed = {
         paneID: remaining?.pane_id,
         returnFocus: this.#pickerReturnFocus,
         scroll: this.#pickerScroll,
       };
       this.#pickerWorkspaceID = undefined;
+      this.#pickerTabID = undefined;
       this.#pickerReturnFocus = undefined;
       reconcileChildren(this.#picker.body, []);
       setHidden(this.#picker.layer, true);
       return closed;
     }
 
+    const pickerTabID = this.#pickerTabID;
+    const tabs = visibleTabs(workspace).filter(({ tab }) => pickerTabID === undefined || tab.id === pickerTabID);
     setText(this.#picker.title, workspace.label);
-    setText(this.#picker.count, `${terminalCount(workspace)} terminals`);
-    const tabs = visibleTabs(workspace);
+    setText(
+      this.#picker.count,
+      `${pickerTabID === undefined ? terminalCount(workspace) : tabs[0].terminals.length} terminals`,
+    );
     const tabsShown = showTabHeadings(workspace);
     const children: Node[] = [];
     let workspaceTabs = usedTabs.get(workspace.id);
@@ -1015,6 +1228,7 @@ export class HomeView {
     this.#closeMenu();
     const returnFocus = this.#pickerReturnFocus;
     this.#pickerWorkspaceID = undefined;
+    this.#pickerTabID = undefined;
     setHidden(this.#picker.layer, true);
     reconcileChildren(this.#picker.body, []);
     this.#document.defaultView?.scrollTo(0, this.#pickerScroll);
@@ -1136,11 +1350,12 @@ export class HomeView {
     primary: HTMLElement,
     managementAvailable: boolean,
     includeWorkspace: boolean,
+    menuName?: string,
   ): HTMLElement {
     if (!managementAvailable ||
       (entry.terminal.actions.length === 0 && (!includeWorkspace || entry.workspace.actions.length === 0))) return primary;
     const nodes = this.#terminalMenu(entry.terminal.pane_id);
-    this.#updateTerminalMenu(nodes, entry, includeWorkspace);
+    this.#updateTerminalMenu(nodes, entry, includeWorkspace, menuName);
     setClass(nodes.menuRoot, "workspace-menu terminal-menu");
     reconcileChildren(nodes.container, [primary, nodes.menuRoot]);
     return nodes.container;
@@ -1191,10 +1406,19 @@ export class HomeView {
     setAttribute(nodes.trigger, "aria-expanded", String(open));
   }
 
-  #updateTerminalMenu(nodes: WorkspaceMenuNodes, entry: TerminalEntry, includeWorkspace: boolean): void {
+  #updateTerminalMenu(
+    nodes: WorkspaceMenuNodes,
+    entry: TerminalEntry,
+    includeWorkspace: boolean,
+    menuName?: string,
+  ): void {
     // Other terminals is not a space: its lone terminal's menu is the terminal's.
     const forWorkspace = includeWorkspace && (this.#shownHerdr() === "tui" || entry.workspace.actions.length > 0);
-    setAttribute(nodes.trigger, "aria-label", `Actions for ${forWorkspace ? entry.workspace.label : entry.terminal.title}`);
+    setAttribute(
+      nodes.trigger,
+      "aria-label",
+      menuName ?? `Actions for ${forWorkspace ? entry.workspace.label : entry.terminal.title}`,
+    );
     setAttribute(
       nodes.trigger,
       "aria-haspopup",
@@ -1377,7 +1601,9 @@ export class HomeView {
     return item;
   }
 
-  #terminalRow(entry: TerminalEntry, tabsShown: boolean, actionsAvailable: boolean): RowNodes {
+  // A tab row shows its tab's name, with its one terminal's title, agent and
+  // status beneath.
+  #terminalRow(entry: TerminalEntry, tabsShown: boolean, actionsAvailable: boolean, tabRow = false): RowNodes {
     this.#entries.set(entry.terminal.pane_id, entry);
     let nodes = this.#rows.get(entry.terminal.pane_id);
     const rowIsAction = nodes?.row.localName === "button";
@@ -1412,6 +1638,21 @@ export class HomeView {
     }
 
     setClass(nodes.row, actionsAvailable ? "terminal-row" : "terminal-row terminal-row-stale");
+    if (tabRow) {
+      if (actionsAvailable) setAttribute(nodes.row, "aria-label", accessibleTabTerminalName(entry));
+      setText(nodes.name, entry.tab.label);
+      const agentName = entry.terminal.agent?.name ?? "";
+      const secondary = [
+        ...(entry.terminal.title !== entry.tab.label ? [entry.terminal.title] : []),
+        ...(agentName !== "" && agentName !== entry.terminal.title && agentName !== entry.tab.label ? [agentName] : []),
+      ].join(" · ");
+      setText(nodes.agent, secondary);
+      setHidden(nodes.agent, secondary === "");
+      setClass(nodes.status, entry.terminal.agent ? `status status-${entry.terminal.agent.status}` : "");
+      setText(nodes.status, entry.terminal.agent?.status ?? "");
+      setHidden(nodes.status, !entry.terminal.agent);
+      return nodes;
+    }
     if (actionsAvailable) setAttribute(nodes.row, "aria-label", accessibleTerminalName(entry, tabsShown, this.#lastRender?.herdr));
     setText(nodes.name, entry.terminal.title);
     if (entry.terminal.agent) {
@@ -2156,6 +2397,20 @@ export class HomeView {
       }
       for (const tabID of tabs.keys()) {
         if (!usedWorkspaceTabs.has(tabID)) tabs.delete(tabID);
+      }
+    }
+    for (const key of this.#spaceTabs.keys()) {
+      if (this.#renderedSpaceTabs.has(key)) continue;
+      this.#spaceTabs.delete(key);
+      if (!usedWorkspaces.has(key)) {
+        this.#workspaceMenus.delete(key);
+        if (this.#openMenuKey === `workspace:${key}`) this.#openMenuKey = undefined;
+      }
+    }
+    for (const key of this.#tabItems.keys()) {
+      if (!this.#renderedTabRows.has(key)) {
+        this.#tabItems.delete(key);
+        this.#tabPickerRows.delete(key);
       }
     }
     for (const key of this.#rows.keys()) {
