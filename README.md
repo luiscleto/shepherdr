@@ -23,6 +23,7 @@
 
 - **never hunt for the stuck one** — every terminal is marked working, blocked, idle, done, or unknown. when an agent needs you, shepherdr says so.
 - **open the exact terminal** — read it, send text or shortcuts, and attach files while an agent is there. shepherdr never substitutes another pane.
+- **herdr tui or the herdr app** — works with both. when both run, a switch on home picks one. with the app, spaces are the rows and their tabs nest underneath.
 - **workspaces from the phone** — create a workspace, add a worktree, close what's done, delete a clean checkout. herdr still does the work.
 - **notifications that mean something** — blocked, done, or a trusted sign-in change. tap through to that terminal, or home if it's gone.
 - **passkeys, not accounts** — trust this phone once. later visits are sign in with a passkey. no email, no password. a new browser cannot trust itself.
@@ -32,11 +33,9 @@
 
 ## Install
 
-Shepherdr needs [Herdr](https://github.com/herdrdev/herdr) 0.9.0 or later, or the Herdr desktop app, running locally under the same OS account. To open Herdr TUI terminals, `herdr` must be on `PATH`. Herdr 0.9.0–0.9.5 are validated; newer or unknown versions run best effort with a warning.
+Shepherdr needs [Herdr](https://github.com/herdrdev/herdr) 0.9.0 or later, or the Herdr desktop app, running locally under the same OS account, with `herdr` (or `herdr-app`) on `PATH`. Herdr 0.9.0–0.9.5 and the Herdr app 0.1.10–0.1.11 are validated; newer versions run best effort with a warning.
 
 Use matching Herdr CLI and server versions for terminal reads and control.
-
-Using the Herdr desktop app? Shepherdr shows its spaces too. See [With the Herdr app](#with-the-herdr-app).
 
 Download the archive for this machine from the [latest release](https://github.com/luiscleto/shepherdr/releases/latest), plus its matching checksum file. The examples below use v0.5.1.
 
@@ -75,7 +74,7 @@ npm run build --prefix web
 go build -o bin/shepherdr .
 ```
 
-To upgrade to v0.5.1, nothing else needs to change: Herdr 0.9.0 is still the minimum. Herdr Core and the Herdr app are optional: Shepherdr follows herdr-core whenever it is running, with nothing to add to the start (see [With the Herdr app](#with-the-herdr-app)). Stop Shepherdr, keep its state and configuration, replace the binary with the verified download, check `shepherdr --version`, then restart it.
+To upgrade, stop Shepherdr, replace the binary with the verified download, check `shepherdr --version`, then restart it. State and configuration are kept.
 
 ## Start
 
@@ -112,14 +111,6 @@ shepherdr -no-sign-in
 ```
 
 Anyone who can reach Shepherdr has operator authority. The flag is not saved. Do not combine it with `-public-origin` or `-session-lifetime`.
-
-### With the Herdr app
-
-Shepherdr also follows herdr-core, the runtime behind the Herdr desktop app, whenever it is running. There is nothing to add to the start. When the Herdr TUI and Herdr Core are both running, Home shows a switch between **Herdr TUI** and **Herdr Core**, and each browser remembers its choice. Notifications come from both.
-
-For Herdr Core, Home lists the app's spaces and tabs, in the app's order and with its names. Terminals that no space holds, such as ones started with `hc run` outside the app, appear once under **Other terminals**. Home keeps working while the app window is closed. An agent can also report **error**; it is counted like **blocked**, and notifications for it start on.
-
-Herdr Core terminals open from Home like Herdr TUI terminals, with Reader, the full terminal, **Message**, **Send keys** and files. A terminal opens in control, as Herdr TUI terminals do, so you can type at once, and the terminal takes the size of the screen you opened it on. While you control it and the page is in view, the terminal keeps your screen's size, and the app window shows that size too: when the app window takes the size, Shepherdr takes it back. If the app window takes it again before you next type, press a key, switch views or come back to the page, the app window keeps it until then. **Release** goes back to observing and gives the size to the app window, and so does leaving the terminal. Out of view, after switching to another app or tab or locking the phone, the app window can take the size when it's next used, and coming back to the page takes it again. **Control** takes control again. If two Shepherdr screens control the same terminal, a new size follows the one used last, and when the app window takes the size, the screen in view that was used last takes it back; a screen out of view never does. There is no **Take over**: the phone and the app window can both type. **Send keys** offers only keys Herdr Core can send, so shifted symbols such as + or % are not offered, and a key can wait a few seconds while someone is typing in the app. **Add files** shows while an agent reports a status. You can close a space or a terminal from Home at any time, whether or not the app window is open. With the Herdr app window open, you can also make a space, split a terminal and rename a space, and these change what the app window shows; with it closed, you can still make a space or a terminal, and the app adds them when it next opens. They need `herdr-app` on `PATH`, and are off when `-herdr-core-socket` names another Herdr Core. There are no worktree actions and no terminal rename. herdr-core 0.1.15–0.1.16 and the Herdr app 0.1.10–0.1.11 are validated; newer versions run best effort with a warning.
 
 ## Keep it private
 
@@ -170,30 +161,11 @@ shepherdr -reset-notifications
 
 Best effort. No history, no delivery guarantee.
 
-## Terminal and files
+## Files
 
-On a phone, Terminal opens in Reader for reading and selecting output. The terminal icon beside Settings opens the full terminal for direct typing; tap its input area to open the keyboard. The phone icon returns to Reader, keeping your reading place, draft, and pending files.
+While an agent is in a terminal, you can attach photos and files. Shepherdr saves them on this machine, in its own folder per workspace under the system temp directory (or `-upload-parent`), and gives the agent their paths.
 
-Both views keep control until you release it or another controller takes over. Opening a terminal never takes control from someone else; taking over requires confirmation.
-
-**Send keys** lets you choose Esc, Tab, Enter, Backspace, arrows, F1–F12, or one printable character, with Ctrl, Alt / Option, Shift, and Super / Command. Herdr interprets the combination for the terminal. Super / Command reaches only apps that turn on enhanced keyboard input; an ordinary shell may receive nothing. While observing, use **Control** or confirmed **Take over** first. Keys act immediately, independently of your unsent message and files. If the result is unknown, check the terminal before deliberately sending again.
-
-Pin combinations without sending them, then edit, remove, reorder, or restore the shortcuts in this browser. Esc, Up, Down, Backspace, and Ctrl+C start pinned, in that order, with fixed Enter after the first shortcut. Saved choices stay unchanged; **Restore defaults** applies the new list. Tab remains in the picker and can be pinned. Enter, Send keys, control, and Message or Attach files remain available with their usual rules.
-
-In Reader, **Message** opens the composer. **Add files** appears only while that exact terminal has a recognized agent. **Photos** and **Files** use the browser's ordinary pickers. **Send** submits the message and any selected file paths.
-
-While a recognized agent is present, the full terminal's paperclip opens a compact files-only panel. **Insert files** adds local file references at the current cursor without pressing Enter. Submit them yourself when ready; your Reader message draft stays separate.
-
-Shepherdr stores the files on this machine. Reader sends their absolute paths as:
-
-```text
-User uploaded files:
-- /absolute/path/to/file
-```
-
-Those paths are for the agent to open. They are not sent to a model.
-
-Files stay with the workspace across agent changes and restarts. After the workspace is gone, Shepherdr tries to delete only the folder it created. Cleanup can fail. This is not file history.
+After the workspace is closed, Shepherdr deletes that folder. Cleanup is best effort.
 
 ## Flags
 
