@@ -4,6 +4,7 @@ import {
   allTerminals,
   allWorkspaces,
   herdrNames,
+  homeRowFor,
   listsTabs,
   showTabHeadings,
   spaceWord,
@@ -129,6 +130,7 @@ interface SpaceTabsNodes {
   disclosure: HTMLButtonElement;
   header: HTMLElement;
   heading: HTMLHeadingElement;
+  headingText: HTMLElement;
   list: HTMLUListElement;
   marker: HTMLElement;
   section: HTMLElement;
@@ -176,10 +178,19 @@ interface TerminalActionSheetNodes {
   title: HTMLHeadingElement;
 }
 
-interface AutomaticallyClosedPicker {
+interface FocusAnchor {
+  element: HTMLElement;
+  header: boolean;
   paneID?: string;
+  tabID?: string;
+  workspaceID?: string;
+}
+
+interface AutomaticallyClosedPicker {
   returnFocus?: HTMLElement;
   scroll: number;
+  tabID?: string;
+  workspaceID: string;
 }
 
 interface ConnectionCopy {
@@ -488,6 +499,10 @@ export class HomeView {
   }
 
   render(model: HomeViewRender): void {
+    // In Herdr Core a space's rows change form as it gains or loses tabs and
+    // panes, which replaces or moves the nodes after them; focus stays where it
+    // was, or with the row that now stands for its space, tab or terminal.
+    const focusAnchor = model.herdr === "core" && this.#lastRender?.herdr === "core" ? this.#focusAnchor() : undefined;
     if (this.#lastRender && this.#lastRender.herdr !== model.herdr) this.#forgetShownHerdr();
     this.#lastRender = model.restore ? { ...model, restore: undefined } : model;
     this.#renderedSpaceTabs = new Set();
@@ -630,7 +645,39 @@ export class HomeView {
     } else if (model.restore?.focusWorkspace) {
       this.workspaceRow(model.restore.focusWorkspace)?.focus({ preventScroll: true });
     }
+    const active = this.#document.activeElement;
+    if (focusAnchor && (!active || active === this.#document.body)) this.#restoreFocus(focusAnchor);
     if (automaticallyClosedPicker) this.#restoreAutomaticallyClosedPicker(automaticallyClosedPicker);
+  }
+
+  // focusAnchor keeps the focused element and, on Home's list, the space,
+  // tab and terminal its row or menu button belongs to.
+  #focusAnchor(): FocusAnchor | undefined {
+    const active = this.#document.activeElement;
+    if (!(active instanceof this.#document.defaultView!.HTMLElement) || !this.#app.contains(active)) return undefined;
+    const sections: Array<[string, HTMLElement]> = [
+      ...Array.from(this.#spaceTabs, ([id, nodes]): [string, HTMLElement] => [id, nodes.section]),
+      ...Array.from(this.#workspaces, ([id, nodes]): [string, HTMLElement] => [id, nodes.section]),
+    ];
+    const workspaceID = sections.find(([, section]) => section.contains(active))?.[0];
+    if (!workspaceID) return { element: active, header: false };
+    const paneID = Array.from(this.#terminalMenus).find(([, nodes]) => nodes.container.contains(active))?.[0] ??
+      Array.from(this.#rows).find(([, nodes]) => nodes.row === active)?.[0];
+    const tabID = this.#workspaceValues.get(workspaceID)?.tabs
+      .find((tab) => this.#tabItems.get(tabRowKey(workspaceID, tab.id))?.contains(active))?.id;
+    const header = this.#spaceTabs.get(workspaceID)?.header.contains(active) ?? false;
+    return { element: active, header, paneID, tabID, workspaceID };
+  }
+
+  #restoreFocus(anchor: FocusAnchor): void {
+    let target: HTMLElement | undefined = anchor.element;
+    if (!target.isConnected || target.closest("[hidden]") !== null) {
+      const header = anchor.header && anchor.workspaceID ? this.#spaceTabs.get(anchor.workspaceID)?.disclosure : undefined;
+      target = header?.isConnected
+        ? header
+        : anchor.workspaceID ? this.#spaceHomeRow(anchor.workspaceID, anchor.tabID, anchor.paneID) : undefined;
+    }
+    target?.focus({ preventScroll: true });
   }
 
   // The two Herdrs are different lists whose ids may repeat, so nothing kept
@@ -817,14 +864,23 @@ export class HomeView {
     const expanded = forceExpanded || (this.#expandedSets.get(full.id) ?? false);
     const counts = full.agent_counts ?? {};
     const totals = this.#groupSummaryLabel(counts);
-    setAttribute(nodes.disclosure, "aria-expanded", String(expanded));
-    setAttribute(nodes.disclosure, "aria-label", `${expanded ? "Collapse" : "Expand"} ${full.label} tabs${totals ? `, ${totals}` : ""}`);
-    setText(nodes.marker, expanded ? "⌄" : "›");
     setText(nodes.heading, full.label);
     setText(nodes.title, full.label);
     this.#updateSummary(nodes.summary, nodes.summaryStatuses, counts);
     setHidden(nodes.body, !expanded);
-    reconcileChildren(nodes.header, [this.#workspaceActionRow(full, nodes.disclosure, managementAvailable)]);
+    if (only) {
+      // Blocked and Error show the space's matching tabs with a plain heading:
+      // there is nothing to open or close there.
+      setClass(nodes.headingText, "workspace-set-heading space-tabs-plain");
+      reconcileChildren(nodes.header, [nodes.headingText]);
+    } else {
+      setClass(nodes.headingText, "workspace-set-heading");
+      setAttribute(nodes.disclosure, "aria-expanded", String(expanded));
+      setAttribute(nodes.disclosure, "aria-label", `${expanded ? "Collapse" : "Expand"} ${full.label} tabs${totals ? `, ${totals}` : ""}`);
+      setText(nodes.marker, expanded ? "⌄" : "›");
+      reconcileChildren(nodes.disclosure, [nodes.marker, nodes.headingText]);
+      reconcileChildren(nodes.header, [this.#workspaceActionRow(full, nodes.disclosure, managementAvailable)]);
+    }
     reconcileChildren(nodes.list, tabs.map((tab) => this.#tabItem(full, tab, actionsAvailable, managementAvailable)));
     return nodes.section;
   }
@@ -849,7 +905,6 @@ export class HomeView {
     const title = element(this.#document, "span", "workspace-set-title");
     const summary = element(this.#document, "span", "workspace-set-summary");
     headingText.append(title, summary);
-    disclosure.append(marker, headingText);
     const body = element(this.#document, "div", "workspace-set-body");
     body.id = `space-tabs-contents-${sequence}`;
     disclosure.setAttribute("aria-controls", body.id);
@@ -863,6 +918,7 @@ export class HomeView {
       disclosure,
       header,
       heading,
+      headingText,
       list,
       marker,
       section,
@@ -1174,14 +1230,11 @@ export class HomeView {
     }
     const workspace = this.#workspaceValues.get(this.#pickerWorkspaceID);
     if (!workspace || !this.#pickerShows(workspace, this.#pickerTabID)) {
-      const pickerTab = workspace?.tabs.find((tab) => tab.id === this.#pickerTabID);
-      const remaining = this.#pickerTabID === undefined
-        ? (workspace ? visibleTabs(workspace)[0]?.terminals[0] : undefined)
-        : (pickerTab?.terminals.length === 1 ? pickerTab.terminals[0] : undefined);
       const closed = {
-        paneID: remaining?.pane_id,
         returnFocus: this.#pickerReturnFocus,
         scroll: this.#pickerScroll,
+        tabID: this.#pickerTabID,
+        workspaceID: this.#pickerWorkspaceID,
       };
       this.#pickerWorkspaceID = undefined;
       this.#pickerTabID = undefined;
@@ -1227,18 +1280,39 @@ export class HomeView {
     if (!this.#pickerWorkspaceID || this.#actionRunning) return;
     this.#closeMenu();
     const returnFocus = this.#pickerReturnFocus;
+    const homeRow = this.#spaceHomeRow(this.#pickerWorkspaceID, this.#pickerTabID);
     this.#pickerWorkspaceID = undefined;
     this.#pickerTabID = undefined;
     setHidden(this.#picker.layer, true);
     reconcileChildren(this.#picker.body, []);
     this.#document.defaultView?.scrollTo(0, this.#pickerScroll);
     this.#pickerReturnFocus = undefined;
-    this.#backgroundFocusTarget(returnFocus)?.focus({ preventScroll: true });
+    this.#backgroundFocusTarget(returnFocus, homeRow)?.focus({ preventScroll: true });
+  }
+
+  // spaceHomeRow finds the Home row that now stands for a space, tab or
+  // terminal whose rows may have changed form: the terminal's or tab's row,
+  // else the space's, else the header of a closed space that lists its tabs.
+  #spaceHomeRow(workspaceID: string, tabID?: string, paneID?: string): HTMLElement | undefined {
+    const workspace = this.#workspaceValues.get(workspaceID);
+    if (!workspace) return undefined;
+    const tab = workspace.tabs.find((candidate) =>
+      candidate.terminals.some((terminal) => terminal.pane_id === paneID)) ??
+      workspace.tabs.find((candidate) => candidate.id === tabID && candidate.terminals.length > 0) ??
+      visibleTabs(workspace)[0]?.tab;
+    const terminal = tab?.terminals.find((candidate) => candidate.pane_id === paneID) ?? tab?.terminals[0];
+    if (!tab || !terminal) return undefined;
+    const home = homeRowFor({ tab, terminal, workspace }, this.#shownHerdr());
+    const rows = [
+      "pane" in home ? this.#rows.get(home.pane)?.row : this.workspaceRow(home.workspace),
+      this.#spaceTabs.get(workspace.id)?.disclosure,
+    ];
+    return rows.find((row) => row?.isConnected && row.localName === "button" && row.closest("[hidden]") === null);
   }
 
   #restoreAutomaticallyClosedPicker(closed: AutomaticallyClosedPicker): void {
     this.#document.defaultView?.scrollTo(0, closed.scroll);
-    const target = this.#backgroundFocusTarget(closed.returnFocus, closed.paneID);
+    const target = this.#backgroundFocusTarget(closed.returnFocus, this.#spaceHomeRow(closed.workspaceID, closed.tabID));
     if (!target) return;
     if (!this.#actionLayer.hidden) {
       if (!this.#returnFocus?.isConnected || this.#picker.layer.contains(this.#returnFocus)) {
@@ -1249,12 +1323,11 @@ export class HomeView {
     target.focus({ preventScroll: true });
   }
 
-  #backgroundFocusTarget(preferred?: HTMLElement, paneID?: string): HTMLElement | undefined {
+  #backgroundFocusTarget(preferred?: HTMLElement, homeRow?: HTMLElement): HTMLElement | undefined {
     if (preferred?.isConnected &&
       !this.#picker.layer.contains(preferred) &&
       !this.#actionLayer.contains(preferred)) return preferred;
-    const row = paneID ? this.#rows.get(paneID)?.row : undefined;
-    if (row?.isConnected && row.localName === "button") return row;
+    if (homeRow) return homeRow;
     if (this.#filterInput.isConnected) return this.#filterInput;
     if (this.#attentionShowAll.isConnected && !this.#attentionShowAll.hidden) return this.#attentionShowAll;
     return Array.from(this.#app.querySelectorAll<HTMLElement>("button, input")).find((node) =>

@@ -728,6 +728,11 @@ h3 {
   padding-right: 0.5rem;
 }
 
+/* In Blocked and Error the header is a plain heading. */
+.space-tabs-plain {
+  padding-left: 1rem;
+}
+
 /* A split tab's row has no menu; keep its terminal glyph in line with the others. */
 .space-tabs-list:has(.workspace-menu) > li > .terminal-row {
   padding-right: 44px;

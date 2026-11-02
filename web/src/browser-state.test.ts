@@ -1052,9 +1052,158 @@ test("Herdr Core tab lists open and close by choice, Expand all, the filter and 
   blocked.workspaces[0].agent_counts = { working: 1, blocked: 1, done: 3 };
   blocked.workspaces[0].tabs[1].terminals[0].agent!.status = "blocked";
   render(view, state(blocked), { herdr: "core", mode: "blocked" });
-  assert.equal(requiredWorkspaceRow(view, "sp-douro").getAttribute("aria-expanded"), "true");
+  // There the header is a plain heading: nothing to open or close.
+  const header = requiredElement(app, ".space-tabs-header");
+  assert.equal(header.querySelectorAll("button").length, 0);
+  assert.equal(header.querySelectorAll(".workspace-set-marker").length, 0);
+  assert.deepEqual(
+    [requiredElement(header, ".workspace-set-title").textContent, ...Array.from(header.querySelectorAll(".workspace-summary-status"), (node) => node.textContent)],
+    ["Douro", "1 working", "1 blocked", "3 done"],
+  );
+  assert.equal(requiredElement(app, ".space-tabs .workspace-set-body").hidden, false);
   assert.deepEqual(Array.from(app.querySelectorAll(".terminal-row .terminal-name"), (node) => node.textContent), ["Ops setup"]);
   assert.equal(app.querySelectorAll(".workspace-menu").length, 0);
+  // Leaving Blocked keeps Douro closed, as it was chosen.
+  render(view, state(blocked), { herdr: "core" });
+  assert.equal(requiredWorkspaceRow(view, "sp-douro").getAttribute("aria-expanded"), "false");
+  assert.equal(requiredWorkspaceRow(view, "sp-douro").isConnected, true);
+  window.close();
+});
+
+function focusedName(window: Window): string {
+  const active = window.document.activeElement;
+  return active ? `${active.localName}:${active.getAttribute("aria-label") ?? ""}` : "none";
+}
+
+function douroTabLabels(app: HTMLElement): Array<string | null | undefined> {
+  return Array.from(app.querySelectorAll(".space-tabs-list .terminal-name"), (node) => node.textContent);
+}
+
+test("Herdr Core keeps focus on a tab's row when the tab gains or loses a pane", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window);
+  const home = douroHome();
+  render(view, state(home), { herdr: "core" });
+  requiredRow(view, "t2").focus();
+  assert.equal(focusedName(window), "button:Open Ops setup, space Douro, claude-code, done");
+
+  // Ops setup gains a pane: focus moves to the tab's new picker row.
+  const split = douroHome();
+  const opsTab = split.workspaces[0].tabs[1];
+  opsTab.terminals.push({ ...opsTab.terminals[0], agent: undefined, pane_id: "t10", terminal_id: "core:t10", title: "zsh" });
+  render(view, state(split), { herdr: "core" });
+  assert.equal(focusedName(window), "button:Choose a terminal in Ops setup, space Douro, 2 terminals, 1 done");
+
+  // It drops back to one terminal with its picker closed: focus moves to the terminal's row.
+  render(view, state(home), { herdr: "core" });
+  assert.equal(focusedName(window), "button:Open Ops setup, space Douro, claude-code, done");
+
+  // Focus on the tab's menu button stays there while nothing changes the row.
+  requiredElement(requiredRow(view, "t2").parentElement!, ".workspace-menu-trigger").focus();
+  render(view, state(home), { herdr: "core" });
+  assert.equal(focusedName(window), "button:Actions for Ops setup");
+  render(view, state(split), { herdr: "core" });
+  assert.equal(focusedName(window), "button:Choose a terminal in Ops setup, space Douro, 2 terminals, 1 done");
+  window.close();
+});
+
+test("Herdr Core returns a picker's focus to the space's row after the space gains or loses tabs", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window);
+  // Split has one split tab: its row opens the whole-space picker.
+  const oneTab = douroHome();
+  render(view, state(oneTab), { herdr: "core" });
+  requiredWorkspaceRow(view, "sp-split").click();
+  assert.equal(requiredElement(app, ".terminal-picker-layer").hidden, false);
+
+  // It gains a working tab: the picker closes and focus goes to the split tab's row.
+  const twoTabs = douroHome();
+  twoTabs.workspaces[2].agent_counts = { idle: 2, working: 1 };
+  twoTabs.workspaces[2].tabs.push({
+    current: false,
+    id: "tb-s2",
+    label: "second",
+    number: 2,
+    terminals: [{ ...twoTabs.workspaces[2].tabs[0].terminals[0], agent: { kind: "claude-code", name: "claude-code", status: "working" }, pane_id: "t11", terminal_id: "core:t11" }],
+  });
+  render(view, state(twoTabs), { herdr: "core" });
+  assert.equal(requiredElement(app, ".terminal-picker-layer").hidden, true);
+  assert.equal(focusedName(window), "button:Choose a terminal in main, space Split, 2 terminals, 2 idle");
+
+  // Its tab picker is open when the space drops back to one tab: the picker
+  // stays, and closing it goes to the space's row.
+  requiredWorkspaceRow(view, tabRowKey("sp-split", "tb-s")).click();
+  assert.equal(focusedName(window), "button:Close terminal picker");
+  render(view, state(oneTab), { herdr: "core" });
+  assert.equal(requiredElement(app, ".terminal-picker-layer").hidden, false);
+  assert.equal(focusedName(window), "button:Close terminal picker");
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".terminal-picker-body .terminal-name"), (node) => node.textContent),
+    ["claude-code", "claude-code"],
+  );
+  requiredElement(app, ".terminal-picker-close").click();
+  assert.equal(focusedName(window), "button:Choose a terminal in Split, 2 terminals, 2 idle");
+
+  // A closed space that gains a tab while its picker is open returns focus to its header.
+  const quietTwoTabs = douroHome();
+  const quietOne = douroHome();
+  quietOne.workspaces[1].tabs = [quietOne.workspaces[1].tabs[0]];
+  quietOne.workspaces[1].tabs[0].terminals.push({ ...quietOne.workspaces[1].tabs[0].terminals[0], pane_id: "t12", terminal_id: "core:t12" });
+  render(view, state(quietOne), { herdr: "core" });
+  requiredWorkspaceRow(view, "sp-quiet").click();
+  quietTwoTabs.workspaces[1].tabs[0].terminals.push({ ...quietTwoTabs.workspaces[1].tabs[0].terminals[0], pane_id: "t12", terminal_id: "core:t12" });
+  render(view, state(quietTwoTabs), { herdr: "core" });
+  assert.equal(requiredElement(app, ".terminal-picker-layer").hidden, true);
+  assert.equal(focusedName(window), "button:Expand Quiet tabs, 1 done");
+  window.close();
+});
+
+test("Herdr Core keeps focus with a space whose row changes form as it gains or loses tabs", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { view } = makeView(window);
+  const twoTabs = douroHome();
+  const oneTab = douroHome();
+  oneTab.workspaces[1].tabs = [oneTab.workspaces[1].tabs[0]];
+  render(view, state(twoTabs), { herdr: "core" });
+
+  // The header holds focus when Quiet drops to one tab: focus goes to its one row.
+  requiredWorkspaceRow(view, "sp-quiet").focus();
+  render(view, state(oneTab), { herdr: "core" });
+  assert.equal(focusedName(window), "button:Open claude-code, space Quiet, done");
+
+  // That row holds focus when Quiet gains its tab back, closed: focus goes to the header.
+  render(view, state(twoTabs), { herdr: "core" });
+  assert.equal(focusedName(window), "button:Expand Quiet tabs, 1 done");
+
+  // Opened, with the first tab's row focused, the space moves to the top and keeps it.
+  requiredWorkspaceRow(view, "sp-quiet").click();
+  requiredRow(view, "t6").focus();
+  const moved = douroHome();
+  moved.workspaces = [moved.workspaces[1], moved.workspaces[0], moved.workspaces[2]];
+  render(view, state(moved), { herdr: "core" });
+  assert.equal(focusedName(window), "button:Open one, space Quiet, claude-code, done");
+  window.close();
+});
+
+test("Herdr Core follows renamed and reordered tabs while a space is open", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window);
+  render(view, state(douroHome()), { herdr: "core" });
+  requiredRow(view, "t2").focus();
+
+  const changed = douroHome();
+  const tabs = changed.workspaces[0].tabs;
+  tabs[1].label = "Ops review";
+  changed.workspaces[0].tabs = [tabs[1], tabs[0], tabs[2], tabs[3]];
+  render(view, state(changed), { herdr: "core" });
+  assert.deepEqual(douroTabLabels(app).slice(0, 4), ["Ops review", "Software 001 devenv", "4", "Hardware backplane"]);
+  assert.equal(focusedName(window), "button:Open Ops review, space Douro, claude-code, done");
+
+  // Moving the focused tab down the list keeps focus on it.
+  changed.workspaces[0].tabs = [tabs[0], tabs[2], tabs[3], tabs[1]];
+  render(view, state(changed), { herdr: "core" });
+  assert.deepEqual(douroTabLabels(app).slice(0, 4), ["Software 001 devenv", "4", "Hardware backplane", "Ops review"]);
+  assert.equal(focusedName(window), "button:Open Ops review, space Douro, claude-code, done");
   window.close();
 });
 

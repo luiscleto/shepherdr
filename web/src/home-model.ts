@@ -194,10 +194,6 @@ export function allWorkspaces(home: Home): Workspace[] {
   return home.workspaces.flatMap((workspace) => [workspace, ...(workspace.worktrees ?? [])]);
 }
 
-export function workspaceSets(home: Home): Workspace[] {
-  return home.workspaces.filter((workspace) => (workspace.worktrees?.length ?? 0) > 0);
-}
-
 export function findTerminal(home: Home, paneID: string): TerminalEntry | undefined {
   return allTerminals(home).find(({ terminal }) => terminal.pane_id === paneID);
 }
