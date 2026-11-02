@@ -6,6 +6,8 @@ This wave implements the approved direction in `docs/pane-support-plan.md`. It i
 
 The functional pane implementation is integrated at `dbe432568c9b5f4901b4958952795b55d8e728cc`. The human accepted its behavior and replaced the inline terminal sections with the terminal picker described here. The orchestrator will record the commit containing this approved update as the exact starting point for the focused interface worker.
 
+Later change: since 2026-11-02, a Herdr Core space with several tabs shows one row per tab under a header that opens and closes, instead of one row. `docs/pane-support-plan.md` and `docs/ui-direction.md` describe it. This wave's text below is kept as it was approved.
+
 ## Scope
 
 One focused worker owns the remaining Home presentation change. The reviewed Herdr projection and terminal-action server contract stay unchanged.

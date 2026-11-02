@@ -12,7 +12,7 @@ Shepherdr preserves Herdr's real hierarchy:
 
 **workspace → tab → terminal**
 
-Every real terminal appears exactly once in its workspace's terminal picker. Shepherdr does not choose a representative or “current” terminal for a workspace with several terminals.
+Every real terminal appears exactly once on Home: in its workspace's terminal picker, or, for a Herdr Core space with several tabs, in its tab's row or that tab's picker. Shepherdr does not choose a representative or “current” terminal for a workspace with several terminals.
 
 Workspace, tab, and pane IDs are opaque session-scoped keys. The pane ID and current terminal ID together identify the exact terminal to open or change. A complete Herdr snapshot replaces the previous Home state after reconnects and changes.
 
@@ -23,6 +23,8 @@ Status totals count real agents once. A terminal without an agent does not gain 
 A workspace always keeps one consistent row on Home. Its heading shows the workspace name and nonzero agent-status totals.
 
 With one terminal, the existing terminal control opens it directly. With several terminals, that same control shows a small terminal-count badge and opens the workspace's terminal picker. This works the same way for a top-level workspace and a workspace inside a worktree group.
+
+The one exception is a Herdr Core space with several tabs. It is a header that opens and closes one row per tab, and a split tab's row opens the picker for that tab's terminals only. `docs/ui-direction.md` describes it. Herdr TUI workspaces and Core spaces with one tab keep the single row.
 
 On a phone, the picker is a bottom sheet. On a larger screen, it is a compact dialog. It shows the workspace name and terminal count, then lists every terminal exactly once. Real tab headings appear only when more than one nonempty tab needs to be distinguished. Tabs remain labels only; there are no tab-management controls.
 
@@ -104,7 +106,7 @@ Do not add a durable Home store, partial event handling, optimistic success, a s
 Use a production Shepherdr build, a real phone, and disposable real Herdr workspaces.
 
 - Compare Home with Herdr for one terminal, several terminals in one tab, several nonempty tabs, and worktree groups containing each case.
-- Verify Home keeps one row per workspace, every terminal appears once in its picker, tab membership and status totals are exact, single-terminal rows stay compact, and Home does not scroll horizontally.
+- Verify Home keeps one row per workspace (a Herdr Core space with several tabs has one row per tab), every terminal appears once on Home, tab membership and status totals are exact, single-terminal rows stay compact, and Home does not scroll horizontally.
 - Exercise worktree-group disclosure, global expand/collapse, opening and closing the picker, filtering, **Blocked**, reconnect, rotation, focus, and returning from Terminal without losing place.
 - Split a nonfocused terminal **Beside** and **Below**. Confirm the exact anchor, tab, directory, unchanged Herdr focus, complete refresh, and exact new terminal destination.
 - Rename, clear a name, and check duplicate automatic names without changing manual names.

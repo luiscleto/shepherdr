@@ -149,7 +149,7 @@ Core Home's `actions` arrays become non-empty only as below. Everything else in 
 
 | Action | Where | Shown when |
 |---|---|---|
-| **Close terminal** | the terminal's three-dot menu (picker, or the merged menu of a one-terminal space row) | core Home is live. Rows under **Other terminals** follow D6. |
+| **Close terminal** | the terminal's three-dot menu (picker, the merged menu of a one-terminal space row, or a one-terminal tab row in a space with several tabs) | core Home is live. Rows under **Other terminals** follow D6. |
 | **Close space** | the space row's three-dot menu, or the merged menu | core Home is live and the space is a document space (never **Other terminals**) |
 | **New space** (3b) | tools row | core Home is live **and** the app window is open **and** the app gate passes (4.3) |
 | **New terminal** (split, 3b) | the terminal's menu | as for New space, and the terminal is placed by the document (a pane exists) |
