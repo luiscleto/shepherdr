@@ -66,7 +66,7 @@ go install github.com/luiscleto/shepherdr@latest
 # or pin a version: go install github.com/luiscleto/shepherdr@v0.6.0
 ```
 
-**From source** — Go 1.27+, Node.js 20+, npm:
+**From source** — Go 1.27+, Node.js 26+, npm:
 
 ```sh
 npm ci --prefix web

@@ -2,6 +2,8 @@ module github.com/luiscleto/shepherdr
 
 go 1.27.0
 
+toolchain go1.27.3
+
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/go-webauthn/webauthn v0.17.4
