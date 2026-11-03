@@ -181,6 +181,12 @@ jobs:
           test "$("$package_dir/shepherdr" --version)" = "shepherdr v0.6.0"
 
           go version -m "$package_dir/shepherdr" > "$candidate_dir/build-metadata.txt"
+          expected_go=$(go mod edit -json | jq -er '.Toolchain // ("go" + .Go)')
+          built_go=$(go version "$package_dir/shepherdr" | awk '{print $NF}')
+          if [[ "$built_go" != "$expected_go" ]]; then
+            echo "the binary was built with $built_go, but go.mod names $expected_go" >&2
+            exit 1
+          fi
           grep -F "github.com/luiscleto/shepherdr" "$candidate_dir/build-metadata.txt"
           grep -F "CGO_ENABLED=0" "$candidate_dir/build-metadata.txt"
           grep -F "GOOS=$TARGET_GOOS" "$candidate_dir/build-metadata.txt"
