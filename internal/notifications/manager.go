@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -285,7 +284,7 @@ func notificationLogFields(event Event) []any {
 }
 
 func notificationTrustLabel(label string) string {
-	label = strings.TrimSpace(label)
+	label = cleanNotificationText(label)
 	if label == "" || utf8.RuneCountInString(label) > 160 {
 		return ""
 	}

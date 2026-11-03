@@ -420,6 +420,12 @@ test("push worker shows plain workspace names and safely handles payload fallbac
   assert.equal(worker.shownBody(), "A trusted sign-in was removed.");
   assert.equal(worker.shownDestination(), "/");
 
+  await worker.push({ destination: "/", kind: "workspace_opened", workspace_name: "Pay\u202emoc\nexe\u2066 \u200bnow\ufeff" });
+  assert.equal(worker.shownBody(), "Paymoc exe now");
+
+  await worker.push({ destination: "/", kind: "trusted_sign_in_added", trust_label: "\u202bTablet\u0007\u2028two\u202c" });
+  assert.equal(worker.shownBody(), "Label: Tablet two");
+
   await worker.push({ destination: "/", kind: "workspace_opened", workspace_name: "   " });
   assert.equal(worker.shownTitle(), "Shepherdr");
   assert.equal(worker.shownBody(), "A workspace opened.");

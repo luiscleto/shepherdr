@@ -15,6 +15,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Shepherdr reads one file send at a time, so several large sends at once can't exhaust its memory. Other sends wait their turn.
 - A client that sends a request slowly is cut off instead of holding a connection open indefinitely.
 - A reply from the Herdr TUI, Herdr Core or the Herdr app larger than 16 MiB is refused with a clear error instead of growing Shepherdr's memory without limit.
+- Notifications drop control and text-direction characters from workspace names and trusted sign-in labels, so a name can't disguise or break the notification text.
 
 ## [0.6.0] - 2026-11-03
 

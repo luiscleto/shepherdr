@@ -94,8 +94,20 @@ function notificationFor(value) {
 
 function usableWorkspaceName(value) {
   if (typeof value !== "string") return "";
-  const name = value.trim();
+  const name = cleanText(value);
   return name && Array.from(name).length <= 160 ? name : "";
+}
+
+// Workspace names and trusted-sign-in labels are untrusted. As Shepherdr
+// does, drop control and format characters, bidi controls among them, and
+// fold runs of spaces, so a name can't reorder or break the text around it.
+function cleanText(value) {
+  return value
+    .replace(/[\t\n\v\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/gu, " ")
+    .replace(/[\p{Cc}\p{Cf}\ufffd]/gu, "")
+    .split(" ")
+    .filter(Boolean)
+    .join(" ");
 }
 
 // Shepherdr sends a given name already cleaned and at most 60 characters.
@@ -108,7 +120,7 @@ function usableGivenName(value) {
 
 function usableTrustLabel(value) {
   if (typeof value !== "string") return "";
-  const label = value.trim();
+  const label = cleanText(value);
   return label && Array.from(label).length <= 160 ? label : "";
 }
 

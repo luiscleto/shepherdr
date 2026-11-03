@@ -108,6 +108,22 @@ func TestNotificationWorkspaceNameUsesOnlyShortNonBlankDisplayText(t *testing.T)
 	}
 }
 
+func TestNotificationWorkspaceNameAndTrustLabelDropControlAndBidiCharacters(t *testing.T) {
+	for _, clean := range []func(string) string{notificationWorkspaceName, notificationTrustLabel} {
+		for input, want := range map[string]string{
+			"Pay\u202emoc.exe":                      "Paymoc.exe",
+			"Line\nbreak\tand\u2028more":            "Line break and more",
+			"\u2066Isolated\u2069 \u200bname\ufeff": "Isolated name",
+			"\x1b[31mRed\x07":                       "[31mRed",
+			"Ordinary café 日本":                      "Ordinary café 日本",
+		} {
+			if got := clean(input); got != want {
+				t.Errorf("cleaned %q = %q, want %q", input, got, want)
+			}
+		}
+	}
+}
+
 func notificationSnapshot(status string, workspaceIDs ...string) herdr.Snapshot {
 	workspaces := make([]herdr.WorkspaceInfo, len(workspaceIDs))
 	for index, id := range workspaceIDs {

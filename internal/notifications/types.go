@@ -244,7 +244,7 @@ func singleWorkspaceName(workspaces []herdr.WorkspaceInfo) string {
 }
 
 func notificationWorkspaceName(label string) string {
-	name := strings.TrimSpace(label)
+	name := cleanNotificationText(label)
 	if utf8.RuneCountInString(name) > 160 {
 		return ""
 	}
@@ -278,6 +278,18 @@ const maxGivenNameRunes = 60
 // drops control and format characters, folds runs of spaces, and shortens a
 // long name with an ellipsis.
 func notificationGivenName(name string) string {
+	cleaned := cleanNotificationText(name)
+	if utf8.RuneCountInString(cleaned) > maxGivenNameRunes {
+		runes := []rune(cleaned)
+		cleaned = strings.TrimSpace(string(runes[:maxGivenNameRunes-1])) + "…"
+	}
+	return cleaned
+}
+
+// cleanNotificationText drops control and format characters, bidi controls
+// among them, from untrusted notification text and folds runs of spaces, so
+// a name can't reorder or break the text around it.
+func cleanNotificationText(text string) string {
 	cleaned := strings.Map(func(r rune) rune {
 		switch {
 		case unicode.IsSpace(r):
@@ -286,13 +298,8 @@ func notificationGivenName(name string) string {
 			return -1
 		}
 		return r
-	}, name)
-	cleaned = strings.Join(strings.Fields(cleaned), " ")
-	if utf8.RuneCountInString(cleaned) > maxGivenNameRunes {
-		runes := []rune(cleaned)
-		cleaned = strings.TrimSpace(string(runes[:maxGivenNameRunes-1])) + "…"
-	}
-	return cleaned
+	}, text)
+	return strings.Join(strings.Fields(cleaned), " ")
 }
 
 func terminalKey(paneID, terminalID string) string {
