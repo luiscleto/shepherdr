@@ -131,7 +131,7 @@ type coreResponse struct {
 type coreConnection struct {
 	client  *CoreClient
 	conn    net.Conn
-	decoder *json.Decoder
+	decoder *replyDecoder
 }
 
 func (c *CoreClient) open(ctx context.Context) (*coreConnection, coreHello, error) {
@@ -141,7 +141,7 @@ func (c *CoreClient) open(ctx context.Context) (*coreConnection, coreHello, erro
 		return nil, coreHello{}, fmt.Errorf("connect to Herdr Core: %w", err)
 	}
 	_ = conn.SetDeadline(time.Now().Add(requestTimeout))
-	connection := &coreConnection{client: c, conn: conn, decoder: json.NewDecoder(conn)}
+	connection := &coreConnection{client: c, conn: conn, decoder: newReplyDecoder(conn)}
 	var hello coreHello
 	if err := connection.call("hello", map[string]any{"generation": coreGeneration}, &hello); err != nil {
 		conn.Close()
@@ -346,7 +346,7 @@ func (c *CoreClient) Label(ctx context.Context, address string, labels map[strin
 
 type CoreSubscription struct {
 	conn    net.Conn
-	decoder *json.Decoder
+	decoder *replyDecoder
 }
 
 // Subscribe opens one plain event connection. Its reply snapshot is not used:

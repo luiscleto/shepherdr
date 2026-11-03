@@ -1,7 +1,6 @@
 package herdr
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -132,7 +131,7 @@ func (c *AppClient) Do(ctx context.Context, command string, args map[string]any,
 			return &MutationError{Err: fmt.Errorf("Herdr app %s printed an unexpected reply", command), Submitted: true}
 		}
 		return nil
-	case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled):
+	case errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, ErrReplyTooLarge):
 		return &MutationError{Err: fmt.Errorf("Herdr app %s: %w", command, err), Submitted: true}
 	case !errors.As(err, &exit):
 		// herdr-app did not start, so nothing reached the window.
@@ -166,13 +165,15 @@ func appWindowMissing(stderr []byte) bool {
 func (c *AppClient) run(ctx context.Context, args ...string) ([]byte, []byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	var stdout, stderr bytes.Buffer
+	var stdout, stderr boundedOutput
 	command := exec.CommandContext(ctx, c.path, args...)
 	command.Stdout, command.Stderr = &stdout, &stderr
 	command.WaitDelay = time.Second
 	err := command.Run()
 	if ctx.Err() != nil {
 		err = ctx.Err()
+	} else if stdout.tooLarge || stderr.tooLarge {
+		err = ErrReplyTooLarge
 	}
-	return stdout.Bytes(), stderr.Bytes(), err
+	return stdout.data, stderr.data, err
 }

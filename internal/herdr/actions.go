@@ -410,7 +410,7 @@ func (c *Client) mutateResult(ctx context.Context, prefix, method string, params
 	}
 
 	var envelope responseEnvelope
-	if err := json.NewDecoder(conn).Decode(&envelope); err != nil {
+	if err := newReplyDecoder(conn).Decode(&envelope); err != nil {
 		return nil, &MutationError{Err: fmt.Errorf("read Herdr %s response: %w", method, err), Submitted: true}
 	}
 	if err := validateResponse(envelope, id); err != nil {

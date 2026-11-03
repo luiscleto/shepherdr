@@ -72,7 +72,7 @@ func (c *Client) Snapshot(ctx context.Context) (Snapshot, error) {
 	}
 
 	var envelope responseEnvelope
-	if err := json.NewDecoder(conn).Decode(&envelope); err != nil {
+	if err := newReplyDecoder(conn).Decode(&envelope); err != nil {
 		return Snapshot{}, fmt.Errorf("read Herdr snapshot response: %w", err)
 	}
 	if err := validateResponse(envelope, id); err != nil {
@@ -152,7 +152,7 @@ func availableTerminalActions(version string) []TerminalAction {
 
 type Subscription struct {
 	conn    net.Conn
-	decoder *json.Decoder
+	decoder *replyDecoder
 }
 
 type Event struct {
@@ -216,7 +216,7 @@ func (c *Client) Subscribe(ctx context.Context, snapshot Snapshot) (*Subscriptio
 		conn.Close()
 		return nil, fmt.Errorf("write Herdr subscription request: %w", err)
 	}
-	decoder := json.NewDecoder(conn)
+	decoder := newReplyDecoder(conn)
 	var envelope responseEnvelope
 	if err := decoder.Decode(&envelope); err != nil {
 		conn.Close()
