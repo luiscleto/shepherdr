@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -17,7 +18,7 @@ func TestRealProductionHome(t *testing.T) {
 		t.Skip("set SHEPHERDR_REAL_URL for the bounded production-path check")
 	}
 	homeURL := websocketTestURL(t, base, "/api/home")
-	homeSocket, _, err := websocket.DefaultDialer.Dial(homeURL.String(), nil)
+	homeSocket, _, err := websocket.DefaultDialer.Dial(homeURL.String(), http.Header{"Origin": {base}})
 	if err != nil {
 		t.Fatal(err)
 	}
