@@ -6,9 +6,11 @@ import type { TerminalAdapterEvents } from "./terminal/adapter";
 
 // Bundle the real page and adapter as the browser does: xterm's published UMD
 // package cannot be loaded as named Node ESM imports. Only geometry is stubbed.
+// Browsers have no Node Buffer. The grapheme addon decodes its tables through
+// Buffer when it exists and misreads Node's pooled bytes, which can loop forever.
 const bundle = await build({
   stdin: { contents: 'export { closeTerminalWhileCached, TerminalPage } from "./terminal-page"; export { XTermAdapter } from "./terminal/xterm-adapter";', resolveDir: `${process.cwd()}/src` },
-  bundle: true, format: "esm", write: false,
+  bundle: true, format: "esm", write: false, define: { Buffer: "undefined" },
 });
 const { closeTerminalWhileCached, TerminalPage, XTermAdapter } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString("base64")}`);
 
