@@ -144,7 +144,7 @@ func (s *Server) Handler() http.Handler {
 		_, _ = writer.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /", s.asset)
-	return securityHeaders(s.accessBoundary(mux), s.terminalLabEnabled)
+	return securityHeaders(s.accessBoundary(mux), s.terminalLabEnabled, s.access != nil)
 }
 
 // actionSide is one Herdr's actions. Each Herdr runs one action at a time,
@@ -495,7 +495,16 @@ func isTerminalLabAsset(name string) bool {
 	return name == "terminal-lab.html" || name == "terminal-lab.js" || name == "terminal-lab.css" || name == "ghostty-vt.wasm"
 }
 
-func securityHeaders(next http.Handler, terminalLabEnabled bool) http.Handler {
+// browserPermissions turns off powerful features Shepherdr never uses. It
+// leaves passkeys, clipboard, notifications and file choosing at their
+// defaults, and leaves camera and microphone alone so a phone's file picker
+// keeps offering its camera.
+const browserPermissions = "accelerometer=(), browsing-topics=(), display-capture=(), geolocation=(), gyroscope=(), hid=(), magnetometer=(), midi=(), payment=(), serial=(), usb=()"
+
+// securityHeaders sets the browser policy for every response. Protected mode
+// is only ever reached through its HTTPS public origin, so it also asks the
+// browser to keep using HTTPS there.
+func securityHeaders(next http.Handler, terminalLabEnabled, protected bool) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		// The terminal renderers apply validated color and geometry values through
 		// element styles. Terminal content is always inserted as text, never HTML.
@@ -506,7 +515,12 @@ func securityHeaders(next http.Handler, terminalLabEnabled bool) http.Handler {
 			scriptSource = "script-src 'self' 'wasm-unsafe-eval'"
 		}
 		writer.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; "+scriptSource+"; "+styleSource+"; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+		writer.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		writer.Header().Set("Permissions-Policy", browserPermissions)
 		writer.Header().Set("Referrer-Policy", "no-referrer")
+		if protected {
+			writer.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		writer.Header().Set("X-Frame-Options", "DENY")
 		next.ServeHTTP(writer, request)
