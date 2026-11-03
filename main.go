@@ -321,12 +321,20 @@ func run() error {
 
 	select {
 	case <-ctx.Done():
+		// A second signal ends the wait for open requests at once.
+		again, stopAgain := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stopAgain()
+		stop()
 		if terminal != nil {
 			terminal.Close()
 		}
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(again, 5*time.Second)
 		defer cancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			// Close the requests still open, such as a slow file send: their
+			// reads fail, and they remove their partial files before the
+			// upload records close.
+			_ = httpServer.Close()
 			return err
 		}
 		return nil
