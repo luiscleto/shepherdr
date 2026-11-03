@@ -8,7 +8,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ### Added
 
-- In Herdr Core, an agent that finished shows **done** until you look at it, in the Herdr app or on a Shepherdr terminal page you have open, then **idle**, as it does in the app. Notifications are unchanged.
+- In Herdr Core, an agent that finished shows **done** until you look at it, in the Herdr app or on a Shepherdr terminal page you have open, then **idle**, as it does in the app. Looking at an agent doesn't change when you're notified.
 - In Herdr Core, pins are shared with the Herdr app: a pinned agent's row shows a pin, its menu offers **Pin** or **Unpin**, and **N pinned** opens a **Pinned** view with only those agents.
 
 ### Changed
