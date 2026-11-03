@@ -59,6 +59,8 @@ shepherdr --version
 
 On macOS, use `shasum -a 256 -c -` instead of `sha256sum -c -`. Put the binary on `PATH` if `$HOME/.local/bin` is not already there.
 
+To check that Shepherdr's release workflow built the archive, run `gh attestation verify "$archive" --repo luiscleto/shepherdr`.
+
 **Go** (embeds the browser app; release archives are still the usual path):
 
 ```sh
