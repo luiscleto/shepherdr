@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/luiscleto/shepherdr/internal/herdr"
@@ -115,6 +116,9 @@ type Event struct {
 	Herdr         herdr.Backend
 	Status        herdr.Status
 	WorkspaceName string
+	// GivenName is the name the person gave the terminal or its tab, or
+	// empty. It is display text only.
+	GivenName string
 	// OtherTerminals marks a status notice for a Herdr app terminal that is
 	// in no space.
 	OtherTerminals bool
@@ -170,6 +174,14 @@ func (e *snapshotEvaluator) Observe(snapshot herdr.Snapshot, baseline bool) []Ev
 	for _, workspace := range snapshot.Workspaces {
 		currentWorkspaces[workspace.WorkspaceID] = workspace
 	}
+	currentTabs := make(map[string]herdr.TabInfo, len(snapshot.Tabs))
+	for _, tab := range snapshot.Tabs {
+		currentTabs[tab.TabID] = tab
+	}
+	currentPanes := make(map[string]herdr.PaneInfo, len(snapshot.Panes))
+	for _, pane := range snapshot.Panes {
+		currentPanes[pane.PaneID] = pane
+	}
 
 	previousAgents := make(map[string]herdr.AgentInfo, len(previous.Agents))
 	for _, agent := range previous.Agents {
@@ -187,6 +199,7 @@ func (e *snapshotEvaluator) Observe(snapshot herdr.Snapshot, baseline bool) []Ev
 			Kind:           EventStatus,
 			Status:         agent.AgentStatus,
 			WorkspaceName:  notificationWorkspaceName(currentWorkspaces[agent.WorkspaceID].Label),
+			GivenName:      notificationGivenName(givenName(e.herdr, currentPanes[agent.PaneID], currentTabs[agent.TabID])),
 			OtherTerminals: e.herdr == herdr.BackendCore && agent.WorkspaceID == herdr.OtherTerminalsID,
 			PaneID:         agent.PaneID,
 			TerminalID:     agent.TerminalID,
@@ -236,6 +249,50 @@ func notificationWorkspaceName(label string) string {
 		return ""
 	}
 	return name
+}
+
+// givenName is the only name a status notice may add: one the person gave.
+// For the Herdr TUI that is the terminal's name from Rename terminal, else the
+// tab's name. The Herdr TUI names an unnamed tab by its position and doesn't
+// say whether a name was set, so a tab name of digits alone counts as unnamed.
+// For Herdr Core it is the tab's name in the Herdr app, which the Core
+// projection leaves empty when the person set none. Terminal titles, agent
+// names and paths never count.
+func givenName(backend herdr.Backend, pane herdr.PaneInfo, tab herdr.TabInfo) string {
+	if backend == herdr.BackendCore {
+		return tab.Label
+	}
+	if pane.Label != nil && strings.TrimSpace(*pane.Label) != "" {
+		return *pane.Label
+	}
+	label := strings.TrimSpace(tab.Label)
+	if strings.Trim(label, "0123456789") == "" {
+		return ""
+	}
+	return label
+}
+
+const maxGivenNameRunes = 60
+
+// notificationGivenName makes a given name safe for a notification title: it
+// drops control and format characters, folds runs of spaces, and shortens a
+// long name with an ellipsis.
+func notificationGivenName(name string) string {
+	cleaned := strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsSpace(r):
+			return ' '
+		case unicode.IsControl(r), unicode.Is(unicode.Cf, r), r == utf8.RuneError:
+			return -1
+		}
+		return r
+	}, name)
+	cleaned = strings.Join(strings.Fields(cleaned), " ")
+	if utf8.RuneCountInString(cleaned) > maxGivenNameRunes {
+		runes := []rune(cleaned)
+		cleaned = strings.TrimSpace(string(runes[:maxGivenNameRunes-1])) + "…"
+	}
+	return cleaned
 }
 
 func terminalKey(paneID, terminalID string) string {

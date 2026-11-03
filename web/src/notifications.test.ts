@@ -385,7 +385,7 @@ test("push worker shows plain workspace names and safely handles payload fallbac
     workspace_name: "Review <workspace>",
   });
   assert.equal(worker.shownTitle(), "Agent is blocked");
-  assert.equal(worker.shownBody(), "Workspace: Review <workspace>");
+  assert.equal(worker.shownBody(), "Review <workspace>");
   assert.equal(worker.shownDestination(), "/#terminal=w1%3Ap1&terminal_id=term-1");
 
   await worker.push({
@@ -466,9 +466,56 @@ test("named status pushes use exact Herdr status titles and workspace bodies", a
       workspace_name: "Review workspace",
     });
     assert.equal(worker.shownTitle(), title);
-    assert.equal(worker.shownBody(), "Workspace: Review workspace");
+    assert.equal(worker.shownBody(), "Review workspace");
     assert.equal(worker.shownDestination(), destination);
   }
+});
+
+test("status pushes lead with a name the person gave, for every status and both Herdrs", async () => {
+  const worker = serviceWorkerHarness();
+  const core = { destination: "/#terminal=t3&terminal_id=core%3At3&herdr=core", herdr: "core", pane_id: "t3", terminal_id: "core:t3" };
+  const tui = { destination: "/#terminal=w1%3Ap1&terminal_id=term-1", pane_id: "w1:p1", terminal_id: "term-1" };
+  for (const status of ["blocked", "error", "done", "idle", "working", "unknown"]) {
+    await worker.push({ ...core, kind: "status", name: "Review PR17 CI", status, workspace_name: "Douro" });
+    assert.equal(worker.shownTitle(), `Review PR17 CI is ${status}`);
+    assert.equal(worker.shownBody(), "Douro");
+    assert.equal(worker.shownDestination(), core.destination);
+  }
+  for (const status of ["blocked", "done", "idle", "working", "unknown"]) {
+    await worker.push({ ...tui, kind: "status", name: "Scout P3 Queiroz cite", status, workspace_name: "Douro" });
+    assert.equal(worker.shownTitle(), `Scout P3 Queiroz cite is ${status}`);
+    assert.equal(worker.shownBody(), "Douro");
+    assert.equal(worker.shownDestination(), tui.destination);
+  }
+
+  await worker.push({ ...core, kind: "status", status: "done", workspace_name: "Douro" });
+  assert.equal(worker.shownTitle(), "Agent is done");
+  assert.equal(worker.shownBody(), "Douro");
+
+  // Without a usable space name, the generic wording stays and the name is not shown.
+  await worker.push({ ...core, kind: "status", name: "Review PR17 CI", status: "done", workspace_name: "x".repeat(161) });
+  assert.equal(worker.shownTitle(), "Shepherdr");
+  assert.equal(worker.shownBody(), "A space finished.");
+
+  // A name the server would not send is not shown.
+  for (const name of ["x".repeat(61), "bad\u001b]0;title\u0007", "  ", 7, { text: "Review" }]) {
+    await worker.push({ ...core, kind: "status", name, status: "blocked", workspace_name: "Douro" });
+    assert.equal(worker.shownTitle(), "Agent is blocked");
+    assert.equal(worker.shownBody(), "Douro");
+  }
+
+  // HTML-looking names stay plain text; a name never picks the link.
+  await worker.push({ ...core, kind: "status", name: "<img src=x onerror=alert(1)>", status: "done", workspace_name: "Douro" });
+  assert.equal(worker.shownTitle(), "<img src=x onerror=alert(1)> is done");
+  assert.equal(worker.shownDestination(), core.destination);
+  await worker.push({ ...core, destination: "/#terminal=t9&terminal_id=core%3At3&herdr=core", kind: "status", name: "Review PR17 CI", status: "done", workspace_name: "Douro" });
+  assert.equal(worker.shownTitle(), "Shepherdr");
+  assert.equal(worker.shownDestination(), "/");
+
+  // Space notices never take a name.
+  await worker.push({ destination: "/", herdr: "core", kind: "workspace_opened", name: "Review PR17 CI", workspace_name: "Douro" });
+  assert.equal(worker.shownTitle(), "Space opened");
+  assert.equal(worker.shownBody(), "Douro");
 });
 
 test("invalid lifecycle destinations keep generic copy and do not expose workspace names", async () => {
@@ -621,7 +668,7 @@ test("with the Herdr app, pushes say space and error uses the blocked wording", 
   for (const [status, title] of [["blocked", "Agent is blocked"], ["error", "Agent status is error"]] as const) {
     await worker.push({ destination, herdr: "core", kind: "status", pane_id: "t3", status, terminal_id: "core:t3", workspace_name: "alpha" });
     assert.equal(worker.shownTitle(), title);
-    assert.equal(worker.shownBody(), "Space: alpha");
+    assert.equal(worker.shownBody(), "alpha");
     await worker.push({ destination, herdr: "core", kind: "status", pane_id: "t3", status, terminal_id: "core:t3" });
     assert.equal(worker.shownBody(), "A space needs attention.");
   }
@@ -671,5 +718,5 @@ test("a status push opens only a link to the same Herdr", async () => {
     assert.equal(worker.opened(), opens ? `https://shepherdr.example${destination}` : "https://shepherdr.example/", `${destination} ${herdr}`);
   }
   await worker.push({ ...tui, destination: "/#terminal=w1%3Ap1&terminal_id=term-1&herdr=tui", herdr: "tui" });
-  assert.equal(worker.shownBody(), "Workspace: api");
+  assert.equal(worker.shownBody(), "api");
 });

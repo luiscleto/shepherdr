@@ -262,7 +262,9 @@ func projectCore(read CoreRead, homeFolder string, repositories func(folder stri
 				continue
 			}
 			workspace.Tabs = append(workspace.Tabs, tab)
-			snapshot.Tabs = append(snapshot.Tabs, TabInfo{Label: tab.Label, Number: tab.Number, PaneCount: uint(len(tab.Terminals)), TabID: tab.ID, WorkspaceID: space.ID})
+			// The snapshot keeps only the name the person gave the tab, empty
+			// when the app calls it by its number: notices may show that name.
+			snapshot.Tabs = append(snapshot.Tabs, TabInfo{Label: appTab.Name, Number: tab.Number, PaneCount: uint(len(tab.Terminals)), TabID: tab.ID, WorkspaceID: space.ID})
 		}
 		if len(workspace.Tabs) == 0 {
 			continue
@@ -286,7 +288,7 @@ func projectCore(read CoreRead, homeFolder string, repositories func(folder stri
 			addTerminal(&other, &tab, terminal, false)
 		}
 		other.Tabs = append(other.Tabs, tab)
-		snapshot.Tabs = append(snapshot.Tabs, TabInfo{Label: tab.Label, Number: 1, PaneCount: uint(len(tab.Terminals)), TabID: tab.ID, WorkspaceID: other.ID})
+		snapshot.Tabs = append(snapshot.Tabs, TabInfo{Number: 1, PaneCount: uint(len(tab.Terminals)), TabID: tab.ID, WorkspaceID: other.ID})
 		// The group's name never stands in for a lone terminal's title.
 		if len(others) > 1 {
 			group := Home{Workspaces: []Workspace{other}}

@@ -4,6 +4,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+- An agent's notification leads with the name you gave its tab or terminal, such as "Review PR17 CI is done", and its text is the space or workspace name alone. Without a given name it still says "Agent is done".
+
 ## [0.5.2] - 2026-11-02
 
 ### Changed

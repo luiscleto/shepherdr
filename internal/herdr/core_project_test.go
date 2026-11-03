@@ -112,6 +112,15 @@ func TestProjectCoreMatchesTheAppAndPlacesEveryTerminalOnce(t *testing.T) {
 	if !reflect.DeepEqual(spaces, []string{"alpha", "repo", "~"}) || len(snapshot.Panes) != 7 || snapshot.Version != "0.1.15" {
 		t.Fatalf("snapshot spaces %v, %d panes, version %q", spaces, len(snapshot.Panes), snapshot.Version)
 	}
+	// Notices may name a tab, so the snapshot keeps only a name the person
+	// gave it: never the number Home shows, nor Other terminals.
+	tabNames := []string{}
+	for _, tab := range snapshot.Tabs {
+		tabNames = append(tabNames, tab.Label)
+	}
+	if !reflect.DeepEqual(tabNames, []string{"main", "", "", "", ""}) || home.Workspaces[0].Tabs[1].Label != "2" {
+		t.Fatalf("snapshot tab names %q, Home's second tab %q", tabNames, home.Workspaces[0].Tabs[1].Label)
+	}
 }
 
 func TestProjectCoreKeepsHostileNamesAsData(t *testing.T) {

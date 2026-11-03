@@ -118,6 +118,7 @@ type pushPayload struct {
 	Destination    string `json:"destination"`
 	Herdr          string `json:"herdr,omitempty"`
 	Kind           string `json:"kind"`
+	Name           string `json:"name,omitempty"`
 	TrustLabel     string `json:"trust_label,omitempty"`
 	WorkspaceName  string `json:"workspace_name,omitempty"`
 	OtherTerminals bool   `json:"other_terminals,omitempty"`
@@ -132,6 +133,7 @@ func eventPayload(event Event) ([]byte, error) {
 		WorkspaceName: event.WorkspaceName,
 	}
 	if event.Kind == EventStatus {
+		payload.Name = event.GivenName
 		payload.OtherTerminals = event.OtherTerminals
 		payload.PaneID = event.PaneID
 		payload.Status = string(event.Status)

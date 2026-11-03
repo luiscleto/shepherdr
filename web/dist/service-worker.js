@@ -86,15 +86,24 @@ function notificationFor(value) {
     unknown: "Agent status is unknown",
     working: "Agent is working",
   };
-  return workspaceName
-    ? { title: titles[value.status], body: `${Space}: ${workspaceName}`, destination }
-    : { title: "Shepherdr", body: bodies[value.status], destination };
+  if (!workspaceName) return { title: "Shepherdr", body: bodies[value.status], destination };
+  // A name the person gave the terminal or its tab, when there is one.
+  const name = usableGivenName(value.name);
+  return { title: name ? `${name} is ${value.status}` : titles[value.status], body: workspaceName, destination };
 }
 
 function usableWorkspaceName(value) {
   if (typeof value !== "string") return "";
   const name = value.trim();
   return name && Array.from(name).length <= 160 ? name : "";
+}
+
+// Shepherdr sends a given name already cleaned and at most 60 characters.
+// Anything else is not shown.
+function usableGivenName(value) {
+  if (typeof value !== "string") return "";
+  const name = value.trim();
+  return name && Array.from(name).length <= 60 && !/[\u0000-\u001f\u007f-\u009f]/u.test(name) ? name : "";
 }
 
 function usableTrustLabel(value) {

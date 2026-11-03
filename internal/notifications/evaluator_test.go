@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/luiscleto/shepherdr/internal/herdr"
 )
@@ -244,5 +245,81 @@ func TestStatusNoticesMarkHerdrAppTerminalsInNoSpace(t *testing.T) {
 	core.ObserveSnapshot(notificationSnapshot("blocked", "w1"), false)
 	if event := <-manager.events; event.OtherTerminals || event.WorkspaceName != "Workspace w1" {
 		t.Fatalf("space notice = %+v", event)
+	}
+}
+
+// A status notice adds only a name the person gave the terminal or its tab.
+func TestStatusNoticesAddOnlyANameThePersonGave(t *testing.T) {
+	const terminalTitle = "luisc@omarazer:~/Work/shepherdr"
+	named := func(pane *string, tab string, status string) herdr.Snapshot {
+		agentName, agentTitle, displayAgent := "claude", "Claude Code session", "Claude"
+		return herdr.Snapshot{
+			Agents: []herdr.AgentInfo{{
+				Agent: &displayAgent, AgentStatus: herdr.Status(status), DisplayAgent: &displayAgent, Name: &agentName,
+				PaneID: "w1:p1", TabID: "w1:t4", TerminalID: "term-1", Title: &agentTitle, WorkspaceID: "w1",
+			}},
+			Panes: []herdr.PaneInfo{{
+				CWD: "/home/luisc/Work/shepherdr", Label: pane, PaneID: "w1:p1", TabID: "w1:t4", TerminalID: "term-1",
+				TerminalTitle: terminalTitle, TerminalTitleStripped: terminalTitle, WorkspaceID: "w1",
+			}},
+			Tabs:       []herdr.TabInfo{{Label: tab, Number: 4, TabID: "w1:t4", WorkspaceID: "w1"}},
+			Workspaces: []herdr.WorkspaceInfo{{Label: "Douro", WorkspaceID: "w1"}},
+		}
+	}
+	text := func(value string) *string { return &value }
+	for _, test := range []struct {
+		name    string
+		backend herdr.Backend
+		pane    *string
+		tab     string
+		want    string
+	}{
+		{name: "named Herdr app tab", backend: herdr.BackendCore, tab: "Review PR17 CI", want: "Review PR17 CI"},
+		{name: "unnamed Herdr app tab", backend: herdr.BackendCore, tab: "", want: ""},
+		{name: "Herdr app tab named with digits", backend: herdr.BackendCore, tab: "17", want: "17"},
+		{name: "named Herdr TUI terminal", backend: herdr.BackendTUI, pane: text("Scout P3 Queiroz cite"), tab: "Review PR17 CI", want: "Scout P3 Queiroz cite"},
+		{name: "named Herdr TUI tab", backend: herdr.BackendTUI, tab: "Review PR17 CI", want: "Review PR17 CI"},
+		{name: "default-numbered Herdr TUI tab", backend: herdr.BackendTUI, tab: "3", want: ""},
+		{name: "blank Herdr TUI names", backend: herdr.BackendTUI, pane: text("  "), tab: "", want: ""},
+		{name: "hostile name", backend: herdr.BackendCore, tab: "<img src=x onerror=alert(1)>\x1b]0;evil\a\u202e\r\n" + strings.Repeat("y", 80), want: "<img src=x onerror=alert(1)>]0;evil " + strings.Repeat("y", 23) + "…"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			evaluator := snapshotEvaluator{herdr: test.backend}
+			evaluator.Observe(named(test.pane, test.tab, "working"), true)
+			events := evaluator.Observe(named(test.pane, test.tab, "done"), false)
+			if len(events) != 1 || events[0].GivenName != test.want || events[0].WorkspaceName != "Douro" {
+				t.Fatalf("events = %+v, want name %q", events, test.want)
+			}
+			event := events[0]
+			event.Herdr = test.backend
+			payload, err := eventPayload(event)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, forbidden := range []string{terminalTitle, "omarazer", "luisc", "claude", "Claude", "\x1b", "\a", "\u202e"} {
+				if strings.Contains(string(payload), forbidden) {
+					t.Fatalf("payload exposed %q: %s", forbidden, payload)
+				}
+			}
+			if utf8.RuneCountInString(event.GivenName) > maxGivenNameRunes {
+				t.Fatalf("name %q is longer than %d", event.GivenName, maxGivenNameRunes)
+			}
+		})
+	}
+
+	evaluator := snapshotEvaluator{herdr: herdr.BackendCore}
+	evaluator.Observe(named(nil, "Review PR17 CI", "working"), true)
+	events := evaluator.Observe(named(nil, "Review PR17 CI", "blocked"), false)
+	payload, err := eventPayload(Event{
+		Kind: EventStatus, Herdr: herdr.BackendCore, Status: events[0].Status, GivenName: events[0].GivenName,
+		WorkspaceName: events[0].WorkspaceName, PaneID: events[0].PaneID, TerminalID: events[0].TerminalID, Destination: events[0].Destination,
+	})
+	want := `{"destination":"/#terminal=w1%3Ap1\u0026terminal_id=term-1\u0026herdr=core","herdr":"core","kind":"status","name":"Review PR17 CI","workspace_name":"Douro","pane_id":"w1:p1","status":"blocked","terminal_id":"term-1"}`
+	if err != nil || string(payload) != want {
+		t.Fatalf("payload = %s, %v; want %s", payload, err, want)
+	}
+	lifecycle, _ := eventPayload(Event{Kind: EventWorkspaceOpened, Herdr: herdr.BackendCore, GivenName: "Review PR17 CI", WorkspaceName: "Douro", Destination: "/"})
+	if strings.Contains(string(lifecycle), "Review") {
+		t.Fatalf("a space notice carried a tab name: %s", lifecycle)
 	}
 }
