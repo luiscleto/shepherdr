@@ -19,20 +19,9 @@ export interface TerminalFileOutcome {
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 const results = new Set<TerminalFileResult>(["forwarded", "not_sent", "occupied", "unknown"]);
-const preparedFileData = new WeakMap<File, Promise<string>>();
 
 export function uploadStateAfterLastFileRemoved(state: ReaderInputState): ReaderInputState {
   return state === "failed" || state === "occupied" || state === "uncertain" ? "ready" : state;
-}
-
-export async function prepareTerminalFiles(files: readonly File[]): Promise<void> {
-  await Promise.all(files.map(async (file) => {
-    try {
-      await terminalFileData(file);
-    } catch {
-      // Preserve selection; the existing send path will retry the read and report a definite failure if needed.
-    }
-  }));
 }
 
 export async function sendTerminalFiles(
@@ -43,34 +32,34 @@ export async function sendTerminalFiles(
   signal: AbortSignal,
   fetcher: Fetcher = globalThis.fetch.bind(globalThis),
 ): Promise<TerminalFileOutcome> {
-  let encoded: Array<{ data: string; name: string }>;
   try {
-    encoded = [];
     for (const file of files) {
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
-      encoded.push({ data: await terminalFileData(file), name: file.name });
+      await file.slice(0, 1).arrayBuffer();
     }
   } catch (error) {
     if (signal.aborted) throw error;
     return { message: "The selected files could not be read, so nothing was sent.", result: "not_sent" };
   }
-
+  // The request line lists each file's name and size; the files' own bytes
+  // follow it, so the browser streams them from disk without copying them.
+  const request = JSON.stringify({
+    controller: target.controller,
+    intent: target.intent,
+    files: files.map((file) => ({ name: file.name, size: file.size })),
+    pane_id: target.paneID,
+    takeover,
+    terminal_id: target.terminalID,
+    text,
+    workspace_id: target.workspaceID,
+  });
   let response: Response;
   try {
     response = await fetcher(`/api/terminal/files?herdr=${target.herdr}`, {
-      body: JSON.stringify({
-        controller: target.controller,
-        intent: target.intent,
-        files: encoded,
-        pane_id: target.paneID,
-        takeover,
-        terminal_id: target.terminalID,
-        text,
-        workspace_id: target.workspaceID,
-      }),
+      body: new Blob([request, "\n", ...files]),
       cache: "no-store",
       credentials: "same-origin",
-      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      headers: { Accept: "application/json", "Content-Type": "application/octet-stream" },
       method: "POST",
       signal,
     });
@@ -96,24 +85,4 @@ export async function sendTerminalFiles(
       result: "unknown",
     };
   }
-}
-
-function terminalFileData(file: File): Promise<string> {
-  const prepared = preparedFileData.get(file);
-  if (prepared) return prepared;
-  const preparation = file.arrayBuffer().then((value) => bytesToBase64(new Uint8Array(value)));
-  preparedFileData.set(file, preparation);
-  void preparation.catch(() => {
-    if (preparedFileData.get(file) === preparation) preparedFileData.delete(file);
-  });
-  return preparation;
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 32_768;
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(bytes.length, offset + chunkSize)));
-  }
-  return btoa(binary);
 }

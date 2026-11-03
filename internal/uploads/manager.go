@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -19,9 +20,12 @@ import (
 
 const markerName = ".shepherdr-upload"
 
+// File is one file of a send: its name and its Size bytes, read from Data
+// as they are written to the staged file.
 type File struct {
-	Data []byte
+	Data io.Reader
 	Name string
+	Size int64
 }
 
 type ForwardResult string
@@ -39,8 +43,13 @@ type association struct {
 	WorkspaceID string `json:"workspace_id"`
 }
 
+// workspaceGate keeps a workspace's folder for its sends. Sends hold it
+// shared, so one long send doesn't hold up the next; cleanup holds it alone,
+// so a folder never goes while a send is using it. setup guards the folder
+// fields while sends share the gate.
 type workspaceGate struct {
-	mu          sync.Mutex
+	mu          sync.RWMutex
+	setup       sync.Mutex
 	association *association
 	directory   *ownedDirectory
 }
@@ -155,8 +164,9 @@ func (m *Manager) gate(workspaceID string) *workspaceGate {
 	return gate
 }
 
-// StageAndForward holds the one stable workspace gate across validation,
-// staging, and the terminal result. Definite pre-forward outcomes remove only
+// StageAndForward holds the one stable workspace gate, shared with other
+// sends, across validation, staging, and the terminal result. Files are
+// written as their bytes arrive. Definite pre-forward outcomes remove only
 // files created by this request. An unknown result retains them because their
 // paths may already be in the terminal.
 func (m *Manager) StageAndForward(
@@ -170,15 +180,17 @@ func (m *Manager) StageAndForward(
 		return NotSent, errors.New("workspace is invalid")
 	}
 	gate := m.gate(workspaceID)
-	gate.mu.Lock()
-	defer gate.mu.Unlock()
+	gate.mu.RLock()
+	defer gate.mu.RUnlock()
 	if err := ctx.Err(); err != nil {
 		return NotSent, err
 	}
 	if err := validate(); err != nil {
 		return NotSent, err
 	}
+	gate.setup.Lock()
 	directory, err := m.ensureAssociation(gate, workspaceID, workspaceLabel)
+	gate.setup.Unlock()
 	if err != nil {
 		return NotSent, err
 	}

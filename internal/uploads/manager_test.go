@@ -3,6 +3,7 @@ package uploads
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -14,6 +15,10 @@ import (
 
 	"github.com/luiscleto/shepherdr/internal/herdr"
 )
+
+func memoryFile(name, data string) File {
+	return File{Data: strings.NewReader(data), Name: name, Size: int64(len(data))}
+}
 
 func openTestManager(t *testing.T) (*Manager, string) {
 	t.Helper()
@@ -34,9 +39,9 @@ func TestStageCreatesVerifiedOwnerOnlyAssociationAndRecognizableConflictNames(t 
 	manager, base := openTestManager(t)
 	var forwardedPaths []string
 	result, err := manager.StageAndForward(context.Background(), "workspace-1", "Review / work", []File{
-		{Name: `C:\\fakepath\\diagram.svg`, Data: []byte("first")},
-		{Name: "../diagram.svg", Data: []byte("second")},
-		{Name: "bad\nname.txt", Data: []byte("third")},
+		memoryFile(`C:\\fakepath\\diagram.svg`, "first"),
+		memoryFile("../diagram.svg", "second"),
+		memoryFile("bad\nname.txt", "third"),
 	}, func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 		forwardedPaths = append([]string(nil), paths...)
 		return Forwarded, nil
@@ -70,7 +75,7 @@ func TestStageCreatesVerifiedOwnerOnlyAssociationAndRecognizableConflictNames(t 
 	}
 
 	var reused string
-	_, err = manager.StageAndForward(context.Background(), "workspace-1", "Renamed", []File{{Name: "notes", Data: []byte("ok")}},
+	_, err = manager.StageAndForward(context.Background(), "workspace-1", "Renamed", []File{memoryFile("notes", "ok")},
 		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 			reused = filepath.Dir(paths[0])
 			return Forwarded, nil
@@ -83,7 +88,7 @@ func TestStageCreatesVerifiedOwnerOnlyAssociationAndRecognizableConflictNames(t 
 func TestMismatchedAssociationIsNeverReusedOrDeleted(t *testing.T) {
 	manager, _ := openTestManager(t)
 	var original string
-	_, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "one.txt", Data: []byte("one")}},
+	_, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{memoryFile("one.txt", "one")},
 		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 			original = filepath.Dir(paths[0])
 			return Forwarded, nil
@@ -96,7 +101,7 @@ func TestMismatchedAssociationIsNeverReusedOrDeleted(t *testing.T) {
 		t.Fatal(err)
 	}
 	var replacement string
-	_, err = manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "two.txt", Data: []byte("two")}},
+	_, err = manager.StageAndForward(context.Background(), "workspace-1", "One", []File{memoryFile("two.txt", "two")},
 		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 			replacement = filepath.Dir(paths[0])
 			return Forwarded, nil
@@ -115,7 +120,7 @@ func TestMismatchedAssociationIsNeverReusedOrDeleted(t *testing.T) {
 func TestDefiniteFailureRollsBackOnlyThisRequest(t *testing.T) {
 	manager, _ := openTestManager(t)
 	var firstPath string
-	_, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "keep.txt", Data: []byte("keep")}},
+	_, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{memoryFile("keep.txt", "keep")},
 		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 			firstPath = paths[0]
 			return Forwarded, nil
@@ -124,7 +129,7 @@ func TestDefiniteFailureRollsBackOnlyThisRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	var rolledBack string
-	result, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "remove.txt", Data: []byte("remove")}},
+	result, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{memoryFile("remove.txt", "remove")},
 		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 			rolledBack = paths[0]
 			return NotSent, context.Canceled
@@ -154,7 +159,7 @@ func TestLatePathSwapIsRefusedAndRollbackStaysOnVerifiedHandle(t *testing.T) {
 	defer manager.Close()
 	movedRoot := filepath.Join(base, "uploads-moved")
 	var originalPath, decoyPath string
-	result, sendErr := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "swap.txt", Data: []byte("original")}},
+	result, sendErr := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{memoryFile("swap.txt", "original")},
 		func() error { return nil }, func(paths []string, validateStaged func() error) (ForwardResult, error) {
 			originalPath = filepath.Join(movedRoot, filepath.Base(filepath.Dir(paths[0])), filepath.Base(paths[0]))
 			if err := os.Rename(root, movedRoot); err != nil {
@@ -198,7 +203,7 @@ func TestCleanupStaysOnVerifiedParentAfterConfiguredPathSwap(t *testing.T) {
 	}
 	defer manager.Close()
 	var directory string
-	_, err = manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "keep.txt", Data: []byte("keep")}},
+	_, err = manager.StageAndForward(context.Background(), "workspace-1", "One", []File{memoryFile("keep.txt", "keep")},
 		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 			directory = filepath.Dir(paths[0])
 			return Forwarded, nil
@@ -232,8 +237,8 @@ func TestCleanupStaysOnVerifiedParentAfterConfiguredPathSwap(t *testing.T) {
 func TestPartialStageFailureRemovesEarlierRequestFiles(t *testing.T) {
 	manager, _ := openTestManager(t)
 	result, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{
-		{Name: "first.txt", Data: []byte("first")},
-		{Name: strings.Repeat("x", 300), Data: []byte("second")},
+		memoryFile("first.txt", "first"),
+		memoryFile(strings.Repeat("x", 300), "second"),
 	}, func() error { return nil }, func([]string, func() error) (ForwardResult, error) {
 		t.Fatal("partial stage failure reached terminal forwarding")
 		return Forwarded, nil
@@ -304,9 +309,9 @@ func TestStagedNamesDropShellCharactersAndStayReadableAndUnique(t *testing.T) {
 	manager, _ := openTestManager(t)
 	var paths []string
 	_, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{
-		{Name: "a$b.txt", Data: []byte("one")},
-		{Name: "a;b.txt", Data: []byte("two")},
-		{Name: "ab.txt", Data: []byte("three")},
+		memoryFile("a$b.txt", "one"),
+		memoryFile("a;b.txt", "two"),
+		memoryFile("ab.txt", "three"),
 	}, func() error { return nil }, func(staged []string, _ func() error) (ForwardResult, error) {
 		paths = staged
 		return Forwarded, nil
@@ -326,7 +331,7 @@ func TestStagedNamesDropShellCharactersAndStayReadableAndUnique(t *testing.T) {
 func TestCleanupRefusesMismatchedMarkerAndRetainsRecord(t *testing.T) {
 	manager, base := openTestManager(t)
 	var directory string
-	_, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "one", Data: []byte("one")}},
+	_, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{memoryFile("one", "one")},
 		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 			directory = filepath.Dir(paths[0])
 			return Forwarded, nil
@@ -358,7 +363,7 @@ func TestStableWorkspaceGateSerializesSendAndPostPublicationCleanup(t *testing.T
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "one", Data: []byte("one")}},
+		_, _ = manager.StageAndForward(context.Background(), "workspace-1", "One", []File{memoryFile("one", "one")},
 			func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 				forwarding <- filepath.Dir(paths[0])
 				<-release
@@ -394,7 +399,7 @@ func TestStartupReconciliationCleansOnlyMissingVerifiedWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	var staleDirectory string
-	_, err = first.StageAndForward(context.Background(), "stale", "Stale", []File{{Name: "one", Data: []byte("one")}},
+	_, err = first.StageAndForward(context.Background(), "stale", "Stale", []File{memoryFile("one", "one")},
 		func() error { return nil }, func(paths []string, _ func() error) (ForwardResult, error) {
 			staleDirectory = filepath.Dir(paths[0])
 			return Forwarded, nil
@@ -424,7 +429,7 @@ func TestConcurrentDifferentWorkspaceCanPassItsOwnGate(t *testing.T) {
 	block := make(chan struct{})
 	started := make(chan struct{})
 	go func() {
-		_, _ = manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Name: "one", Data: []byte("one")}},
+		_, _ = manager.StageAndForward(context.Background(), "workspace-1", "One", []File{memoryFile("one", "one")},
 			func() error { return nil }, func([]string, func() error) (ForwardResult, error) {
 				close(started)
 				<-block
@@ -433,7 +438,7 @@ func TestConcurrentDifferentWorkspaceCanPassItsOwnGate(t *testing.T) {
 	}()
 	<-started
 	var other atomic.Bool
-	_, err := manager.StageAndForward(context.Background(), "workspace-2", "Two", []File{{Name: "two", Data: []byte("two")}},
+	_, err := manager.StageAndForward(context.Background(), "workspace-2", "Two", []File{memoryFile("two", "two")},
 		func() error { return nil }, func([]string, func() error) (ForwardResult, error) {
 			other.Store(true)
 			return Forwarded, nil
@@ -449,4 +454,57 @@ func infoMode(info os.FileInfo) os.FileMode {
 		return 0
 	}
 	return info.Mode().Perm()
+}
+
+func TestFileWhoseBytesEndEarlyIsRemoved(t *testing.T) {
+	manager, _ := openTestManager(t)
+	result, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{
+		memoryFile("first.txt", "first"),
+		{Data: strings.NewReader("only part"), Name: "second.txt", Size: 1 << 20},
+	}, func() error { return nil }, func([]string, func() error) (ForwardResult, error) {
+		t.Fatal("a file that ended early reached terminal forwarding")
+		return Forwarded, nil
+	})
+	if result != NotSent || !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("short file result = %s, %v", result, err)
+	}
+	entries, err := os.ReadDir(manager.gate("workspace-1").association.Directory)
+	if err != nil || len(entries) != 1 || entries[0].Name() != markerName {
+		t.Fatalf("partial files remain: %+v, %v", entries, err)
+	}
+}
+
+func TestSendsToOneWorkspaceDoNotWaitForEachOther(t *testing.T) {
+	manager, _ := openTestManager(t)
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	slow := make(chan error, 1)
+	go func() {
+		_, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Data: reader, Name: "slow.bin", Size: 10}},
+			func() error { return nil }, func([]string, func() error) (ForwardResult, error) { return Forwarded, nil })
+		slow <- err
+	}()
+	if _, err := writer.Write([]byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	finished := make(chan error, 1)
+	go func() {
+		_, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{memoryFile("quick.txt", "quick")},
+			func() error { return nil }, func([]string, func() error) (ForwardResult, error) { return Forwarded, nil })
+		finished <- err
+	}()
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a quick send waited for a slow send to the same workspace")
+	}
+	if _, err := writer.Write([]byte("defghij")); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-slow; err != nil {
+		t.Fatal(err)
+	}
 }

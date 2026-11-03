@@ -173,7 +173,7 @@ func (c *AppClient) run(ctx context.Context, args ...string) ([]byte, []byte, er
 	if ctx.Err() != nil {
 		err = ctx.Err()
 	} else if stdout.tooLarge || stderr.tooLarge {
-		err = ErrReplyTooLarge
+		err = replyTooLarge{replyLimit}
 	}
 	return stdout.data, stderr.data, err
 }

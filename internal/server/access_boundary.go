@@ -85,7 +85,7 @@ func (s *Server) accessBoundary(next http.Handler) http.Handler {
 			return
 		}
 		if isMutationMethod(request.Method) {
-			if !s.origin.ValidateOriginHeader(request.Header.Values("Origin")) || !exactJSONContentType(request) {
+			if !s.origin.ValidateOriginHeader(request.Header.Values("Origin")) || !exactMutationContentType(request) {
 				writeAccessError(writer, http.StatusForbidden, "This request cannot use Shepherdr.")
 				return
 			}
@@ -190,6 +190,16 @@ func classifyProtectedRoute(path, method string) protectedRoute {
 
 func isMutationMethod(method string) bool {
 	return method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete
+}
+
+// exactMutationContentType is exact JSON, or for a file send exact
+// application/octet-stream. Neither is a type a page on another site can
+// send without asking first.
+func exactMutationContentType(request *http.Request) bool {
+	if request.URL.Path == "/api/terminal/files" {
+		return exactFileSendContentType(request)
+	}
+	return exactJSONContentType(request)
 }
 
 func exactJSONContentType(request *http.Request) bool {

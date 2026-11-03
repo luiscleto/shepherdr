@@ -61,15 +61,6 @@ function selectFiles(browser: Window, input: HTMLInputElement, files: File[]): v
   Object.defineProperty(input, "files", { configurable: true, value: [] });
 }
 
-async function settleFilePreparation(): Promise<void> {
-  for (let step = 0; step < 5; step += 1) await Promise.resolve();
-}
-
-async function chooseFiles(browser: Window, input: HTMLInputElement, files: File[]): Promise<void> {
-  selectFiles(browser, input, files);
-  await settleFilePreparation();
-}
-
 function cssRule(source: string, selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`${escaped}\\s*\\{([^}]*)\\}`).exec(source)?.[1] ?? "";
@@ -135,7 +126,7 @@ test("recognized-agent file controls keep drafts, removable chips, and scoped th
 
   const image = new browser.File(["image"], "photo.png", { type: "image/png" }) as unknown as File;
   const documentFile = new browser.File(["notes"], "notes.txt", { type: "text/plain" }) as unknown as File;
-  await chooseFiles(browser, input, [image, documentFile]);
+  selectFiles(browser, input, [image, documentFile]);
   assert.equal(host.querySelectorAll(".reader-file-chip").length, 2);
   assert.match(host.querySelector(".reader-file-list")?.textContent ?? "", /photo\.png · 5 B/);
   assert.match(host.querySelector(".reader-file-list")?.textContent ?? "", /notes\.txt · 5 B/);
@@ -167,12 +158,12 @@ test("recognized-agent file controls keep drafts, removable chips, and scoped th
   assert.equal(reader.pendingFiles().length, 1, "definite failure must preserve the pending file");
   reader.inputUncertain("Check the terminal.", () => undefined);
   assert.equal(reader.pendingFiles().length, 1, "unknown result must preserve the pending file");
-  await chooseFiles(browser, input, [image]);
+  selectFiles(browser, input, [image]);
   reader.destroy();
   assert.deepEqual(revoked, ["blob:http://localhost/preview-1", "blob:http://localhost/preview-2"]);
 });
 
-test("mobile composer icons and picker choices gate real file preparation", async (t) => {
+test("mobile composer icons and picker choices add the chosen files", async (t) => {
   const { browser, host } = withFileBrowser(t);
   const reader = new ReaderView(host, {
     onLog: () => undefined,
@@ -247,22 +238,9 @@ test("mobile composer icons and picker choices gate real file preparation", asyn
   add.click();
   choices[1].click();
   assert.equal(filePickerOpened, 1);
-  let finishRead: ((value: ArrayBuffer) => void) | undefined;
-  const reading = new Promise<ArrayBuffer>((resolve) => finishRead = resolve);
   const file = new browser.File(["notes"], "notes.txt", { type: "text/plain" }) as unknown as File;
-  Object.defineProperty(file, "arrayBuffer", { configurable: true, value: () => reading });
   selectFiles(browser, fileInput, [file]);
-  const preparing = host.querySelector(".reader-file-preparing") as HTMLSpanElement;
-  assert.equal(preparing.hidden, false);
-  assert.equal(preparing.textContent, "Preparing files…");
-  assert.equal(preparing.getAttribute("role"), "status");
-  assert.equal(preparing.getAttribute("aria-live"), "polite");
-  assert.equal(send.disabled, true, "existing text must not bypass file preparation");
-  assert.equal(host.querySelectorAll(".reader-file-chip").length, 0);
-
-  finishRead?.(new Uint8Array([1, 2, 3]).buffer);
-  await settleFilePreparation();
-  assert.equal(preparing.hidden, true);
+  assert.equal(host.querySelector(".reader-file-preparing"), null, "a chosen file is ready at once, with no reading step");
   assert.equal(host.querySelectorAll(".reader-file-chip").length, 1);
   assert.equal(send.disabled, false);
   assert.equal(send.getAttribute("aria-label"), "Send text and files");
@@ -307,7 +285,7 @@ test("removing the last recovery file restores text, shortcuts, and file selecti
     textarea.value = `keep ${recovery} text`;
     textarea.dispatchEvent(new browser.Event("input", { bubbles: true }));
     const fileInput = host.querySelector(".reader-file-input") as HTMLInputElement;
-    await chooseFiles(browser, fileInput, [new browser.File(["file"], `${recovery}.txt`) as unknown as File]);
+    selectFiles(browser, fileInput, [new browser.File(["file"], `${recovery}.txt`) as unknown as File]);
     reader.filesSending();
     if (recovery === "failed") reader.inputFailed("Files were not sent.", () => undefined);
     else if (recovery === "occupied") reader.inputOccupied("Controlled elsewhere.", () => undefined);
@@ -330,11 +308,11 @@ test("removing the last recovery file restores text, shortcuts, and file selecti
   }
 });
 
-test("file-only and combined sends use base64 JSON and only deliberate takeover retries", async (t) => {
-  const browser = new Window({ url: "http://localhost/" });
-  t.after(() => browser.close());
-  const file = new browser.File([new Uint8Array([0, 1, 255])], "opaque.bin", { type: "application/octet-stream" }) as unknown as File;
+test("file-only and combined sends stream raw file bytes after one request line and only deliberate takeover retries", async () => {
+  const file = new File([new Uint8Array([0, 1, 255])], "opaque.bin", { type: "application/octet-stream" });
   const requests: Array<Record<string, unknown>> = [];
+  const fileBytes: number[][] = [];
+  const types: string[] = [];
   const urls: string[] = [];
   const replies = [
     { message: "Controlled elsewhere.", result: "occupied" },
@@ -342,7 +320,12 @@ test("file-only and combined sends use base64 JSON and only deliberate takeover 
   ];
   const fetcher = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     urls.push(String(input));
-    requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    types.push(String(new Headers(init?.headers).get("Content-Type")));
+    assert.equal(init?.body instanceof Blob, true, "the body must be a Blob that streams the chosen files");
+    const bytes = new Uint8Array(await (init?.body as Blob).arrayBuffer());
+    const newline = bytes.indexOf(10);
+    requests.push(JSON.parse(new TextDecoder().decode(bytes.subarray(0, newline))) as Record<string, unknown>);
+    fileBytes.push(Array.from(bytes.subarray(newline + 1)));
     return new Response(JSON.stringify(replies.shift()), { headers: { "Content-Type": "application/json" }, status: requests.length === 1 ? 409 : 200 });
   };
   const target = { herdr: "tui" as const, paneID: "pane-1", terminalID: "term-1", workspaceID: "workspace-1" };
@@ -350,14 +333,33 @@ test("file-only and combined sends use base64 JSON and only deliberate takeover 
   assert.equal(first.result, "occupied");
   assert.equal(requests.length, 1, "occupied response must not retry automatically");
   assert.equal(requests[0].text, "");
-  assert.deepEqual(requests[0].files, [{ data: "AAH/", name: "opaque.bin" }]);
+  assert.deepEqual(requests[0].files, [{ name: "opaque.bin", size: 3 }]);
+  assert.deepEqual(fileBytes[0], [0, 1, 255]);
 
-  const second = await sendTerminalFiles({ ...target, herdr: "core" }, "Compare this", [file], true, new AbortController().signal, fetcher);
+  const second = await sendTerminalFiles({ ...target, herdr: "core" }, "Compare\nthis", [file, file], true, new AbortController().signal, fetcher);
   assert.equal(second.result, "forwarded");
   assert.equal(requests.length, 2);
   assert.deepEqual(urls, ["/api/terminal/files?herdr=tui", "/api/terminal/files?herdr=core"]);
+  assert.deepEqual(types, ["application/octet-stream", "application/octet-stream"]);
   assert.equal(requests[1].takeover, true);
-  assert.equal(requests[1].text, "Compare this");
+  assert.equal(requests[1].text, "Compare\nthis");
+  assert.deepEqual(fileBytes[1], [0, 1, 255, 0, 1, 255]);
+});
+
+test("a file that can no longer be read is not sent", async (t) => {
+  const browser = new Window({ url: "http://localhost/" });
+  t.after(() => browser.close());
+  const file = new browser.File(["gone"], "gone.txt") as unknown as File;
+  Object.defineProperty(file, "slice", { configurable: true, value: () => ({ arrayBuffer: () => Promise.reject(new Error("NotReadableError")) }) });
+  let fetched = 0;
+  const outcome = await sendTerminalFiles({ herdr: "tui", paneID: "pane-1", terminalID: "term-1", workspaceID: "workspace-1" }, "", [file], false,
+    new AbortController().signal, async () => {
+      fetched += 1;
+      return new Response("{}");
+    });
+  assert.equal(outcome.result, "not_sent");
+  assert.equal(outcome.message, "The selected files could not be read, so nothing was sent.");
+  assert.equal(fetched, 0);
 });
 
 test("file send distinguishes definite server failure from an unconfirmed connection result", async (t) => {

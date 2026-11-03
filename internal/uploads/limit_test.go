@@ -1,40 +1,43 @@
 package uploads
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
-func TestFiniteLimitCountsEveryFilesBase64PaddingAndFixedMetadata(t *testing.T) {
+func TestFiniteLimitCountsFileBytes(t *testing.T) {
 	limit, err := ParseLimit("3")
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded := EncodedContribution(1) + EncodedContribution(2)
-	if encoded != 8 {
-		t.Fatalf("separate encoded contributions = %d, want 8", encoded)
-	}
-	if err := limit.Validate(3, encoded, encoded+MetadataAllowance); err != nil {
-		t.Fatalf("exact finite bound failed: %v", err)
-	}
-	if err := limit.Validate(4, encoded, encoded); err == nil {
-		t.Fatal("decoded overage was accepted")
-	}
-	if err := limit.Validate(3, encoded, encoded+MetadataAllowance+1); err == nil {
-		t.Fatal("metadata overage was accepted")
+	if !limit.Allows(3) || limit.Allows(4) {
+		t.Fatalf("limit 3 allows 3: %t, allows 4: %t", limit.Allows(3), limit.Allows(4))
 	}
 }
 
-func TestNoLimitRemovesDecodedAndBodyBounds(t *testing.T) {
+func TestNoLimitAllowsAnySize(t *testing.T) {
 	limit, err := ParseLimit("none")
-	if err != nil || !limit.Unlimited || limit.OuterBodyLimit() != 0 {
+	if err != nil || !limit.Unlimited || !limit.Allows(math.MaxInt64) {
 		t.Fatalf("none = %+v, %v", limit, err)
 	}
-	if err := limit.Validate(1<<62, 1<<62, 1<<62); err != nil {
-		t.Fatalf("none retained a route bound: %v", err)
+}
+
+func TestDefaultLimitIsOneGiB(t *testing.T) {
+	limit, err := ParseLimit("1GiB")
+	if err != nil || limit.Bytes != DefaultLimit || DefaultLimit != 1<<30 {
+		t.Fatalf("default text = %+v, %v", limit, err)
 	}
 }
 
-func TestDefaultLimitIsFiftyMiB(t *testing.T) {
-	limit, err := ParseLimit("50MiB")
-	if err != nil || limit.DecodedBytes != DefaultDecodedLimit {
-		t.Fatalf("default text = %+v, %v", limit, err)
+func TestParseSizeRefusesBadValues(t *testing.T) {
+	for _, value := range []string{"", "0", "-1", "1.5MiB", "1MB", "none", "MiB", "9223372036854775807GiB", " 1KiB"} {
+		if size, err := ParseSize(value); err == nil {
+			t.Fatalf("ParseSize(%q) = %d, want an error", value, size)
+		}
+	}
+	for value, want := range map[string]int64{"1": 1, "8KiB": 8 << 10, "64MiB": 64 << 20, "2GiB": 2 << 30} {
+		if size, err := ParseSize(value); err != nil || size != want {
+			t.Fatalf("ParseSize(%q) = %d, %v, want %d", value, size, err, want)
+		}
 	}
 }

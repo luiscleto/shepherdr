@@ -12,11 +12,15 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Someone who can reach Shepherdr can no longer block sign-in, passkey checks or trusting a new device by starting many sign-ins.
 - Browsers are told to keep Shepherdr's window apart from pages it opens, and to turn off features such as location and USB that Shepherdr never uses.
 - Sent files are saved without characters a shell could act on, such as `$`, `;`, `|`, `&`, `<`, `>`, parentheses, quotes and `!`, so their pasted paths stay harmless if a shell reads them.
-- Shepherdr reads one file send at a time, so several large sends at once can't exhaust its memory. Other sends wait their turn.
-- A client that sends a request slowly is cut off instead of holding a connection open indefinitely.
-- A reply from the Herdr TUI, Herdr Core or the Herdr app larger than 16 MiB is refused with a clear error instead of growing Shepherdr's memory without limit.
+- Sent files go straight to disk as they arrive, so several large sends at once can't exhaust Shepherdr's memory, and no send waits for another.
+- A client that sends a request slowly is cut off instead of holding a connection open indefinitely: after 30 seconds (`-request-body-time`), or for a file send once it falls below 8 KiB a second after its first 30 seconds (`-upload-min-rate`).
+- A reply from the Herdr TUI, Herdr Core or the Herdr app larger than 64 MiB (`-herdr-reply-limit`) is refused with a clear error instead of growing Shepherdr's memory without limit.
 - Notifications drop control and text-direction characters from workspace names and trusted sign-in labels, so a name can't disguise or break the notification text.
 - Shepherdr refuses notification state that is a link, has another owner or extra hard links, or isn't private, instead of changing its permissions and using it. Notifications stay off until it's fixed; a normal install is unaffected.
+
+### Changed
+
+- A send can carry up to 1 GiB of files by default, enough for a video. The browser streams the files instead of encoding them first. New flags `-upload-min-rate`, `-request-body-time` and `-herdr-reply-limit` set the other limits.
 
 ## [0.6.0] - 2026-11-03
 

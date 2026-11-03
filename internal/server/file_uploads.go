@@ -1,14 +1,13 @@
 package server
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -17,12 +16,15 @@ import (
 	"github.com/luiscleto/shepherdr/internal/uploads"
 )
 
+// terminalFileRequest opens a file send's body. The body is this JSON
+// object, a newline, then each listed file's bytes in order, so the files
+// stream to disk without being held in memory.
 type terminalFileRequest struct {
 	Controller string `json:"controller"`
 	Intent     string `json:"intent"`
 	Files      []struct {
-		Data string `json:"data"`
 		Name string `json:"name"`
+		Size int64  `json:"size"`
 	} `json:"files"`
 	PaneID      string `json:"pane_id"`
 	Takeover    bool   `json:"takeover"`
@@ -112,22 +114,12 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 		writeUploadError(writer, http.StatusBadRequest, "Files were not sent because the exact target or file list is invalid")
 		return
 	}
-	if !exactJSONContentType(request) {
-		writeUploadError(writer, http.StatusUnsupportedMediaType, "Files were not sent. Use application/json.")
+	if !exactFileSendContentType(request) {
+		writeUploadError(writer, http.StatusUnsupportedMediaType, "Files were not sent. Use application/octet-stream.")
 		return
 	}
-	// One send at a time reads and decodes its body, the part that needs
-	// several times the files' size in memory. Others wait for their turn
-	// without reading, and a client that leaves gives its turn back.
-	select {
-	case fileSendTurn <- struct{}{}:
-	case <-request.Context().Done():
-		writeUploadError(writer, http.StatusBadRequest, "Files were not sent because the request ended.")
-		return
-	}
-	request.Body = &pacedBody{ReadCloser: request.Body, controller: http.NewResponseController(writer), start: time.Now()}
-	envelope, files, err := readTerminalFileRequest(request, s.fileUploadLimit)
-	<-fileSendTurn
+	paceUploadBody(writer, request, s.uploadMinRate)
+	envelope, files, body, err := readTerminalFileRequest(request.Body, s.fileUploadLimit)
 	if err != nil {
 		status := http.StatusBadRequest
 		if errors.Is(err, errUploadTooLarge) {
@@ -154,6 +146,9 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 				return err
 			}
 			return validate()
+		}
+		if err := requireBodyEnd(body); err != nil {
+			return uploads.NotSent, err
 		}
 		if err := validateBeforeWrite(); err != nil {
 			return uploads.NotSent, err
@@ -192,6 +187,10 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 	case uploads.NotSent:
 		status = http.StatusConflict
 		message = "Files were not sent. Try again."
+		if errors.Is(sendErr, errUploadBody) {
+			status = http.StatusBadRequest
+			message = "Files were not sent because the request body could not be read."
+		}
 	}
 	if sendErr != nil {
 		side.logger().Error("terminal file send stopped", "workspace", initial.workspace, "result", result, "error", sendErr)
@@ -204,86 +203,137 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 	}
 }
 
-// fileSendTurn lets one file send at a time read and decode its body.
-var fileSendTurn = make(chan struct{}, 1)
-
 // A file send's body has uploadBodyGrace to start, then must keep arriving
-// at uploadBodyRate bytes a second on average, so a large send on a slow
-// link completes and a client that trickles its body is cut off.
-var (
-	uploadBodyGrace       = 30 * time.Second
-	uploadBodyRate  int64 = 8 << 10
-)
+// at the minimum rate on average, so a large send on a slow link completes
+// and a client that trickles its body is cut off.
+var uploadBodyGrace = 30 * time.Second
 
-type pacedBody struct {
+// DefaultUploadMinRate is the minimum rate, in bytes a second, unless
+// -upload-min-rate sets another.
+const DefaultUploadMinRate = int64(8 << 10)
+
+// paceUploadBody replaces the general body time with the file send's pace,
+// or with no read deadline when rate is 0.
+func paceUploadBody(writer http.ResponseWriter, request *http.Request, rate int64) {
+	controller := http.NewResponseController(writer)
+	if rate == 0 {
+		_ = controller.SetReadDeadline(time.Time{})
+		request.Body = &uploadBody{ReadCloser: request.Body}
+		return
+	}
+	request.Body = &uploadBody{ReadCloser: request.Body, controller: controller, rate: rate, start: time.Now()}
+}
+
+// uploadBody marks read failures as errUploadBody and keeps the pace.
+type uploadBody struct {
 	io.ReadCloser
 	controller *http.ResponseController
+	rate       int64
 	start      time.Time
 	read       int64
 }
 
-func (body *pacedBody) Read(buffer []byte) (int, error) {
-	allowed := uploadBodyGrace + time.Duration(body.read/uploadBodyRate)*time.Second
-	_ = body.controller.SetReadDeadline(body.start.Add(allowed))
+func (body *uploadBody) Read(buffer []byte) (int, error) {
+	if body.controller != nil {
+		allowed := uploadBodyGrace + time.Duration(body.read/body.rate)*time.Second
+		_ = body.controller.SetReadDeadline(body.start.Add(allowed))
+	}
 	count, err := body.ReadCloser.Read(buffer)
 	body.read += int64(count)
+	if err != nil && !errors.Is(err, io.EOF) {
+		err = fmt.Errorf("%w: %w", errUploadBody, err)
+	}
 	return count, err
 }
 
-var errUploadTooLarge = errors.New("The selected files exceed the send limit. Remove files or choose smaller ones.")
+var (
+	errUploadTooLarge = errors.New("The selected files exceed the send limit. Remove files or choose smaller ones.")
+	errUploadBody     = errors.New("files were not sent because the request body could not be read")
+)
 
-func readTerminalFileRequest(request *http.Request, limit uploads.Limit) (terminalFileRequest, []uploads.File, error) {
-	var body []byte
-	var err error
-	if limit.Unlimited {
-		body, err = io.ReadAll(request.Body)
-	} else {
-		body, err = io.ReadAll(io.LimitReader(request.Body, limit.OuterBodyLimit()+1))
-		if err == nil && int64(len(body)) > limit.OuterBodyLimit() {
-			return terminalFileRequest{}, nil, errUploadTooLarge
+func exactFileSendContentType(request *http.Request) bool {
+	values := request.Header.Values("Content-Type")
+	return len(values) == 1 && values[0] == "application/octet-stream"
+}
+
+// readTerminalFileRequest reads the JSON line that opens a file send and
+// returns the files, each to be read in turn from rest, the remaining body.
+func readTerminalFileRequest(body io.Reader, limit uploads.Limit) (envelope terminalFileRequest, files []uploads.File, rest io.Reader, err error) {
+	metadata := &countingReader{reader: body}
+	var source io.Reader = metadata
+	if !limit.Unlimited {
+		source = io.LimitReader(metadata, uploads.MetadataAllowance)
+	}
+	decoder := json.NewDecoder(source)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&envelope); err != nil {
+		switch {
+		case errors.Is(err, errUploadBody):
+			return terminalFileRequest{}, nil, nil, errUploadBody
+		case !limit.Unlimited && metadata.read >= uploads.MetadataAllowance:
+			return terminalFileRequest{}, nil, nil, errUploadTooLarge
+		default:
+			return terminalFileRequest{}, nil, nil, errors.New("files were not sent because the request is invalid")
 		}
 	}
-	if err != nil {
-		return terminalFileRequest{}, nil, errors.New("files were not sent because the request body could not be read")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.DisallowUnknownFields()
-	var envelope terminalFileRequest
-	if err := decoder.Decode(&envelope); err != nil || requireJSONEnd(decoder) != nil {
-		return terminalFileRequest{}, nil, errors.New("files were not sent because the request JSON is invalid")
+	rest = io.MultiReader(decoder.Buffered(), body)
+	var separator [1]byte
+	if _, err := io.ReadFull(rest, separator[:]); err != nil || separator[0] != '\n' {
+		if errors.Is(err, errUploadBody) {
+			return terminalFileRequest{}, nil, nil, errUploadBody
+		}
+		return terminalFileRequest{}, nil, nil, errors.New("files were not sent because the request is invalid")
 	}
 	if !validTerminalIdentity(envelope.WorkspaceID) || !validTerminalIdentity(envelope.PaneID) || !validTerminalIdentity(envelope.TerminalID) || len(envelope.Files) == 0 {
-		return terminalFileRequest{}, nil, errors.New("files were not sent because the exact target or file list is invalid")
+		return terminalFileRequest{}, nil, nil, errors.New("files were not sent because the exact target or file list is invalid")
 	}
 	if envelope.Controller == "" && envelope.Intent != "" || envelope.Controller != "" &&
 		(len(envelope.Controller) != 64 || envelope.Takeover || envelope.Intent != "submit" && envelope.Intent != "insert" || envelope.Intent == "insert" && envelope.Text != "") {
-		return terminalFileRequest{}, nil, errors.New("files were not sent because the controlling connection or intent is invalid")
+		return terminalFileRequest{}, nil, nil, errors.New("files were not sent because the controlling connection or intent is invalid")
 	}
-	files := make([]uploads.File, 0, len(envelope.Files))
-	var decodedTotal int64
-	var encodedTotal int64
+	files = make([]uploads.File, 0, len(envelope.Files))
+	var total int64
 	for _, candidate := range envelope.Files {
-		if request.Context().Err() != nil {
-			return terminalFileRequest{}, nil, errors.New("files were not sent because the request ended")
+		if candidate.Size < 0 {
+			return terminalFileRequest{}, nil, nil, errors.New("files were not sent because the exact target or file list is invalid")
 		}
-		decoded, err := base64.StdEncoding.DecodeString(candidate.Data)
-		if err != nil || base64.StdEncoding.EncodeToString(decoded) != candidate.Data {
-			return terminalFileRequest{}, nil, errors.New("files were not sent because file data is not canonical base64")
+		if total > math.MaxInt64-candidate.Size {
+			return terminalFileRequest{}, nil, nil, errUploadTooLarge
 		}
-		size := int64(len(decoded))
-		if decodedTotal > int64(^uint64(0)>>1)-size {
-			return terminalFileRequest{}, nil, errUploadTooLarge
-		}
-		decodedTotal += size
-		encodedTotal += uploads.EncodedContribution(size)
-		files = append(files, uploads.File{Name: candidate.Name, Data: decoded})
+		total += candidate.Size
+		files = append(files, uploads.File{Data: rest, Name: candidate.Name, Size: candidate.Size})
 	}
-	if err := limit.Validate(decodedTotal, encodedTotal, int64(len(body))); err != nil {
-		return terminalFileRequest{}, nil, errUploadTooLarge
+	if !limit.Allows(total) {
+		return terminalFileRequest{}, nil, nil, errUploadTooLarge
 	}
-	// Keep only the decoded files, not their encoded copies.
-	envelope.Files = nil
-	return envelope, files, nil
+	return envelope, files, rest, nil
+}
+
+type countingReader struct {
+	reader io.Reader
+	read   int64
+}
+
+func (counter *countingReader) Read(buffer []byte) (int, error) {
+	count, err := counter.reader.Read(buffer)
+	counter.read += int64(count)
+	return count, err
+}
+
+// requireBodyEnd refuses a body with bytes past its listed files.
+func requireBodyEnd(body io.Reader) error {
+	var extra [1]byte
+	count, err := body.Read(extra[:])
+	for count == 0 && err == nil {
+		count, err = body.Read(extra[:])
+	}
+	if count > 0 {
+		return errors.New("files were not sent because the request body is longer than its files")
+	}
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	return err
 }
 
 func resolveUploadTarget(state herdr.State, workspaceID, paneID, terminalID string) (uploadTarget, bool) {

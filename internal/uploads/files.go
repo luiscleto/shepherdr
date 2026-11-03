@@ -261,7 +261,7 @@ func stageFiles(ctx context.Context, directory *ownedDirectory, files []File) ([
 			return nil, rollbackStageFiles(directory.root, staged, err)
 		}
 		staged = append(staged, created)
-		if err := writeUploadedFile(ctx, file, upload.Data); err != nil {
+		if err := writeUploadedFile(ctx, file, upload.Data, upload.Size); err != nil {
 			file.Close()
 			return nil, rollbackStageFiles(directory.root, staged, fmt.Errorf("write uploaded file: %w", err))
 		}
@@ -279,21 +279,27 @@ func rollbackStageFiles(root *os.Root, files []stagedFile, cause error) error {
 	return cause
 }
 
-func writeUploadedFile(ctx context.Context, file *os.File, data []byte) error {
-	const chunkSize = 64 << 10
-	for len(data) > 0 {
+// writeUploadedFile copies exactly size bytes from data as they arrive, so
+// no send holds a whole file in memory.
+func writeUploadedFile(ctx context.Context, file *os.File, data io.Reader, size int64) error {
+	buffer := make([]byte, 64<<10)
+	for size > 0 {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		length := min(len(data), chunkSize)
-		written, err := file.Write(data[:length])
-		if err != nil {
+		count, err := data.Read(buffer[:min(int64(len(buffer)), size)])
+		if count > 0 {
+			if _, writeErr := file.Write(buffer[:count]); writeErr != nil {
+				return writeErr
+			}
+			size -= int64(count)
+		}
+		if size > 0 && errors.Is(err, io.EOF) {
+			return io.ErrUnexpectedEOF
+		}
+		if err != nil && !errors.Is(err, io.EOF) {
 			return err
 		}
-		if written == 0 {
-			return io.ErrShortWrite
-		}
-		data = data[written:]
 	}
 	return ctx.Err()
 }

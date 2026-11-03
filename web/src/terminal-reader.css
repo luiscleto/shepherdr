@@ -180,16 +180,6 @@
   background: var(--paper-recessed);
 }
 
-.reader-file-preparing {
-  grid-column: 1 / -1;
-  color: var(--accent);
-  font-size: 0.82rem;
-}
-
-.reader-file-preparing[hidden] {
-  display: none;
-}
-
 .reader-file-list {
   display: flex;
   grid-column: 1 / -1;

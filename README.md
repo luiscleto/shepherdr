@@ -179,6 +179,9 @@ After the workspace is closed, Shepherdr deletes that folder. Cleanup is best ef
 | `-herdr-core-socket` | `$XDG_RUNTIME_DIR/herdr-core/default.sock` | herdr-core, behind the Herdr desktop app. Absolute path. Without it, when `XDG_RUNTIME_DIR` is unset, Shepherdr follows only the Herdr TUI. |
 | `-log-level` | `info` | Runtime logging: `debug`, `info`, `warn`, or `error`. |
 | `-upload-parent` | system temp | Staging directory for selected files. |
-| `-upload-limit` | `50MiB` | Per send. Bytes, `KiB`/`MiB`/`GiB`, or `none`. |
+| `-upload-limit` | `1GiB` | Per send. Bytes, `KiB`/`MiB`/`GiB`, or `none`. |
+| `-upload-min-rate` | `8KiB` | Per second, after a send's first 30 seconds. Bytes, `KiB`/`MiB`/`GiB`, or `none`. |
+| `-request-body-time` | `30s` | For every other request body. At least `1s`. |
+| `-herdr-reply-limit` | `64MiB` | Largest reply read from Herdr. At least `1MiB`. |
 
 Apache License 2.0.

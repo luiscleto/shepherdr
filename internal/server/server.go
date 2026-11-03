@@ -41,6 +41,8 @@ type Server struct {
 	fileUploadState    TerminalStateSource
 	notifications      *notifications.Manager
 	origin             access.Origin
+	requestBodyTime    time.Duration
+	uploadMinRate      int64
 	signInOff          bool
 	signInOffOrigins   map[string]string
 	terminalLabEnabled bool
@@ -85,6 +87,8 @@ func New(assets fs.FS, projector, coreProjector *herdr.Projector, terminal *Term
 		epoch:              newServerEpoch(),
 		projector:          projector,
 		coreProjector:      coreProjector,
+		requestBodyTime:    DefaultRequestBodyTime,
+		uploadMinRate:      DefaultUploadMinRate,
 		terminal:           terminal,
 		terminalLabEnabled: terminalLabEnabled,
 		upgrader: websocket.Upgrader{
@@ -144,7 +148,7 @@ func (s *Server) Handler() http.Handler {
 		_, _ = writer.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /", s.asset)
-	return limitBodyTime(securityHeaders(s.accessBoundary(mux), s.terminalLabEnabled))
+	return limitBodyTime(securityHeaders(s.accessBoundary(mux), s.terminalLabEnabled), s.requestBodyTime)
 }
 
 // actionSide is one Herdr's actions. Each Herdr runs one action at a time,
@@ -501,16 +505,25 @@ func isTerminalLabAsset(name string) bool {
 // keeps offering its camera.
 const browserPermissions = "accelerometer=(), browsing-topics=(), display-capture=(), geolocation=(), gyroscope=(), hid=(), magnetometer=(), midi=(), payment=(), serial=(), usb=()"
 
-// requestBodyTime is how long a client has to send a request body. The
-// bodies Shepherdr reads are small, and a file send paces its own body.
-var requestBodyTime = 30 * time.Second
+// DefaultRequestBodyTime is how long a client has to send a request body
+// unless -request-body-time sets another. The bodies Shepherdr reads are
+// small, and a file send paces its own body.
+const DefaultRequestBodyTime = 30 * time.Second
+
+// SetBodyLimits sets how long a request body may take and the slowest average
+// a file send's body may arrive at after its grace, in bytes a second; 0
+// turns that pace off.
+func (s *Server) SetBodyLimits(requestBodyTime time.Duration, uploadMinRate int64) {
+	s.requestBodyTime = requestBodyTime
+	s.uploadMinRate = uploadMinRate
+}
 
 // limitBodyTime gives every request body a read deadline, so a client that
 // sends its body slowly can't hold a connection open. A request without a
 // body gets none: Go is already reading its connection to notice a client
 // that leaves, and a deadline there would end the request instead.
 // WebSocket upgrades carry no body, and their connections set their own.
-func limitBodyTime(next http.Handler) http.Handler {
+func limitBodyTime(next http.Handler, requestBodyTime time.Duration) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Body != nil && request.Body != http.NoBody {
 			_ = http.NewResponseController(writer).SetReadDeadline(time.Now().Add(requestBodyTime))

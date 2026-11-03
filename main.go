@@ -64,7 +64,10 @@ func run() error {
 	resetNotifications := flag.Bool("reset-notifications", false, "clear notification subscriptions, keys, and contact, then exit")
 	showVersion := flag.Bool("version", false, "print the Shepherdr version and exit")
 	uploadParent := flag.String("upload-parent", os.TempDir(), "parent directory for workspace file uploads")
-	uploadLimitText := flag.String("upload-limit", "50MiB", "decoded file bytes allowed per send: bytes, KiB, MiB, GiB, or none")
+	uploadLimitText := flag.String("upload-limit", "1GiB", "file bytes allowed per send: bytes, KiB, MiB, GiB, or none; staged files live under -upload-parent, which defaults to the system temp directory and may be RAM-backed")
+	uploadMinRateText := flag.String("upload-min-rate", "8KiB", "slowest average a file send may arrive at, per second, after its first 30s: bytes, KiB, MiB, GiB, or none")
+	requestBodyTimeText := flag.String("request-body-time", "30s", "time allowed to send any other request body, such as 30s or 2m")
+	herdrReplyLimitText := flag.String("herdr-reply-limit", "64MiB", "largest reply Shepherdr reads from Herdr: bytes, KiB, MiB, or GiB, at least 1MiB")
 	logLevelText := flag.String("log-level", "info", "minimum log level: debug, info, warn, or error")
 	flag.Parse()
 	if *showVersion {
@@ -88,7 +91,8 @@ func run() error {
 		}
 		if *noSignIn || noSignInOrigin.set || publicOrigin.set || sessionLifetime.set || vapidContact.set || *resetNotifications ||
 			flagWasSet("listen") || flagWasSet("herdr-socket") || herdrCoreSocket.set || flagWasSet("terminal-lab") ||
-			flagWasSet("upload-parent") || flagWasSet("upload-limit") || flagWasSet("log-level") {
+			flagWasSet("upload-parent") || flagWasSet("upload-limit") || flagWasSet("upload-min-rate") ||
+			flagWasSet("request-body-time") || flagWasSet("herdr-reply-limit") || flagWasSet("log-level") {
 			return errors.New("access commands cannot be combined with server configuration flags")
 		}
 		if notificationPathErr != nil {
@@ -120,6 +124,19 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("-upload-limit: %w", err)
 	}
+	uploadMinRate, err := parseUploadMinRate(*uploadMinRateText)
+	if err != nil {
+		return err
+	}
+	requestBodyTime, err := parseRequestBodyTime(*requestBodyTimeText)
+	if err != nil {
+		return err
+	}
+	herdrReplyLimit, err := parseHerdrReplyLimit(*herdrReplyLimitText)
+	if err != nil {
+		return err
+	}
+	herdr.SetReplyLimit(herdrReplyLimit)
 	if *resetNotifications {
 		if notificationPathErr != nil {
 			return notificationPathErr
@@ -256,6 +273,7 @@ func run() error {
 	observeHerdrs(tuiProjector, coreProjector, notificationManager, uploadManager, coreUploadManager)
 	application := server.New(assets, tuiProjector, coreProjector, terminal, *terminalLabEnabled, actionClient)
 	application.SetFileUploads(uploadManager, uploadLimit)
+	application.SetBodyLimits(requestBodyTime, uploadMinRate)
 	if coreTerminal != nil {
 		application.SetCoreTerminal(coreTerminal)
 		application.SetCoreFileUploads(coreUploadManager)
@@ -299,7 +317,7 @@ func run() error {
 	} else if signInOffOrigin != nil {
 		address = signInOffOrigin.Value
 	}
-	logger.Info("Shepherdr is ready", "address", address, "local_address", "http://"+listener.Addr().String(), "herdr_socket", *socketPath, "herdr_core_socket", coreSocketPath, "terminal_lab", *terminalLabEnabled, "sign_in_off", *noSignIn, "upload_parent", *uploadParent, "upload_limit", *uploadLimitText)
+	logger.Info("Shepherdr is ready", "address", address, "local_address", "http://"+listener.Addr().String(), "herdr_socket", *socketPath, "herdr_core_socket", coreSocketPath, "terminal_lab", *terminalLabEnabled, "sign_in_off", *noSignIn, "upload_parent", *uploadParent, "upload_limit", *uploadLimitText, "upload_min_rate", *uploadMinRateText, "request_body_time", requestBodyTime, "herdr_reply_limit", *herdrReplyLimitText)
 
 	select {
 	case <-ctx.Done():
@@ -390,6 +408,34 @@ func parseLogLevel(value string) (slog.Level, error) {
 	default:
 		return 0, errors.New("-log-level must be debug, info, warn, or error")
 	}
+}
+
+// parseUploadMinRate reads -upload-min-rate in bytes a second; none is 0.
+func parseUploadMinRate(value string) (int64, error) {
+	if value == "none" {
+		return 0, nil
+	}
+	rate, err := uploads.ParseSize(value)
+	if err != nil {
+		return 0, errors.New("-upload-min-rate must be a positive byte count a second using optional KiB, MiB, or GiB, or none")
+	}
+	return rate, nil
+}
+
+func parseRequestBodyTime(value string) (time.Duration, error) {
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration < time.Second {
+		return 0, errors.New("-request-body-time must be a duration of at least 1s, such as 30s or 2m")
+	}
+	return duration, nil
+}
+
+func parseHerdrReplyLimit(value string) (int64, error) {
+	limit, err := uploads.ParseSize(value)
+	if err != nil || limit < 1<<20 {
+		return 0, errors.New("-herdr-reply-limit must be a byte count of at least 1MiB using optional KiB, MiB, or GiB")
+	}
+	return limit, nil
 }
 
 type optionalStringFlag struct {

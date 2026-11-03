@@ -11,6 +11,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/luiscleto/shepherdr/internal/herdr"
 	"github.com/luiscleto/shepherdr/internal/notifications"
@@ -241,7 +242,7 @@ func TestEachHerdrKeepsItsOwnFileRecords(t *testing.T) {
 					t.Fatal(err)
 				}
 				for _, workspace := range workspaces {
-					_, err = earlier.StageAndForward(context.Background(), workspace, "label", []uploads.File{{Name: "notes.txt", Data: []byte("notes")}},
+					_, err = earlier.StageAndForward(context.Background(), workspace, "label", []uploads.File{{Data: strings.NewReader("notes"), Name: "notes.txt", Size: 5}},
 						func() error { return nil }, func(paths []string, _ func() error) (uploads.ForwardResult, error) {
 							staged[side+":"+workspace] = paths[0]
 							return uploads.Forwarded, nil
@@ -282,5 +283,35 @@ func TestEachHerdrKeepsItsOwnFileRecords(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBodyAndReplyLimitFlags(t *testing.T) {
+	if rate, err := parseUploadMinRate("8KiB"); err != nil || rate != 8<<10 {
+		t.Fatalf("upload min rate 8KiB = %d, %v", rate, err)
+	}
+	if rate, err := parseUploadMinRate("none"); err != nil || rate != 0 {
+		t.Fatalf("upload min rate none = %d, %v", rate, err)
+	}
+	for _, value := range []string{"", "0", "-1", "8KB", "8 KiB", "fast"} {
+		if _, err := parseUploadMinRate(value); err == nil || !strings.HasPrefix(err.Error(), "-upload-min-rate ") {
+			t.Fatalf("upload min rate %q error = %v", value, err)
+		}
+	}
+	if duration, err := parseRequestBodyTime("2m"); err != nil || duration != 2*time.Minute {
+		t.Fatalf("request body time 2m = %v, %v", duration, err)
+	}
+	for _, value := range []string{"", "0", "30", "500ms", "-5s", "none"} {
+		if _, err := parseRequestBodyTime(value); err == nil || !strings.HasPrefix(err.Error(), "-request-body-time ") {
+			t.Fatalf("request body time %q error = %v", value, err)
+		}
+	}
+	if limit, err := parseHerdrReplyLimit("64MiB"); err != nil || limit != herdr.DefaultReplyLimit {
+		t.Fatalf("Herdr reply limit 64MiB = %d, %v", limit, err)
+	}
+	for _, value := range []string{"", "0", "1023KiB", "none", "64MB"} {
+		if _, err := parseHerdrReplyLimit(value); err == nil || !strings.HasPrefix(err.Error(), "-herdr-reply-limit ") {
+			t.Fatalf("Herdr reply limit %q error = %v", value, err)
+		}
 	}
 }

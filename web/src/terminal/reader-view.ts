@@ -1,6 +1,5 @@
 import { renderANSI } from "./ansi-dom";
 import type { TerminalDimensions } from "./adapter";
-import { prepareTerminalFiles } from "./file-uploads";
 import type { ReaderActionAvailability } from "./reader-availability";
 
 interface ReaderSnapshot extends TerminalDimensions {
@@ -67,10 +66,7 @@ export class ReaderView {
   #fileList: HTMLDivElement;
   #fileMenu: HTMLDivElement;
   #fileMenuDismiss: (event: Event) => void;
-  #filePreparation = 0;
-  #filePreparationStatus: HTMLSpanElement;
   #fileSelectionAvailable = false;
-  #filesPreparing = false;
   #historyLines = historyPageLines;
   #historyRefreshPending = false;
   #historyHint: HTMLDivElement;
@@ -232,12 +228,6 @@ export class ReaderView {
     const actionRail = document.createElement("div");
     actionRail.className = "reader-action-rail";
     actionRail.append(this.#addFiles, this.#send);
-    this.#filePreparationStatus = document.createElement("span");
-    this.#filePreparationStatus.className = "reader-file-preparing";
-    this.#filePreparationStatus.hidden = true;
-    this.#filePreparationStatus.setAttribute("role", "status");
-    this.#filePreparationStatus.setAttribute("aria-live", "polite");
-    this.#filePreparationStatus.textContent = "Preparing files…";
     this.#sendFeedback = document.createElement("div");
     this.#sendFeedback.className = "reader-send-feedback";
     this.#sendFeedback.hidden = true;
@@ -260,7 +250,7 @@ export class ReaderView {
       this.#composer.append(close);
       this.#composer.hidden = true;
     }
-    this.#composer.append(this.#fileMenu, this.#fileInput, this.#photoInput, this.#filePreparationStatus, this.#fileList);
+    this.#composer.append(this.#fileMenu, this.#fileInput, this.#photoInput, this.#fileList);
     host.replaceChildren(this.#scroll, this.#composer, this.#sendFeedback, this.#historyHint);
 
     this.#intersectionObserver = new IntersectionObserver((entries) => {
@@ -435,7 +425,7 @@ export class ReaderView {
     this.#sendAvailable = availability.send;
     const keepOpenForEditing = availability.edit && this.#collapsibleComposer && !this.#composer.hidden;
     this.#input.disabled = this.#submissionActive || !availability.send && !keepOpenForEditing;
-    this.#addFiles.disabled = this.#submissionActive || this.#filesPreparing || !availability.send;
+    this.#addFiles.disabled = this.#submissionActive || !availability.send;
     if (this.#closeComposer) this.#closeComposer.disabled = this.#submissionActive;
     this.#retrySend.disabled = !availability.recover;
     this.#takeoverSend.disabled = !availability.recover;
@@ -645,7 +635,6 @@ export class ReaderView {
   }
 
   destroy(): void {
-    this.#filePreparation++;
     this.#closeFileMenu(false);
     this.#pane = "";
     this.#terminalID = undefined;
@@ -678,7 +667,9 @@ export class ReaderView {
         this.#restoreFileActionFocus();
         return;
       }
-      void this.#prepareFiles(selected);
+      for (const file of selected) this.#addPendingFile(file);
+      this.#renderPendingFiles();
+      this.#restoreFileActionFocus();
     });
     input.addEventListener("cancel", () => {
       input.value = "";
@@ -692,7 +683,7 @@ export class ReaderView {
   }
 
   #openFileMenu(): void {
-    if (this.#addFiles.disabled || this.#addFiles.hidden || this.#filesPreparing) return;
+    if (this.#addFiles.disabled || this.#addFiles.hidden) return;
     this.#fileMenu.hidden = false;
     this.#addFiles.setAttribute("aria-expanded", "true");
     this.#host.ownerDocument.addEventListener("pointerdown", this.#fileMenuDismiss, true);
@@ -705,26 +696,6 @@ export class ReaderView {
     this.#addFiles.setAttribute("aria-expanded", "false");
     this.#host.ownerDocument.removeEventListener("pointerdown", this.#fileMenuDismiss, true);
     if (restoreFocus) this.#restoreFileActionFocus();
-  }
-
-  async #prepareFiles(files: readonly File[]): Promise<void> {
-    const preparation = ++this.#filePreparation;
-    this.#filesPreparing = true;
-    this.#filePreparationStatus.hidden = false;
-    this.#addFiles.disabled = true;
-    this.#syncSubmit();
-    try {
-      await prepareTerminalFiles(files);
-      if (preparation !== this.#filePreparation) return;
-      for (const file of files) this.#addPendingFile(file);
-    } finally {
-      if (preparation !== this.#filePreparation) return;
-      this.#filesPreparing = false;
-      this.#filePreparationStatus.hidden = true;
-      this.#addFiles.disabled = this.#submissionActive || !this.#sendAvailable;
-      this.#renderPendingFiles();
-      this.#restoreFileActionFocus();
-    }
   }
 
   #restoreFileActionFocus(): void {
@@ -790,8 +761,8 @@ export class ReaderView {
   }
 
   #canSubmit(): boolean {
-    if (this.#insertOnly) return !this.#submissionActive && !this.#filesPreparing && this.#sendAvailable && this.#fileSelectionAvailable && this.#pendingFiles.length > 0;
-    return !this.#submissionActive && !this.#filesPreparing && this.#sendAvailable && (this.#input.value.length > 0 || this.#pendingFiles.length > 0) &&
+    if (this.#insertOnly) return !this.#submissionActive && this.#sendAvailable && this.#fileSelectionAvailable && this.#pendingFiles.length > 0;
+    return !this.#submissionActive && this.#sendAvailable && (this.#input.value.length > 0 || this.#pendingFiles.length > 0) &&
       (this.#pendingFiles.length === 0 || this.#fileSelectionAvailable);
   }
 

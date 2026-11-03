@@ -6,7 +6,9 @@ Approved: 2026-08-23
 
 Date: 2026-08-23
 
-Current amendments, 2026-09-13 and 2026-09-17: the [accepted mobile Terminal direction](mobile-terminal-shared-trial-proposal.md#accepted-behavior) supersedes this document's release-after-phone-batch rules and Reader-only interface scope. Mobile uploads now forward through the retained controller: Reader Send submits, while the full-terminal files-only panel inserts paths without Enter. Storage, cleanup, limits, recognized-agent gating, and access rules below remain applicable. Earlier version references record the original evidence; the current minimum is Herdr 0.9.0 and validated versions are 0.9.0–0.9.5, with best-effort warnings for newer or unknown versions.
+Current amendment, 2026-11-03: at the human's request for larger sends, such as a decent-sized video, file sends stream instead of using base64 JSON, the default limit is 1 GiB, and the body times and Herdr reply bound are flags. The sections below state the current rules.
+
+Earlier amendments, 2026-09-13 and 2026-09-17: the [accepted mobile Terminal direction](mobile-terminal-shared-trial-proposal.md#accepted-behavior) supersedes this document's release-after-phone-batch rules and Reader-only interface scope. Mobile uploads now forward through the retained controller: Reader Send submits, while the full-terminal files-only panel inserts paths without Enter. Storage, cleanup, limits, recognized-agent gating, and access rules below remain applicable. Earlier version references record the original evidence; the current minimum is Herdr 0.9.0 and validated versions are 0.9.0–0.9.5, with best-effort warnings for newer or unknown versions.
 
 This direction records the implemented file-send behavior within the current Terminal and access architecture. `docs/mobile-terminal-attachments-discovery.md` remains historical pre-implementation evidence. Shepherdr sends local paths through Terminal and does not claim delivery to a model or that an agent read a file. It does not add another agent runtime.
 
@@ -15,13 +17,13 @@ This direction records the implemented file-send behavior within the current Ter
 The human has approved these inputs:
 
 - Upload/send and workspace cleanup are the only coordinated operations. Association, synchronization, storage, and cleanup are workspace-scoped by exact Herdr workspace ID.
-- Base64 JSON is the transport for this version. One configurable total decoded file-bytes limit applies per send: 50 MiB by default, with an explicit no-limit setting.
+- File sends stream their bytes (amended 2026-11-03; originally base64 JSON). One configurable total file-bytes limit applies per send: 1 GiB by default (originally 50 MiB), with an explicit no-limit setting.
 - Cleanup is best effort. Files remain until the exact workspace is observed deleted; agent exit, replacement, status change, reconnect, or a topology gap does not clean them.
 - One owner-only directory belongs to each associated workspace. Shepherdr and the Herdr agents are assumed to use the same operating-system account.
 - The mobile composer permits file-only sends and shows compact pending attachment cards in a horizontal strip. Selected images may have scoped browser-local thumbnails.
 - Files are staged on the machine running Shepherdr. Shepherdr sends their absolute local paths as terminal text and makes no provider-native attachment or agent-read claim.
 
-This document does not reopen those decisions. The implemented operator settings are `-upload-parent` and `-upload-limit`; the exact route, state, and interface behavior below describe the current product.
+This document does not reopen those decisions. The implemented operator settings are `-upload-parent`, `-upload-limit` and `-upload-min-rate`; the exact route, state, and interface behavior below describe the current product.
 
 ## Architecture
 
@@ -33,11 +35,11 @@ The design relies narrowly on the current product's one configured Herdr session
 
 ### Upload and send
 
-One workspace gate serializes sends only for that workspace. Different workspaces may stage and forward concurrently without a global admission scheduler. Reading and decoding a request body, which needs several times the files' size in memory, happens for one send at a time across the process: other sends wait for their turn without failing early, and a client that goes away gives its turn back.
+Sends share their workspace's gate, and cleanup holds it alone, so a workspace's folder is never removed while a send uses it. Sends, to one workspace or several, stage and forward concurrently without a global admission scheduler, and one long send never holds up another. Each file is written to its staged path as its bytes arrive, so no send holds a whole file in memory and memory stays flat with any number of sends.
 
 1. Resolve the exact current workspace, tab, pane, terminal, and recognized-agent observation from a complete truthful Herdr state. Atomically look up the stable workspace gate, then find or lazily create its association while holding it.
 2. After obtaining the gate, read/check current complete Herdr state again. The exact workspace and target terminal must still exist and that terminal must currently show a coherent Herdr-recognized agent. Otherwise fail before creating a directory or file.
-3. Verify or create the owned workspace directory, reserve safe final names, and stage all request files while holding the gate. Any normal validation or write failure attempts to remove everything newly created by that request and sends no terminal input.
+3. Verify or create the owned workspace directory, reserve safe final names, and stage all request files while holding the gate, writing each one as its bytes arrive. Any normal validation or write failure attempts to remove everything newly created by that request and sends no terminal input.
 4. Immediately before forwarding, revalidate the same exact workspace, pane, terminal, and recognized-agent presence. If any no longer matches, send nothing and best-effort roll back the request files.
 5. Build the server-derived file-list prefix and pass one batch to the shared Terminal send primitive described below. Hold the workspace gate through its definite or unknown result.
 
@@ -69,25 +71,25 @@ Derive each basename from the browser-supplied final name, never by joining a su
 
 File creation and deletion stay beneath the verified directory and do not follow symbolic links or use non-regular entries as upload files. Normal request rollback is best effort; failure is logged without claiming the bytes were removed. Owner-only access assumes Shepherdr and the agent run as the same trusted OS account. A different-account deployment requires separate approved architecture rather than broader modes.
 
-## JSON route, limit, and access boundary
+## File send route, limit, and access boundary
 
-One exact JSON mutation carries the exact Terminal target, optional person text, untrusted filenames, and base64 file bytes. The one configurable limit is the sum of decoded file bytes in that send:
+One exact `application/octet-stream` mutation carries one request line, then the file bytes. The request line is a JSON object with the exact Terminal target, optional person text, and each file's untrusted name and byte size, ended by a newline. Each listed file's bytes follow in order, with nothing after the last. Unknown fields, a missing newline, a negative size, an empty file list, a body that ends early, and bytes past the listed files are refused, and the request's files are removed. The browser builds the body from the chosen files themselves, so it streams them without reading them into memory. The one configurable limit is the sum of file bytes in that send:
 
-- default: 50 MiB;
+- default: 1 GiB;
 - explicit no-limit setting: no Shepherdr file-byte ceiling for that request.
 
-There is no separate per-file limit, file-count limit, active-storage quota, hard ceiling, or admission scheduler. The only process-wide limit is the one-at-a-time body decode above. Finite mode uses a fixed 1 MiB allowance for all non-base64 JSON bytes: target fields, person text, filenames after JSON escaping, keys, delimiters, and other structural metadata. For each file of decoded size `n`, its encoded contribution is calculated separately as `4 * ceil(n / 3)`, so every file's base64 padding is counted. A request is accepted only when decoded file bytes total at most the configured limit and the HTTP body is no larger than the sum of those per-file encoded contributions plus the 1 MiB allowance. It may therefore fail at the transport boundary because names, count, text, or JSON structure exhaust the allowance even when decoded bytes remain below the file-byte limit. This is an honest transport bound, not a file-count or quota system.
+There is no separate per-file limit, file-count limit, active-storage quota, hard ceiling, or admission scheduler. The limit is checked against the listed sizes before any file byte is written, and each file is written only up to its listed size. Finite mode allows the request line 1 MiB for target fields, person text, filenames and structure; a longer one is refused as too large. Staged files live under `-upload-parent`, which defaults to the system temp directory and may be RAM-backed, so a large limit also needs room there.
 
-The implemented bounded reader uses four times the configured decoded-byte limit plus 1 MiB as a conservative outer bound, followed by the exact per-file calculation. Once a send has its turn, its body has 30 seconds to start and must then keep arriving at 8 KiB per second on average; a slower body is cut off and nothing is sent. Tests may configure a tiny decoded limit while keeping the fixed allowance; they need not allocate 50 MiB.
+A file send's body has 30 seconds to start and must then keep arriving at the minimum rate on average, 8 KiB per second by default (`-upload-min-rate`); a slower body is cut off, nothing is sent, and its partial files are removed. `none` turns this pace off, and the body may then take any time. Every other request body has 30 seconds (`-request-body-time`). Tests may configure a tiny limit; they need not send 1 GiB.
 
-With no limit, both the decoded-byte limit and this upload route's metadata/body allowance are unbounded. The operator explicitly accepts that a request may consume large memory, temporary storage, transfer time, or all available disk. Ordinary decoding, filesystem, proxy, or operating-system failures remain possible and are reported as failures; this setting does not create a storage manager.
+With no limit, neither the file bytes nor the request line are bounded. The operator explicitly accepts that a request may use large temporary storage, transfer time, or all available disk. Ordinary filesystem, proxy, or operating-system failures remain possible and are reported as failures; this setting does not create a storage manager.
 
-The route is listed exactly in the deny-by-default route inventory. It keeps `Content-Type: application/json`, applicable body handling, and the existing mode-specific access rules:
+The route is listed exactly in the deny-by-default route inventory. It requires exactly `Content-Type: application/octet-stream`, applicable body handling, and the existing mode-specific access rules. Like JSON, that type is one a page on another site can't send without asking first, so the route keeps the protection the JSON type gave it:
 
 - In protected mode, exact canonical Host and Origin, a valid session, and current route rules apply. Reuse the existing `SessionLease` and runtime cancellation semantics without another auth lifecycle. Body handling, staging, Terminal work, and rollback use the lease's runtime context. Revocation removes authority and cancels that context immediately, then waits for the handler to notice cancellation, stop or classify any possible forwarding, best-effort roll back when appropriate, and release the lease. The handler performs the existing pre-forward authority/cancellation check; a possible post-forward cancellation remains unknown rather than becoming success.
-- In `-no-sign-in` mode there is no authenticated session, credential owner, or protected-session lease. Every browser that can reach Shepherdr retains the approved operator authority, while the route continues to use that mode's existing Host/Origin boundary, exact classification, JSON type, target checks, and configured body handling. Do not import protected canonical-origin/session claims into this mode.
+- In `-no-sign-in` mode there is no authenticated session, credential owner, or protected-session lease. Every browser that can reach Shepherdr retains the approved operator authority, while the route continues to use that mode's existing Host/Origin boundary, exact classification, exact content type, target checks, and configured body handling. Do not import protected canonical-origin/session claims into this mode.
 
-This is an application of the approved access architecture, not a new access product decision. Multipart and octet-stream are not part of the current direction; materially larger transfers require a separately reviewed design.
+This is an application of the approved access architecture, not a new access product decision. Multipart is not part of the current direction: a page on another site can send it without asking first.
 
 ## Shared Terminal batch-send operation
 
@@ -123,7 +125,7 @@ This subsection describes Reader's composer. The accepted full-terminal files-on
 
 The phone command is **Message**. Its composer shows the compact **Add files** icon only while the exact current terminal displays a Herdr-recognized agent; it does not show a disabled placeholder on an ordinary terminal. **Add files** offers **Photos** and **Files**, and the composer may send text, files, or both.
 
-Selected files are prepared in current page memory. **Preparing files…** keeps send unavailable until that work finishes. Prepared files appear as compact cards in a contained horizontal scrolling strip, with recognizable filename, size, an accessible compact remove icon, and a small local thumbnail for browser-decodable images. The narrow content-security policy permits `blob:` only for image sources. Every object URL is revoked on removal, replacement, successful send, draft discard, or component teardown. No preview URL or file draft is persisted.
+Selected files are not read when chosen; the send streams them. Just before sending, the browser reads one byte of each file, and a file it can no longer read is reported as not sent. Selected files appear as compact cards in a contained horizontal scrolling strip, with recognizable filename, size, an accessible compact remove icon, and a small local thumbnail for browser-decodable images. The narrow content-security policy permits `blob:` only for image sources. Every object URL is revoked on removal, replacement, successful send, draft discard, or component teardown. No preview URL or file draft is persisted.
 
 The interface uses ordinary file input behavior for arbitrary files. Camera, gallery, and Files choices, ordering, multi-select, returned metadata, and focus restoration remain browser/platform-dependent; the interface does not force capture or claim that every phone offers every source.
 
@@ -135,7 +137,7 @@ Interface language may say files are pending or that terminal input was sent. It
 
 Keep evidence proportional to this small design.
 
-Focused Go tests use small files and configurable tiny limits to cover marker-plus-record creation/reuse/refusal, safe names and `(1)` conflicts, finite decoded/body limits and no-limit configuration, rollback, fresh target/agent revalidation, workspace-gate serialization, cleanup waiting, startup reconciliation from a complete workspace set, shared batch-send outcomes, and protected versus sign-in-off route behavior. Use real small filesystem fixtures and narrow fakes, not a large mock runtime.
+Focused Go tests use small files and configurable tiny limits to cover marker-plus-record creation/reuse/refusal, safe names and `(1)` conflicts, finite file-byte and request-line limits and no-limit configuration, rollback, fresh target/agent revalidation, sends sharing a workspace gate, cleanup waiting, startup reconciliation from a complete workspace set, shared batch-send outcomes, and protected versus sign-in-off route behavior. Use real small filesystem fixtures and narrow fakes, not a large mock runtime.
 
 Memory-capped browser tests cover recognized-agent-only **Add files**, text-plus-files and file-only sends, attachment chips/removal, scoped image thumbnails and URL revocation, picker cancel, disconnect, definite failure, unknown result, and deliberate retry. Assertions compare primitive results rather than retaining live DOM objects.
 

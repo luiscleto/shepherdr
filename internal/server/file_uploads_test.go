@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -140,15 +139,14 @@ func TestTrialRetainedUploadStagesAndRollsBackOrRetainsUnknown(t *testing.T) {
 			t.Cleanup(manager.Close)
 			application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
 			configureTestSignInOff(application)
-			application.SetFileUploads(manager, uploads.Limit{DecodedBytes: 32})
+			application.SetFileUploads(manager, uploads.Limit{Bytes: 32})
 			application.fileUploadState = bridge.targets
-			body, _ := json.Marshal(map[string]any{
-				"files":   []map[string]string{{"name": "trial.txt", "data": "AQID"}},
+			body := fileSendBody(t, map[string]any{
 				"pane_id": "pane-1", "terminal_id": "term-send", "workspace_id": "workspace-1",
 				"controller": controller.handle, "intent": "insert",
-			})
+			}, sentFile{"trial.txt", []byte{1, 2, 3}})
 			request.Body = io.NopCloser(bytes.NewReader(body))
-			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Content-Type", "application/octet-stream")
 			response := httptest.NewRecorder()
 			application.Handler().ServeHTTP(response, request)
 			var result terminalFileResponse
@@ -266,20 +264,40 @@ func testUploadManager(t *testing.T) *uploads.Manager {
 	return manager
 }
 
+type sentFile struct {
+	name string
+	data []byte
+}
+
+// fileSendBody is a file send's body: the request JSON with each file's name
+// and size, a newline, then the files' bytes.
+func fileSendBody(t *testing.T, fields map[string]any, files ...sentFile) []byte {
+	t.Helper()
+	listed := make([]map[string]any, 0, len(files))
+	for _, file := range files {
+		listed = append(listed, map[string]any{"name": file.name, "size": len(file.data)})
+	}
+	fields["files"] = listed
+	body, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = append(body, '\n')
+	for _, file := range files {
+		body = append(body, file.data...)
+	}
+	return body
+}
+
 func terminalFileBody(t *testing.T, text, name string, data []byte, takeover bool) []byte {
 	t.Helper()
-	body, err := json.Marshal(map[string]any{
-		"files":        []map[string]string{{"data": base64.StdEncoding.EncodeToString(data), "name": name}},
+	return fileSendBody(t, map[string]any{
 		"pane_id":      "pane-1",
 		"takeover":     takeover,
 		"terminal_id":  "term-send",
 		"text":         text,
 		"workspace_id": "workspace-1",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return body
+	}, sentFile{name, data})
 }
 
 func TestTerminalFileRouteStagesOpaqueBytesAndSendsOneServerDerivedBatch(t *testing.T) {
@@ -293,12 +311,12 @@ func TestTerminalFileRouteStagesOpaqueBytesAndSendsOneServerDerivedBatch(t *test
 	manager := testUploadManager(t)
 	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
 	configureTestSignInOff(application)
-	application.SetFileUploads(manager, uploads.Limit{DecodedBytes: 32})
+	application.SetFileUploads(manager, uploads.Limit{Bytes: 32})
 	application.fileUploadState = source
 
 	body := terminalFileBody(t, "Please inspect", "../notes.txt", []byte{0, 1, 2, 255}, false)
 	request := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(body))
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Content-Type", "application/octet-stream")
 	response := httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
@@ -383,11 +401,11 @@ func TestTerminalFileRouteRevalidatesAgentAfterControlAndRollsBack(t *testing.T)
 	t.Cleanup(manager.Close)
 	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
 	configureTestSignInOff(application)
-	application.SetFileUploads(manager, uploads.Limit{DecodedBytes: 32})
+	application.SetFileUploads(manager, uploads.Limit{Bytes: 32})
 	application.fileUploadState = source
 
 	request := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(terminalFileBody(t, "", "late.txt", []byte("late"), false)))
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Content-Type", "application/octet-stream")
 	response := httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusConflict {
@@ -418,21 +436,39 @@ func TestTerminalFileRouteRevalidatesAgentAfterControlAndRollsBack(t *testing.T)
 	}
 }
 
-func TestTerminalFileRequestEnforcesFiniteDecodedAndCanonicalBase64ButNoneHasNoRouteBound(t *testing.T) {
-	finite := uploads.Limit{DecodedBytes: 3}
-	request := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(terminalFileBody(t, "", "four", []byte("four"), false)))
-	if _, _, err := readTerminalFileRequest(request, finite); !errors.Is(err, errUploadTooLarge) {
-		t.Fatalf("decoded overage = %v", err)
+func TestTerminalFileRequestEnforcesTheLimitFromListedSizesButNoneHasNoRouteBound(t *testing.T) {
+	finite := uploads.Limit{Bytes: 3}
+	if _, _, _, err := readTerminalFileRequest(bytes.NewReader(terminalFileBody(t, "", "four", []byte("four"), false)), finite); !errors.Is(err, errUploadTooLarge) {
+		t.Fatalf("file bytes over the limit = %v", err)
+	}
+	two := fileSendBody(t, map[string]any{"pane_id": "pane-1", "terminal_id": "term-send", "workspace_id": "workspace-1"},
+		sentFile{"a", []byte("ab")}, sentFile{"b", []byte("cd")})
+	if _, _, _, err := readTerminalFileRequest(bytes.NewReader(two), finite); !errors.Is(err, errUploadTooLarge) {
+		t.Fatalf("files over the limit together = %v", err)
 	}
 	unlimited := uploads.Limit{Unlimited: true}
-	request = signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(terminalFileBody(t, "", "four", []byte("four"), false)))
-	if _, files, err := readTerminalFileRequest(request, unlimited); err != nil || string(files[0].Data) != "four" {
+	_, files, rest, err := readTerminalFileRequest(bytes.NewReader(terminalFileBody(t, "", "four", []byte("four"), false)), unlimited)
+	if err != nil || len(files) != 1 || files[0].Size != 4 {
 		t.Fatalf("none request = %+v, %v", files, err)
 	}
-	body := strings.Replace(string(terminalFileBody(t, "", "one", []byte("one"), false)), base64.StdEncoding.EncodeToString([]byte("one")), "b25l\\n", 1)
-	request = signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", strings.NewReader(body))
-	if _, _, err := readTerminalFileRequest(request, unlimited); err == nil {
-		t.Fatal("noncanonical base64 was accepted")
+	if data, err := io.ReadAll(rest); err != nil || string(data) != "four" {
+		t.Fatalf("file bytes after the request line = %q, %v", data, err)
+	}
+	longText := terminalFileBody(t, strings.Repeat("x", int(uploads.MetadataAllowance)), "one", []byte("one"), false)
+	if _, _, _, err := readTerminalFileRequest(bytes.NewReader(longText), uploads.Limit{Bytes: 32}); !errors.Is(err, errUploadTooLarge) {
+		t.Fatalf("request line over its allowance = %v", err)
+	}
+	for name, body := range map[string]string{
+		"no newline":    strings.TrimSuffix(string(terminalFileBody(t, "", "one", nil, false)), "\n"),
+		"no separator":  strings.Replace(string(terminalFileBody(t, "", "one", []byte("one"), false)), "\n", " ", 1),
+		"unknown field": strings.Replace(string(terminalFileBody(t, "", "one", []byte("one"), false)), `"pane_id"`, `"data":"b25l","pane_id"`, 1),
+		"negative size": strings.Replace(string(terminalFileBody(t, "", "one", []byte("one"), false)), `"size":3`, `"size":-3`, 1),
+		"no files":      strings.Replace(string(terminalFileBody(t, "", "one", nil, false)), `[{"name":"one","size":0}]`, `[]`, 1),
+		"two objects":   strings.Replace(string(terminalFileBody(t, "", "one", []byte("one"), false)), "\n", "{}\n", 1),
+	} {
+		if _, _, _, err := readTerminalFileRequest(strings.NewReader(body), uploads.Limit{Bytes: 32}); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
 	}
 }
 
@@ -457,7 +493,7 @@ func TestUploadPrefixRejectsUnsafeGeneratedPathsAndNormalizesPersonText(t *testi
 	}
 }
 
-func TestTerminalFileRouteRequiresRecognizedAgentAndExactJSONInSignInOff(t *testing.T) {
+func TestTerminalFileRouteRequiresRecognizedAgentAndExactTypeInSignInOff(t *testing.T) {
 	source := newFakeTerminalStateSource(recognizedAgentState("workspace-1", "pane-1", "term-send"))
 	state := source.Current()
 	state.Snapshot.Agents = nil
@@ -466,11 +502,11 @@ func TestTerminalFileRouteRequiresRecognizedAgentAndExactJSONInSignInOff(t *test
 	defer bridge.Close()
 	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
 	configureTestSignInOff(application)
-	application.SetFileUploads(testUploadManager(t), uploads.Limit{DecodedBytes: 32})
+	application.SetFileUploads(testUploadManager(t), uploads.Limit{Bytes: 32})
 	application.fileUploadState = source
 	body := terminalFileBody(t, "", "one", []byte("one"), false)
 	request := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(body))
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Content-Type", "application/octet-stream")
 	response := httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusConflict {
@@ -480,10 +516,19 @@ func TestTerminalFileRouteRequiresRecognizedAgentAndExactJSONInSignInOff(t *test
 	response = httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusUnsupportedMediaType {
-		t.Fatalf("missing JSON content type returned %d", response.Code)
+		t.Fatalf("missing content type returned %d", response.Code)
+	}
+	for _, contentType := range []string{"application/json", "multipart/form-data; boundary=x", "text/plain", "application/octet-stream; x=y"} {
+		request = signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(body))
+		request.Header.Set("Content-Type", contentType)
+		response = httptest.NewRecorder()
+		application.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusUnsupportedMediaType {
+			t.Fatalf("content type %q returned %d", contentType, response.Code)
+		}
 	}
 	request = httptest.NewRequest(http.MethodPost, "http://localhost/api/terminal/files?herdr=tui", bytes.NewReader(body))
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Content-Type", "application/octet-stream")
 	request.Header.Set("Origin", "https://other.example")
 	response = httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
@@ -499,13 +544,13 @@ func TestProtectedTerminalFileRouteRequiresSessionAndUsesBoundLease(t *testing.T
 	application, accessManager, store, token := newProtectedTestServer(t, bridge)
 	defer accessManager.Close()
 	defer store.Close()
-	application.SetFileUploads(testUploadManager(t), uploads.Limit{DecodedBytes: 32})
+	application.SetFileUploads(testUploadManager(t), uploads.Limit{Bytes: 32})
 	application.fileUploadState = source
 	body := terminalFileBody(t, "", "one", []byte("one"), false)
 
 	request := httptest.NewRequest(http.MethodPost, "https://shepherdr.private/api/terminal/files?herdr=tui", bytes.NewReader(body))
 	request.Header.Set("Origin", "https://shepherdr.private")
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Content-Type", "application/octet-stream")
 	response := httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized {
@@ -514,12 +559,23 @@ func TestProtectedTerminalFileRouteRequiresSessionAndUsesBoundLease(t *testing.T
 
 	request = httptest.NewRequest(http.MethodPost, "https://shepherdr.private/api/terminal/files?herdr=tui", bytes.NewReader(body))
 	request.Header.Set("Origin", "https://shepherdr.private")
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Content-Type", "application/octet-stream")
 	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
 	response = httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("bound protected upload returned %d: %s", response.Code, response.Body.String())
+	}
+	for _, contentType := range []string{"application/json", "multipart/form-data; boundary=x", "text/plain"} {
+		request = httptest.NewRequest(http.MethodPost, "https://shepherdr.private/api/terminal/files?herdr=tui", bytes.NewReader(body))
+		request.Header.Set("Origin", "https://shepherdr.private")
+		request.Header.Set("Content-Type", contentType)
+		request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+		response = httptest.NewRecorder()
+		application.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("protected upload with %q returned %d", contentType, response.Code)
+		}
 	}
 }
 
@@ -552,12 +608,12 @@ func TestProtectedTerminalFileInvalidationClosesBodyAndReleasesLease(t *testing.
 	application, accessManager, store, token := newProtectedTestServer(t, bridge)
 	defer accessManager.Close()
 	defer store.Close()
-	application.SetFileUploads(testUploadManager(t), uploads.Limit{DecodedBytes: 32})
+	application.SetFileUploads(testUploadManager(t), uploads.Limit{Bytes: 32})
 	application.fileUploadState = source
 	body := newBlockingUploadBody()
 	request := httptest.NewRequest(http.MethodPost, "https://shepherdr.private/api/terminal/files?herdr=tui", body)
 	request.Header.Set("Origin", "https://shepherdr.private")
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Content-Type", "application/octet-stream")
 	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
 	response := httptest.NewRecorder()
 	finished := make(chan struct{})
@@ -613,7 +669,7 @@ func fileSendApplication(t *testing.T) *Server {
 	t.Cleanup(bridge.Close)
 	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
 	configureTestSignInOff(application)
-	application.SetFileUploads(testUploadManager(t), uploads.Limit{DecodedBytes: 32})
+	application.SetFileUploads(testUploadManager(t), uploads.Limit{Bytes: 32})
 	application.fileUploadState = source
 	return application
 }
@@ -634,27 +690,26 @@ func (body *watchedBody) Read(buffer []byte) (int, error) {
 
 func (*watchedBody) Close() error { return nil }
 
-func TestFileSendsReadTheirBodiesOneAtATime(t *testing.T) {
+func TestFileSendsDoNotWaitForEachOther(t *testing.T) {
 	application := fileSendApplication(t)
 	handler := application.Handler()
-	first := newBlockingUploadBody()
-	firstRequest := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", first)
-	firstRequest.Header.Set("Content-Type", "application/json")
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	firstRequest := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", reader)
+	firstRequest.Header.Set("Content-Type", "application/octet-stream")
 	firstDone := make(chan int, 1)
 	go func() {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, firstRequest)
 		firstDone <- response.Code
 	}()
-	select {
-	case <-first.started:
-	case <-time.After(time.Second):
-		t.Fatal("the first send did not start reading")
+	long := terminalFileBody(t, "", "long.bin", make([]byte, 20), false)
+	if _, err := writer.Write(long[:len(long)-10]); err != nil {
+		t.Fatal(err)
 	}
 
-	second := &watchedBody{Reader: bytes.NewReader(terminalFileBody(t, "", "two.txt", []byte("two"), false)), read: make(chan struct{})}
-	secondRequest := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", second)
-	secondRequest.Header.Set("Content-Type", "application/json")
+	secondRequest := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(terminalFileBody(t, "", "two.txt", []byte("two"), false)))
+	secondRequest.Header.Set("Content-Type", "application/octet-stream")
 	secondDone := make(chan int, 1)
 	go func() {
 		response := httptest.NewRecorder()
@@ -662,58 +717,54 @@ func TestFileSendsReadTheirBodiesOneAtATime(t *testing.T) {
 		secondDone <- response.Code
 	}()
 	select {
-	case <-second.read:
-		t.Fatal("the second send read its body while the first was still reading")
 	case code := <-secondDone:
-		t.Fatalf("the second send ended early with %d instead of waiting", code)
-	case <-time.After(300 * time.Millisecond):
+		if code != http.StatusOK {
+			t.Fatalf("the second send returned %d", code)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second send waited for the first send's body")
 	}
-
-	first.Close()
+	writer.CloseWithError(io.ErrUnexpectedEOF)
 	if code := <-firstDone; code != http.StatusBadRequest {
 		t.Fatalf("the first send returned %d after its client left", code)
 	}
-	select {
-	case <-second.read:
-	case <-time.After(time.Second):
-		t.Fatal("the second send did not get its turn after the first client left")
-	}
-	if code := <-secondDone; code != http.StatusOK {
-		t.Fatalf("the second send returned %d", code)
-	}
 }
 
-func TestWaitingFileSendWhoseClientLeavesStopsWithoutReading(t *testing.T) {
-	handler := fileSendApplication(t).Handler()
-	fileSendTurn <- struct{}{}
-	defer func() { <-fileSendTurn }()
-	body := &watchedBody{Reader: bytes.NewReader(terminalFileBody(t, "", "one.txt", []byte("one"), false)), read: make(chan struct{})}
-	ctx, cancel := context.WithCancel(context.Background())
-	request := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", body).WithContext(ctx)
-	request.Header.Set("Content-Type", "application/json")
-	done := make(chan int, 1)
-	go func() {
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, request)
-		done <- response.Code
-	}()
-	select {
-	case code := <-done:
-		t.Fatalf("the waiting send ended early with %d", code)
-	case <-time.After(200 * time.Millisecond):
-	}
-	cancel()
-	select {
-	case code := <-done:
-		if code != http.StatusBadRequest {
-			t.Fatalf("the abandoned send returned %d", code)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("the abandoned send kept waiting for its turn")
-	}
-	select {
-	case <-body.read:
-		t.Fatal("the abandoned send read its body")
-	default:
+func TestFileSendBodyThatDoesNotMatchItsListIsRefusedAndRemoved(t *testing.T) {
+	short := terminalFileBody(t, "", "short.txt", []byte("0123456789"), false)
+	for name, body := range map[string][]byte{
+		"short": short[:len(short)-4],
+		"long":  append(terminalFileBody(t, "", "long.txt", []byte("0123456789"), false), "extra"...),
+	} {
+		t.Run(name, func(t *testing.T) {
+			source := newFakeTerminalStateSource(recognizedAgentState("workspace-1", "pane-1", "term-send"))
+			bridge := testTerminalBridge(source)
+			defer bridge.Close()
+			base := t.TempDir()
+			if err := os.Mkdir(filepath.Join(base, "state"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			manager, err := uploads.Open(filepath.Join(base, "files"), filepath.Join(base, "state", "uploads.json"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(manager.Close)
+			application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
+			configureTestSignInOff(application)
+			application.SetFileUploads(manager, uploads.Limit{Bytes: 32})
+			application.fileUploadState = source
+			request := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(body))
+			request.Header.Set("Content-Type", "application/octet-stream")
+			response := httptest.NewRecorder()
+			application.Handler().ServeHTTP(response, request)
+			var result terminalFileResponse
+			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || response.Code == http.StatusOK || result.Result != uploads.NotSent {
+				t.Fatalf("%s body returned %d: %s", name, response.Code, response.Body.String())
+			}
+			staged, err := filepath.Glob(filepath.Join(base, "files", "*", name+".txt"))
+			if err != nil || len(staged) != 0 {
+				t.Fatalf("%s body left files: %v, %v", name, staged, err)
+			}
+		})
 	}
 }
