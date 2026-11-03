@@ -10,10 +10,10 @@
     "typecheck": "node --max-old-space-size=512 node_modules/typescript/bin/tsc --noEmit"
   },
   "devDependencies": {
-    "esbuild": "0.25.9",
-    "happy-dom": "20.11.2",
-    "tsx": "4.23.12",
-    "typescript": "5.9.2"
+    "esbuild": "0.28.2",
+    "happy-dom": "21.0.4",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
   },
   "dependencies": {
     "@wterm/dom": "0.3.4",
