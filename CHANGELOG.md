@@ -4,6 +4,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- In Herdr Core, a **done** agent you've looked at, in the Herdr app or on a Shepherdr terminal page you have open, shows as **idle**, as it does in the app. Notifications are unchanged.
+
 ### Changed
 
 - An agent's notification leads with the name you gave its tab or terminal, such as "Review PR17 CI is done", and its text is the space or workspace name alone. Without a given name it still says "Agent is done".

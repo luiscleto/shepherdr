@@ -83,7 +83,17 @@ func (core *testCore) serve(conn net.Conn) {
 		case "doc.get":
 			result = map[string]any{"value": read.Document, "version": 7}
 		case "events.subscribe":
-			result = map[string]any{"channel": nil, "seq": 3, "terminals": []any{}}
+			var params struct {
+				Terminal string `json:"terminal"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			terminals := []CoreTerminal{}
+			for _, terminal := range read.Terminals {
+				if params.Terminal != "" && terminal.Address == params.Terminal {
+					terminals = append(terminals, terminal)
+				}
+			}
+			result = map[string]any{"channel": nil, "seq": 3, "terminals": terminals}
 		case "terminal.run":
 			// Core's own replies (herdr-core 0.1.15): a missing folder is
 			// refused; otherwise the new terminal's record.
@@ -236,8 +246,8 @@ func TestCoreSubscriptionMarksOnlyChangesThatCanMoveHome(t *testing.T) {
 			kind = message.Method
 		}
 		want := map[string]bool{
-			"heartbeat": false, "size": false, "foreground": false, "turn": false,
-			"status": true, "labels": true, "title": true, "doc": true, "lost": true, "restarted": true, "missed": true,
+			"heartbeat": false, "size": false, "foreground": false,
+			"turn": true, "status": true, "labels": true, "title": true, "doc": true, "lost": true, "restarted": true, "missed": true,
 		}[kind]
 		if changes != want {
 			t.Fatalf("%s: changes = %t", kind, changes)
@@ -444,8 +454,9 @@ func TestCoreClientRunsOneLabelledShell(t *testing.T) {
 	if err != nil || address != "t6" {
 		t.Fatalf("run = %q, %v", address, err)
 	}
-	// Core's own shell, kept like every app terminal: no argv, name, env or parent.
-	want := []string{`hello {"generation":1}`, `terminal.run {"cwd":"/tmp/w3/work/repo/sub","keep":true,"labels":{"herdr.space":"sp034c04caa6b61d2a58e5a07df15f9f97","herdr.tab":"tb17a00994450ff571460d347ac9acf657"}}`}
+	// Core's own shell, kept like every app terminal: no argv, name, env or
+	// parent, and nothing seen yet, as a Herdr client starts one.
+	want := []string{`hello {"generation":1}`, `terminal.run {"cwd":"/tmp/w3/work/repo/sub","keep":true,"labels":{"herdr.seen":"0","herdr.space":"sp034c04caa6b61d2a58e5a07df15f9f97","herdr.tab":"tb17a00994450ff571460d347ac9acf657"}}`}
 	if got := core.methods(); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("requests = %q", got)
 	}

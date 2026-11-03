@@ -322,3 +322,24 @@ func TestOnlyACoreResizeCarriesKeep(t *testing.T) {
 		}
 	}
 }
+
+// The page says only whether it is in view; it never names a turn or label.
+func TestCoreViewMessageCarriesOnlyVisibility(t *testing.T) {
+	for _, test := range []struct {
+		message       string
+		visible, isOK bool
+	}{
+		{`{"type":"terminal.view","visible":true}`, true, true},
+		{`{"type":"terminal.view","visible":false}`, false, true},
+		{`{"type":"terminal.view"}`, false, false},
+		{`{"type":"terminal.view","visible":"yes"}`, false, false},
+		{`{"type":"terminal.view","visible":true,"turn":9}`, false, false},
+		{`{"type":"terminal.view","visible":true} {}`, false, false},
+		{`{"type":"terminal.resize","visible":true}`, false, false},
+	} {
+		visible, ok := coreViewMessage([]byte(test.message))
+		if visible != test.visible || ok != test.isOK {
+			t.Errorf("%s = %t, %t", test.message, visible, ok)
+		}
+	}
+}

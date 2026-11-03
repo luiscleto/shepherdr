@@ -74,3 +74,34 @@ test("a size is sent once unless the page asks for it again, in view or out of v
   assert.deepEqual(sent.map(message => String(JSON.parse(message).keep)), ["undefined", "true", "false"]);
   session.disconnect();
 });
+
+test("only a Herdr Core page says whether it is in view, observing or controlling", (t) => {
+  const sent: string[] = [];
+  class Socket extends EventTarget {
+    static OPEN = 1;
+    static CLOSED = 3;
+    readyState = 1;
+    send(data: string): void { sent.push(data); }
+    close(): void { this.readyState = 3; }
+  }
+  const globals = globalThis as Record<string, unknown>;
+  const previous = { WebSocket: globals.WebSocket, location: globals.location, window: globals.window };
+  globals.window = { setTimeout: () => 0, clearTimeout: () => undefined };
+  globals.WebSocket = Socket;
+  globals.location = { protocol: "http:", host: "127.0.0.1" };
+  t.after(() => Object.assign(globals, previous));
+  const noop = (): void => undefined;
+  const events = { onFrame: noop, onInputForwarded: noop, onKeyResult: noop, onLog: noop, onStatus: noop };
+  for (const [mode, herdr] of [["observe", "core"], ["control", "core"], ["control", "tui"]] as const) {
+    const session = new TerminalSession(mode, events, { endpoint: "/api/terminal", herdr });
+    session.connect("t1", { cols: 46, rows: 41 });
+    session.inView(true);
+    session.inView(false);
+    session.disconnect();
+  }
+  const views = sent.filter(message => JSON.parse(message).type === "terminal.view");
+  assert.deepEqual(views, [
+    '{"type":"terminal.view","visible":true}', '{"type":"terminal.view","visible":false}',
+    '{"type":"terminal.view","visible":true}', '{"type":"terminal.view","visible":false}',
+  ]);
+});

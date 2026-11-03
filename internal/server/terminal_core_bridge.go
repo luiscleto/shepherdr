@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -10,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -298,6 +300,11 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 		}
 	}()
 
+	// The page says when it comes into view and goes out of it; while it is
+	// in view, the terminal is marked seen as a Herdr client marks it.
+	views := make(chan bool, 1)
+	go bridge.markSeen(request, lease, settings.pane, views)
+
 	clientMessages := make(chan []byte, 16)
 	clientClosed := make(chan struct{})
 	go func() {
@@ -328,6 +335,14 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 		for {
 			select {
 			case message := <-clientMessages:
+				if visible, ok := coreViewMessage(message); ok {
+					select {
+					case <-views:
+					default:
+					}
+					views <- visible
+					continue
+				}
 				command, err := validatedTerminalCommand(message)
 				outcome := terminalBatchNotSent
 				if err == nil {
@@ -712,4 +727,122 @@ func (bridge *CoreTerminalBridge) sendControllerBatch(request *http.Request, han
 		}
 		return validate()
 	})
+}
+
+// coreViewMessage reads {"type":"terminal.view","visible":bool}: whether the
+// page showing this terminal is in view.
+func coreViewMessage(message []byte) (bool, bool) {
+	var view struct {
+		Type    string `json:"type"`
+		Visible *bool  `json:"visible"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(message))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&view) != nil || requireJSONEnd(decoder) != nil || view.Type != "terminal.view" || view.Visible == nil {
+		return false, false
+	}
+	return *view.Visible, true
+}
+
+// markSeen follows the terminal while its page is in view and writes
+// herdr.seen=<turn> the way the Herdr app does (its docs/labels.md): on
+// coming into view, and once when each turn ends while it stays in view; only
+// to raise it, or when it is missing; only for an agent; and only while the
+// page's exact terminal is still current. The turn comes from core, never
+// from the browser. Out of view, nothing is written, and the stream's end
+// stops it.
+func (bridge *CoreTerminalBridge) markSeen(request *http.Request, lease *terminalTargetLease, address string, views <-chan bool) {
+	ctx, cancel := context.WithCancel(bridge.context)
+	defer cancel()
+	stop := context.AfterFunc(request.Context(), cancel)
+	defer stop()
+	stopLease := context.AfterFunc(channelContext(lease.done), cancel)
+	defer stopLease()
+	inView := false
+	for {
+		if !inView {
+			select {
+			case <-ctx.Done():
+				return
+			case inView = <-views:
+				continue
+			}
+		}
+		if !bridge.followSeen(ctx, request, lease, address, views) {
+			inView = false
+			continue
+		}
+		// Core went away while the page stayed in view: follow it again.
+		select {
+		case <-ctx.Done():
+			return
+		case inView = <-views:
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+// followSeen marks the terminal seen until the page goes out of view, which
+// returns false, or the follow fails, which returns true to try again.
+func (bridge *CoreTerminalBridge) followSeen(ctx context.Context, request *http.Request, lease *terminalTargetLease, address string, views <-chan bool) bool {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	follow, err := bridge.client.FollowTerminal(ctx, address)
+	if err != nil {
+		bridge.logger.Debug("terminal seen follow failed", "herdr", "core", "pane", address, "error", err)
+		return ctx.Err() == nil
+	}
+	closeFollow := context.AfterFunc(ctx, func() { _ = follow.Close() })
+	defer closeFollow()
+	defer follow.Close()
+	bridge.raiseSeen(request, lease, follow.Terminal())
+	turns := make(chan herdr.CoreTerminal)
+	failed := make(chan error, 1)
+	go func() {
+		for {
+			turnEnded, err := follow.Next()
+			if err != nil {
+				failed <- err
+				return
+			}
+			if !turnEnded {
+				continue
+			}
+			select {
+			case turns <- follow.Terminal():
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case visible := <-views:
+			// Still in view: this turn was already marked once.
+			if !visible {
+				return false
+			}
+		case terminal := <-turns:
+			bridge.raiseSeen(request, lease, terminal)
+		case err := <-failed:
+			bridge.logger.Debug("terminal seen follow ended", "herdr", "core", "pane", address, "error", err)
+			return ctx.Err() == nil && !errors.Is(err, herdr.ErrCoreTerminalGone)
+		}
+	}
+}
+
+func (bridge *CoreTerminalBridge) raiseSeen(request *http.Request, lease *terminalTargetLease, terminal herdr.CoreTerminal) {
+	if terminal.Status == nil || !herdr.CoreSeenNeedsRaise(terminal) || !lease.Valid() {
+		return
+	}
+	turn := strconv.FormatUint(terminal.Turn, 10)
+	err := withCommitAuthority(request, func() error {
+		_, err := bridge.client.Label(bridge.context, terminal.Address, map[string]string{herdr.CoreSeenLabel: turn})
+		return err
+	})
+	if err != nil {
+		bridge.logger.Debug("terminal not marked seen", "herdr", "core", "pane", terminal.Address, "error", err)
+	}
 }

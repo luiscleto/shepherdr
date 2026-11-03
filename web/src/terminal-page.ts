@@ -94,7 +94,10 @@ export class TerminalPage {
   #uploadAttempt = 0;
   #uploadState: ReaderInputState = "ready";
   #uploadIntent: "insert" | "submit" = "submit";
-  #visibilityChanged = (): void => this.#fitAgain();
+  #visibilityChanged = (): void => {
+    this.#session?.inView(document.visibilityState === "visible");
+    this.#fitAgain();
+  };
   #viewportChanged = (): void => {
     if (this.#mobile && window.visualViewport) {
       this.#host.style.height = `${window.visualViewport.height}px`;
@@ -394,6 +397,7 @@ export class TerminalPage {
           this.#reader?.refreshSoon();
           if (received) return;
           received = true;
+          session.inView(document.visibilityState === "visible");
           if (mode !== "observe") {
             this.#ownership = "controlling";
             if (this.#lastDimensions) session.resize(this.#lastDimensions);

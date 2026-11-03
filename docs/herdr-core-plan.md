@@ -62,6 +62,14 @@ Fixture: Space **alpha** (named, git repo, tab **main** split shell | Claude Cod
 - **They stay after the window closes.** The discovery report's "written only while the window runs" is true for writes. The values persist and go stale only if structure changes while the app is closed, which nothing does except terminals ending.
 - On window close every terminal's size went back to headless 200×120 (`size` events).
 
+### `herdr.seen` label (shared with every Herdr client)
+
+The Herdr app 0.1.12's `docs/labels.md` defines it, and Shepherdr follows it on Home and writes it from Terminal:
+- `herdr.seen=<turn>` is the last turn a person looked at; `turn` is core's counter, which goes up each time the status leaves `working`. The value counts when it is an unsigned decimal number, optionally after one `+` (as the app parses it); anything else counts as missing, and a missing label is not `0`.
+- Home shows a terminal that core reports `done` as **idle** when `herdr.seen` is at or past its `turn`. Every other word, and `done` without a usable label, stays core's. Notifications keep core's own word, so becoming seen never sends one.
+- While a Terminal page for an agent is in view (document visible, observing or controlling), the page says so on its terminal stream (`terminal.view {visible}`) and the server follows that terminal (`events.subscribe {terminal}`). It writes `herdr.seen=<turn>` with `terminal.label` on coming into view and once when each turn ends (on the `turn` event) while the page stays in view; only to raise it, or when it is missing; only on the page's exact current terminal. The turn always comes from core. Out of view, on Home or after leaving, nothing is written. This is core's own path, so it works with the app window open or closed.
+- A terminal Shepherdr starts gets `herdr.seen=0`, as the app's do.
+
 ### Workers and other terminals
 
 - A worker started from inside an app terminal (`hc run --bg` from alpha's shell; an agent's `hc run` looks the same) has `parent: "t1"` and `die_with_parent: true`. It has no `herdr.space` or `herdr.tab`; the app copies the parent's `where` onto it. The app lists it as a **sub-agent of its parent** and gives it no pane.
@@ -136,7 +144,8 @@ Liveness: core's 15 s `heartbeat` on the event connection counts as liveness, li
   - wave 2 adds `terminal.attach` and `terminal.keys`;
   - wave 3a adds `terminal.kill`;
   - wave 3c adds `terminal.run`.
-- `terminal.run` is used only for two labelled runs while the Herdr app window is closed: **New space** and **New terminal** (wave 3c, `docs/herdr-core-closed-create-plan.md`). Each is `{cwd, labels: {herdr.space, herdr.tab}, keep: true}`, with no `argv`, `name`, `env` or caller. Stale-id rule: a labelled run for a space or tab the app has closed brings it back, so New terminal takes its ids from a fresh complete read just before the run (while the window is closed only the app writes the document, so it can't change), and New space uses new ids that aren't in that read.
+- `terminal.run` is used only for two labelled runs while the Herdr app window is closed: **New space** and **New terminal** (wave 3c, `docs/herdr-core-closed-create-plan.md`). Each is `{cwd, labels: {herdr.space, herdr.tab, herdr.seen: "0"}, keep: true}`, with no `argv`, `name`, `env` or caller. Stale-id rule: a labelled run for a space or tab the app has closed brings it back, so New terminal takes its ids from a fresh complete read just before the run (while the window is closed only the app writes the document, so it can't change), and New space uses new ids that aren't in that read.
+- `terminal.label` writes only `herdr.seen` on the exact terminal a Terminal page shows while it is in view, and `events.subscribe {terminal}` follows that terminal meanwhile (section 1, the `herdr.seen` label). Neither is required by the gate: without them nothing is marked.
 - Never used: `terminal.read` (it scrolls full-screen apps), `terminal.send`, `doc.set`, `terminal.put`, `machine.*`, `server.*`, `exec`/`file.*`, and `terminal.run` for anything else.
 - Validated range: 0.1.15 through 0.1.17 (0.1.16 added 2026-11-01 and 0.1.17 on 2026-11-03, each after its parity run). Newer runs best effort with a warning. Add each version to the range only after the real acceptance below.
 
@@ -149,7 +158,7 @@ Liveness: core's 15 s `heartbeat` on the event connection counts as liveness, li
 1. Dial, then `hello` and the gate.
 2. Open one plain `events.subscribe {}` connection. Its reply snapshot is not used for Home.
 3. Do one complete read on a short-lived connection: `terminal.list {}` (live terminals only) plus `doc.get {name:"herdr-app"}`. Build and validate a whole Home, then publish it.
-4. These events trigger the next complete read: `created`, `lost`, `restarted`, `finished`, `removed`, `status`, `labels`, `title` and `doc`, plus `missed`. Ignore `size`, `foreground`, `turn` and `keep`. Keep one read at a time and one pending refresh, as today. That latch absorbs the noisy `title` events.
+4. These events trigger the next complete read: `created`, `lost`, `restarted`, `finished`, `removed`, `status`, `turn` (it decides whether a done agent is seen), `labels`, `title` and `doc`, plus `missed`. Ignore `size`, `foreground` and `keep`. Keep one read at a time and one pending refresh, as today. That latch absorbs the noisy `title` events.
 5. On a disconnect: reconnect, subscribe, then do a complete read. There is no replay.
 
 How to read the document:

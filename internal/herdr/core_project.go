@@ -219,9 +219,10 @@ func projectCore(read CoreRead, homeFolder string, repositories func(folder stri
 			CWD: terminal.CWD, PaneID: projected.PaneID, TabID: tab.ID, TerminalID: projected.TerminalID,
 			TerminalTitle: terminal.Title, TerminalTitleStripped: terminal.Title, WorkspaceID: workspace.ID,
 		})
-		if projected.Agent != nil {
+		// Notifications follow core's own word, so becoming seen never sends one.
+		if terminal.Status != nil {
 			snapshot.Agents = append(snapshot.Agents, AgentInfo{
-				AgentStatus: projected.Agent.Status, PaneID: projected.PaneID, TabID: tab.ID,
+				AgentStatus: Status(terminal.Status.State), PaneID: projected.PaneID, TabID: tab.ID,
 				TerminalID: projected.TerminalID, WorkspaceID: workspace.ID,
 			})
 		}
@@ -383,7 +384,7 @@ func coreTerminal(coreID string, source CoreTerminal) Terminal {
 	// The agent name is the app core reports, never the live title, so a row
 	// keeps its name while the agent works.
 	if source.Status != nil {
-		terminal.Agent = &Agent{Kind: source.Status.App, Name: source.Status.App, Status: Status(source.Status.State)}
+		terminal.Agent = &Agent{Kind: source.Status.App, Name: source.Status.App, Status: CoreShownStatus(source)}
 	}
 	switch {
 	case terminal.Agent != nil && terminal.Agent.Name != "":

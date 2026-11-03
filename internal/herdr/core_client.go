@@ -84,6 +84,8 @@ type CoreTerminal struct {
 	Parent        *string           `json:"parent"`
 	Status        *CoreStatus       `json:"status"`
 	Title         string            `json:"title"`
+	// Turn goes up each time the status leaves working.
+	Turn uint64 `json:"turn"`
 }
 
 // CoreForeground is the program in front. Its cwd is the terminal's current
@@ -301,7 +303,9 @@ func (c *CoreClient) Run(ctx context.Context, folder, space, tab string) (string
 	var result struct {
 		Address string `json:"address"`
 	}
-	params := map[string]any{"cwd": folder, "labels": map[string]string{"herdr.space": space, "herdr.tab": tab}, "keep": true}
+	// A terminal a Herdr client starts begins with nothing seen.
+	labels := map[string]string{"herdr.space": space, "herdr.tab": tab, CoreSeenLabel: "0"}
+	params := map[string]any{"cwd": folder, "labels": labels, "keep": true}
 	if err := connection.call("terminal.run", params, &result); err != nil {
 		var apiError *APIError
 		if errors.As(err, &apiError) {
@@ -313,6 +317,31 @@ func (c *CoreClient) Run(ctx context.Context, folder, space, tab string) (string
 		return "", &MutationError{Err: fmt.Errorf("Herdr Core answered the run with %q", result.Address), Submitted: true}
 	}
 	return result.Address, nil
+}
+
+// Label sets or, with an empty value, removes labels on one terminal of this
+// machine by its exact address, and returns the labels core then holds.
+func (c *CoreClient) Label(ctx context.Context, address string, labels map[string]string) (map[string]string, error) {
+	if address == "" || strings.Contains(address, "/") {
+		return nil, &MutationError{Err: errors.New("label target is invalid")}
+	}
+	connection, _, err := c.open(ctx)
+	if err != nil {
+		return nil, &MutationError{Err: err}
+	}
+	defer connection.conn.Close()
+	var result CoreTerminal
+	if err := connection.call("terminal.label", map[string]any{"terminal": address, "labels": labels}, &result); err != nil {
+		var apiError *APIError
+		if errors.As(err, &apiError) {
+			return nil, apiError
+		}
+		return nil, &MutationError{Err: err, Submitted: true}
+	}
+	if result.Address != address {
+		return nil, &MutationError{Err: fmt.Errorf("Herdr Core answered the label for %q", result.Address), Submitted: true}
+	}
+	return result.Labels, nil
 }
 
 type CoreSubscription struct {
@@ -366,11 +395,12 @@ func (s *CoreSubscription) Next() (bool, error) {
 
 func coreEventChangesHome(kind string) bool {
 	switch kind {
-	case "size", "foreground", "turn", "keep":
+	case "size", "foreground", "keep":
 		return false
 	default:
-		// created, lost, restarted, finished, removed, status, labels, title
-		// and doc, plus anything newer: a complete read is always safe.
+		// created, lost, restarted, finished, removed, status, turn (a done
+		// agent's seen state), labels, title and doc, plus anything newer: a
+		// complete read is always safe.
 		return true
 	}
 }

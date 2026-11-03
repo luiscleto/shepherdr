@@ -248,6 +248,12 @@ export class TerminalSession implements TerminalSessionLike {
     this.#send({ type: "terminal.resize", ...dimensions, ...(keep === undefined ? {} : { keep }) });
   }
 
+  // Herdr Core: whether this page is in view, so the server marks the agent
+  // seen as a Herdr client does. The server decides what to write.
+  inView(visible: boolean): void {
+    if (this.#herdr === "core") this.#send({ type: "terminal.view", visible });
+  }
+
   scroll(scroll: TerminalScroll): boolean {
     if (this.#mode === "observe" || this.#herdr === "core") return false;
     return this.#send({ type: "terminal.scroll", source: "wheel", ...scroll });
