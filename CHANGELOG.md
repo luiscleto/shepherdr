@@ -10,7 +10,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Release archives and the checksum file carry signed build provenance, so `gh attestation verify` with `--signer-workflow luiscleto/shepherdr/.github/workflows/release.yml` can confirm that Shepherdr's release workflow built them.
 - With sign-in off, Shepherdr accepts only loopback and the one private address you name with `-no-sign-in-origin`, so a website can no longer reach it through DNS rebinding.
 - Someone who can reach Shepherdr can no longer block sign-in, passkey checks or trusting a new device by starting many sign-ins.
-- Browsers are told to keep using HTTPS for the protected address, to keep Shepherdr's window apart from pages it opens, and to turn off features such as location and USB that Shepherdr never uses.
+- Browsers are told to keep Shepherdr's window apart from pages it opens, and to turn off features such as location and USB that Shepherdr never uses.
 
 ## [0.6.0] - 2026-11-03
 

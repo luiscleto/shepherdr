@@ -133,7 +133,7 @@ func TestSecurityHeadersConfineBrowserContent(t *testing.T) {
 	response := httptest.NewRecorder()
 	securityHeaders(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(204)
-	}), false, false).ServeHTTP(response, request)
+	}), false).ServeHTTP(response, request)
 	policy := response.Header().Get("Content-Security-Policy")
 	if !strings.Contains(policy, "object-src 'none'") || !strings.Contains(policy, "connect-src 'self'") || !strings.Contains(policy, "img-src 'self' data: blob:") {
 		t.Fatalf("unexpected content security policy %q", policy)
@@ -149,16 +149,6 @@ func TestSecurityHeadersConfineBrowserContent(t *testing.T) {
 	}
 	if !strings.Contains(permissions, "geolocation=()") || !strings.Contains(permissions, "usb=()") {
 		t.Fatalf("Permissions-Policy %q", permissions)
-	}
-	if got := response.Header().Get("Strict-Transport-Security"); got != "" {
-		t.Fatalf("sign-in-off response sent Strict-Transport-Security %q", got)
-	}
-	protected := httptest.NewRecorder()
-	securityHeaders(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.WriteHeader(204)
-	}), false, true).ServeHTTP(protected, request)
-	if got := protected.Header().Get("Strict-Transport-Security"); got != "max-age=31536000" {
-		t.Fatalf("protected Strict-Transport-Security = %q", got)
 	}
 }
 
