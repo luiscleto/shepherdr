@@ -11,6 +11,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - With sign-in off, Shepherdr accepts only loopback and the one private address you name with `-no-sign-in-origin`, so a website can no longer reach it through DNS rebinding.
 - Someone who can reach Shepherdr can no longer block sign-in, passkey checks or trusting a new device by starting many sign-ins.
 - Browsers are told to keep Shepherdr's window apart from pages it opens, and to turn off features such as location and USB that Shepherdr never uses.
+- Sent files are saved without characters a shell could act on, such as `$`, `;`, `|`, `&`, `<`, `>`, parentheses, quotes and `!`, so their pasted paths stay harmless if a shell reads them.
 
 ## [0.6.0] - 2026-11-03
 

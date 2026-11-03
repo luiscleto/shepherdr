@@ -303,7 +303,7 @@ func safeBasename(name string) string {
 	name = name[strings.LastIndex(name, "/")+1:]
 	var builder strings.Builder
 	for _, character := range name {
-		if character == '/' || character == '\\' || unsafePathRune(character) {
+		if character == '/' || character == '\\' || unsafePathRune(character) || shellCharacter(character) {
 			continue
 		}
 		builder.WriteRune(character)
@@ -313,6 +313,14 @@ func safeBasename(name string) string {
 		return "file"
 	}
 	return name
+}
+
+// shellCharacter reports the characters a shell could act on: quoting,
+// expansion, history, command separators, subshells and redirection. A
+// staged name drops them, so a pasted path runs nothing even if a shell,
+// not the agent, reads it.
+func shellCharacter(character rune) bool {
+	return strings.ContainsRune("$`;|&<>()'\"!", character)
 }
 
 func reserveFile(directory *ownedDirectory, name string) (stagedFile, *os.File, error) {

@@ -288,6 +288,41 @@ func TestUnsafeUnicodeIsRemovedFromNamesAndRejectedFromTerminalPaths(t *testing.
 	}
 }
 
+func TestStagedNamesDropShellCharactersAndStayReadableAndUnique(t *testing.T) {
+	for name, want := range map[string]string{
+		"report$(curl x|sh).pdf":    "reportcurl xsh.pdf",
+		"a`id`;b&c<d>e.txt":         "aidbcde.txt",
+		`quote'd "name"!.txt`:       "quoted name.txt",
+		"photo (1).jpg":             "photo 1.jpg",
+		"résumé #2 [final] ~v1.pdf": "résumé #2 [final] ~v1.pdf",
+		"$;|&":                      "file",
+	} {
+		if got := safeBasename(name); got != want {
+			t.Errorf("safeBasename(%q) = %q, want %q", name, got, want)
+		}
+	}
+	manager, _ := openTestManager(t)
+	var paths []string
+	_, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{
+		{Name: "a$b.txt", Data: []byte("one")},
+		{Name: "a;b.txt", Data: []byte("two")},
+		{Name: "ab.txt", Data: []byte("three")},
+	}, func() error { return nil }, func(staged []string, _ func() error) (ForwardResult, error) {
+		paths = staged
+		return Forwarded, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, path := range paths {
+		names = append(names, filepath.Base(path))
+	}
+	if strings.Join(names, "|") != "ab.txt|ab (1).txt|ab (2).txt" {
+		t.Fatalf("staged names = %q", names)
+	}
+}
+
 func TestCleanupRefusesMismatchedMarkerAndRetainsRecord(t *testing.T) {
 	manager, base := openTestManager(t)
 	var directory string
