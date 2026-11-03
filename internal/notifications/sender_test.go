@@ -135,7 +135,7 @@ func (s fixedSender) Send(context.Context, Event, Subscription, string, string, 
 }
 
 func TestManagerRemovesSubscriptionOnlyAfterDefinitiveGone(t *testing.T) {
-	path := t.TempDir() + "/notifications.json"
+	path := privateDir(t) + "/notifications.json"
 	store, err := OpenStore(path, "mailto:operator@example.com")
 	if err != nil {
 		t.Fatal(err)

@@ -162,7 +162,7 @@ func TestEndpointValidationRequiresStrictHTTPSShapeAndResolution(t *testing.T) {
 }
 
 func TestManagerSaveRequiresStrictSubscriptionAndPublicResolution(t *testing.T) {
-	store, err := OpenStore(t.TempDir()+"/notifications.json", "mailto:operator@example.com")
+	store, err := OpenStore(privateDir(t)+"/notifications.json", "mailto:operator@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}

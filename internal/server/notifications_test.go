@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,7 +15,7 @@ import (
 )
 
 func TestNotificationRoutesRequireStrictSameOriginJSONAndExposeNoSecrets(t *testing.T) {
-	store, err := notifications.OpenStore(filepath.Join(t.TempDir(), "notifications.json"), "mailto:operator@example.com")
+	store, err := notifications.OpenStore(filepath.Join(privateTestDir(t), "notifications.json"), "mailto:operator@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,7 @@ func TestNotificationRoutesRequireStrictSameOriginJSONAndExposeNoSecrets(t *test
 }
 
 func TestNotificationSettingsReadDefaultsAndRemoveOnlyExactBrowser(t *testing.T) {
-	store, err := notifications.OpenStore(filepath.Join(t.TempDir(), "notifications.json"), "https://operator.example/contact")
+	store, err := notifications.OpenStore(filepath.Join(privateTestDir(t), "notifications.json"), "https://operator.example/contact")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,4 +125,15 @@ func notificationRequest(method, target, body string) *http.Request {
 	request := httptest.NewRequest(method, "http://localhost"+target, strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	return request
+}
+
+// privateTestDir is an owner-only directory, as Shepherdr's configuration
+// directory is. The notification store refuses any other.
+func privateTestDir(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return directory
 }

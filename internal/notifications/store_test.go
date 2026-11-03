@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -20,7 +21,7 @@ func TestExistingSubscriptionsAndOlderSettingsEnableAccessChanges(t *testing.T) 
 		t.Fatalf("older browser settings did not safely default access changes on: %+v", decoded)
 	}
 
-	path := filepath.Join(t.TempDir(), "notifications.json")
+	path := filepath.Join(privateDir(t), "notifications.json")
 	store, err := OpenStore(path, "mailto:operator@example.com")
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +52,7 @@ func TestExistingSubscriptionsAndOlderSettingsEnableAccessChanges(t *testing.T) 
 }
 
 func TestProtectedMigrationOwnershipAndResetPreserveVAPIDIdentity(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "notifications.json")
+	path := filepath.Join(privateDir(t), "notifications.json")
 	store, err := OpenStore(path, "mailto:operator@example.com")
 	if err != nil {
 		t.Fatal(err)
@@ -202,7 +203,7 @@ func TestStorePersistsContactKeysAndIndependentBrowserSettings(t *testing.T) {
 }
 
 func TestResetRemovesOnlyStateAndRecognizedTemporaryResidue(t *testing.T) {
-	directory := t.TempDir()
+	directory := privateDir(t)
 	path := filepath.Join(directory, "notifications.json")
 	if _, err := OpenStore(path, "mailto:operator@example.com"); err != nil {
 		t.Fatal(err)
@@ -266,13 +267,13 @@ func TestValidateContactRequiresRealMailtoOrHTTPSURI(t *testing.T) {
 			t.Errorf("ValidateContact(%q) unexpectedly succeeded", value)
 		}
 	}
-	if _, err := OpenStore(filepath.Join(t.TempDir(), "notifications.json"), "http://operator.example"); err == nil {
+	if _, err := OpenStore(filepath.Join(privateDir(t), "notifications.json"), "http://operator.example"); err == nil {
 		t.Fatal("store accepted an invalid supplied contact")
 	}
 }
 
 func TestCorruptStoreStaysUnavailableUntilReset(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "notifications.json")
+	path := filepath.Join(privateDir(t), "notifications.json")
 	if err := os.WriteFile(path, []byte("{not-json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +291,7 @@ func TestCorruptStoreStaysUnavailableUntilReset(t *testing.T) {
 }
 
 func TestInvalidPrivateScalarDisablesStoreWithoutPanicking(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "notifications.json")
+	path := filepath.Join(privateDir(t), "notifications.json")
 	store, err := OpenStore(path, "mailto:operator@example.com")
 	if err != nil {
 		t.Fatal(err)
@@ -323,4 +324,116 @@ func validSubscription(t *testing.T, endpoint string, events EventSettings) Subs
 		},
 		Events: events,
 	}
+}
+
+// privateDir is an owner-only directory, as Shepherdr's configuration
+// directory is. The notification store refuses any other.
+func privateDir(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return directory
+}
+
+func TestStoreRefusesLinksAndUnsafeModesWithoutChangingThem(t *testing.T) {
+	// A normal existing install loads: a 0600 file in a 0700 directory.
+	normal := filepath.Join(privateDir(t), "notifications.json")
+	if _, err := OpenStore(normal, "mailto:operator@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if store, err := OpenStore(normal, ""); err != nil || store.state == nil {
+		t.Fatalf("normal notification state did not load: %v", err)
+	}
+	data, err := os.ReadFile(normal)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, arrange := range map[string]func(directory string) string{
+		"file link": func(directory string) string {
+			target := filepath.Join(t.TempDir(), "elsewhere.json")
+			if err := os.WriteFile(target, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(directory, "notifications.json")
+			if err := os.Symlink(target, path); err != nil {
+				t.Fatal(err)
+			}
+			return path
+		},
+		"directory link": func(directory string) string {
+			if err := os.WriteFile(filepath.Join(directory, "notifications.json"), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			link := filepath.Join(t.TempDir(), "linked")
+			if err := os.Symlink(directory, link); err != nil {
+				t.Fatal(err)
+			}
+			return filepath.Join(link, "notifications.json")
+		},
+		"readable file": func(directory string) string {
+			path := filepath.Join(directory, "notifications.json")
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(path, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return path
+		},
+		"open directory": func(directory string) string {
+			path := filepath.Join(directory, "notifications.json")
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(directory, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			return path
+		},
+		"extra hard link": func(directory string) string {
+			path := filepath.Join(directory, "notifications.json")
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Link(path, filepath.Join(directory, "copy.json")); err != nil {
+				t.Fatal(err)
+			}
+			return path
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			directory := privateDir(t)
+			path := arrange(directory)
+			before := modes(t, path)
+			for _, contact := range []string{"", "mailto:operator@example.com"} {
+				store, err := OpenStore(path, contact)
+				if err == nil || !strings.Contains(err.Error(), "owner-only 0600 regular file") {
+					t.Fatalf("contact %q: unsafe notification state error = %v", contact, err)
+				}
+				if _, _, configured, _ := store.Config(); configured {
+					t.Fatalf("contact %q: unsafe notification state was used", contact)
+				}
+			}
+			if after := modes(t, path); after != before {
+				t.Fatalf("refusal changed the state: %s, want %s", after, before)
+			}
+		})
+	}
+}
+
+// modes describes path and its directory as Lstat sees them.
+func modes(t *testing.T, path string) string {
+	t.Helper()
+	var result []string
+	for _, name := range []string{filepath.Dir(path), path} {
+		info, err := os.Lstat(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result = append(result, info.Mode().String())
+	}
+	return strings.Join(result, " ")
 }

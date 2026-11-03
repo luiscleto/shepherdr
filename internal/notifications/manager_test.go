@@ -78,7 +78,7 @@ func (s *captureSender) take() []capturedSend {
 }
 
 func TestAccessChangeNotificationsUseLabelsAndExcludeRemovedTrust(t *testing.T) {
-	store, err := OpenStore(t.TempDir()+"/notifications.json", "mailto:operator@example.com")
+	store, err := OpenStore(privateDir(t)+"/notifications.json", "mailto:operator@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func (s *blockingSender) Send(context.Context, Event, Subscription, string, stri
 }
 
 func TestProtectedDeliveryRechecksOwnerAtTheSendCutoff(t *testing.T) {
-	store, err := OpenStore(t.TempDir()+"/notifications.json", "mailto:operator@example.com")
+	store, err := OpenStore(privateDir(t)+"/notifications.json", "mailto:operator@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestProtectedDeliveryRechecksOwnerAtTheSendCutoff(t *testing.T) {
 }
 
 func TestProtectedRevocationWaitsForPreCutoffPushAndPreventsANewSend(t *testing.T) {
-	store, err := OpenStore(t.TempDir()+"/notifications.json", "mailto:operator@example.com")
+	store, err := OpenStore(privateDir(t)+"/notifications.json", "mailto:operator@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func TestNotificationLifecycleDiagnosticsRespectLogLevel(t *testing.T) {
 		{name: "debug", level: slog.LevelDebug, want: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			store, err := OpenStore(t.TempDir()+"/notifications.json", "mailto:operator@example.com")
+			store, err := OpenStore(privateDir(t)+"/notifications.json", "mailto:operator@example.com")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -322,7 +322,7 @@ func TestNotificationLifecycleDiagnosticsRespectLogLevel(t *testing.T) {
 }
 
 func TestDeliveryDiagnosticsReportStatusFieldsWithoutPrivateData(t *testing.T) {
-	store, err := OpenStore(t.TempDir()+"/notifications.json", "mailto:operator@example.com")
+	store, err := OpenStore(privateDir(t)+"/notifications.json", "mailto:operator@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +378,7 @@ func TestDeliveryDiagnosticsReportStatusFieldsWithoutPrivateData(t *testing.T) {
 }
 
 func TestDeliveryDiagnosticsReportWorkspaceFieldsAndEmptyBurstName(t *testing.T) {
-	store, err := OpenStore(t.TempDir()+"/notifications.json", "mailto:operator@example.com")
+	store, err := OpenStore(privateDir(t)+"/notifications.json", "mailto:operator@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}

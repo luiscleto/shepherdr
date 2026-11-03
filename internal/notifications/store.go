@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 )
@@ -429,22 +430,12 @@ func recognizedStateTemporary(entry os.DirEntry) bool {
 }
 
 func readState(path string) (*persistedState, error) {
-	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
-		return nil, fmt.Errorf("protect notification state directory: %w", err)
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
+	if err := ensurePrivateDirectory(filepath.Dir(path), false); err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() {
-		return nil, errors.New("notification state is not a regular file")
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		return nil, fmt.Errorf("protect notification state: %w", err)
-	}
-	file, err := os.Open(path)
+	file, err := openPrivateRegular(path)
 	if err != nil {
-		return nil, fmt.Errorf("read notification state: %w", err)
+		return nil, err
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, maxStateBytes+1))
@@ -554,11 +545,13 @@ func writeState(path string, state *persistedState) error {
 	}
 	data = append(data, '\n')
 	directory := filepath.Dir(path)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("create notification state directory: %w", err)
+	if err := ensurePrivateDirectory(directory, true); err != nil {
+		return err
 	}
-	if err := os.Chmod(directory, 0o700); err != nil {
-		return fmt.Errorf("protect notification state directory: %w", err)
+	if file, err := openPrivateRegular(path); err == nil {
+		_ = file.Close()
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	temporary, err := os.CreateTemp(directory, ".notifications-*")
 	if err != nil {
@@ -590,6 +583,62 @@ func writeState(path string, state *persistedState) error {
 		_ = directoryFile.Close()
 	}
 	return nil
+}
+
+// The notification state holds the VAPID private key and subscription
+// secrets, so like the access state it must be one 0600 regular file, owned
+// by this user, in a 0700 directory owned by this user. Shepherdr refuses
+// anything else, including a link, instead of changing it.
+const privateStateRule = "notification state must be one owner-only 0600 regular file, owned by the current user, in an owner-only 0700 directory"
+
+func ensurePrivateDirectory(directory string, create bool) error {
+	if create {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			return fmt.Errorf("create notification state directory: %w", err)
+		}
+	}
+	info, err := os.Lstat(directory)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0o700 || !ownedByCurrentUser(info) {
+		return errors.New(privateStateRule)
+	}
+	return nil
+}
+
+func openPrivateRegular(path string) (*os.File, error) {
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, syscall.ENOENT) {
+		return nil, &os.PathError{Op: "open", Path: path, Err: err}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", privateStateRule, err)
+	}
+	file := os.NewFile(uintptr(fd), path)
+	info, err := file.Stat()
+	if err != nil {
+		file.Close()
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || !ownedByCurrentUser(info) || linkCount(info) != 1 {
+		file.Close()
+		return nil, errors.New(privateStateRule)
+	}
+	return file, nil
+}
+
+func ownedByCurrentUser(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Uid == uint32(os.Geteuid())
+}
+
+func linkCount(info os.FileInfo) uint64 {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0
+	}
+	return uint64(stat.Nlink)
 }
 
 func cloneState(state *persistedState) *persistedState {
