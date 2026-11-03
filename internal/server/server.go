@@ -144,7 +144,7 @@ func (s *Server) Handler() http.Handler {
 		_, _ = writer.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /", s.asset)
-	return securityHeaders(s.accessBoundary(mux), s.terminalLabEnabled)
+	return limitBodyTime(securityHeaders(s.accessBoundary(mux), s.terminalLabEnabled))
 }
 
 // actionSide is one Herdr's actions. Each Herdr runs one action at a time,
@@ -500,6 +500,24 @@ func isTerminalLabAsset(name string) bool {
 // defaults, and leaves camera and microphone alone so a phone's file picker
 // keeps offering its camera.
 const browserPermissions = "accelerometer=(), browsing-topics=(), display-capture=(), geolocation=(), gyroscope=(), hid=(), magnetometer=(), midi=(), payment=(), serial=(), usb=()"
+
+// requestBodyTime is how long a client has to send a request body. The
+// bodies Shepherdr reads are small, and a file send paces its own body.
+var requestBodyTime = 30 * time.Second
+
+// limitBodyTime gives every request body a read deadline, so a client that
+// sends its body slowly can't hold a connection open. A request without a
+// body gets none: Go is already reading its connection to notice a client
+// that leaves, and a deadline there would end the request instead.
+// WebSocket upgrades carry no body, and their connections set their own.
+func limitBodyTime(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Body != nil && request.Body != http.NoBody {
+			_ = http.NewResponseController(writer).SetReadDeadline(time.Now().Add(requestBodyTime))
+		}
+		next.ServeHTTP(writer, request)
+	})
+}
 
 func securityHeaders(next http.Handler, terminalLabEnabled bool) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

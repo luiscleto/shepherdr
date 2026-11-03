@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/luiscleto/shepherdr/internal/herdr"
 	"github.com/luiscleto/shepherdr/internal/uploads"
@@ -124,6 +125,7 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 		writeUploadError(writer, http.StatusBadRequest, "Files were not sent because the request ended.")
 		return
 	}
+	request.Body = &pacedBody{ReadCloser: request.Body, controller: http.NewResponseController(writer), start: time.Now()}
 	envelope, files, err := readTerminalFileRequest(request, s.fileUploadLimit)
 	<-fileSendTurn
 	if err != nil {
@@ -204,6 +206,29 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 
 // fileSendTurn lets one file send at a time read and decode its body.
 var fileSendTurn = make(chan struct{}, 1)
+
+// A file send's body has uploadBodyGrace to start, then must keep arriving
+// at uploadBodyRate bytes a second on average, so a large send on a slow
+// link completes and a client that trickles its body is cut off.
+var (
+	uploadBodyGrace       = 30 * time.Second
+	uploadBodyRate  int64 = 8 << 10
+)
+
+type pacedBody struct {
+	io.ReadCloser
+	controller *http.ResponseController
+	start      time.Time
+	read       int64
+}
+
+func (body *pacedBody) Read(buffer []byte) (int, error) {
+	allowed := uploadBodyGrace + time.Duration(body.read/uploadBodyRate)*time.Second
+	_ = body.controller.SetReadDeadline(body.start.Add(allowed))
+	count, err := body.ReadCloser.Read(buffer)
+	body.read += int64(count)
+	return count, err
+}
 
 var errUploadTooLarge = errors.New("The selected files exceed the send limit. Remove files or choose smaller ones.")
 
