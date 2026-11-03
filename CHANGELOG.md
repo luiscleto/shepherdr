@@ -4,6 +4,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Security
+
+- Release builds use Go 1.27.3, which fixes security issues in Go's HTTP, TLS and certificate handling.
+
 ## [0.6.0] - 2026-11-03
 
 ### Added
