@@ -15,12 +15,11 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 ### Changed
 
 - An agent's notification leads with the name you gave its tab or terminal, such as "Review PR17 CI is done", and its text is the space or workspace name alone. Without a given name it still says "Agent is done".
-- Sent files stream straight to disk as they arrive. A send can carry up to 1 GiB by default, enough for a video, and sends no longer wait for one another.
+- Sent files stream straight to disk as they arrive. A send can carry up to 1 GiB by default, enough for a video.
 
 ### Fixed
 
 - The full terminal gives characters the same widths as Herdr Core 0.1.17 and the Herdr TUI, so emoji such as ✍️, ❤️, 👍, 🇵🇹 and 👩‍💻 take two columns and no longer cover the next character or push a full-screen program's layout a column off.
-- Stopping Shepherdr no longer waits for a slow file send: it stops within a few seconds, and at once on a second Ctrl-C.
 
 ### Security
 
@@ -38,6 +37,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 ### Compatibility
 
 - Support Herdr Core 0.1.17 and the Herdr app 0.1.12.
+- Building from source needs Node.js 26 or later.
 
 ## [0.5.2] - 2026-11-02
 
