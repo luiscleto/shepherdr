@@ -8,6 +8,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 - An agent's notification leads with the name you gave its tab or terminal, such as "Review PR17 CI is done", and its text is the space or workspace name alone. Without a given name it still says "Agent is done".
 
+### Compatibility
+
+- Support Herdr Core 0.1.17 and the Herdr app 0.1.12.
+
 ## [0.5.2] - 2026-11-02
 
 ### Changed

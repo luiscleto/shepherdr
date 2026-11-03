@@ -33,7 +33,7 @@
 
 ## Install
 
-Shepherdr needs [Herdr](https://github.com/herdrdev/herdr) 0.9.0 or later, or the Herdr desktop app, running locally under the same OS account, with `herdr` (or `herdr-app`) on `PATH`. Herdr 0.9.0–0.9.5 and the Herdr app 0.1.10–0.1.11 are validated; newer versions run best effort with a warning.
+Shepherdr needs [Herdr](https://github.com/herdrdev/herdr) 0.9.0 or later, or the Herdr desktop app, running locally under the same OS account, with `herdr` (or `herdr-app`) on `PATH`. Herdr 0.9.0–0.9.5 and the Herdr app 0.1.10–0.1.12 are validated; newer versions run best effort with a warning.
 
 Use matching Herdr CLI and server versions for terminal reads and control.
 
