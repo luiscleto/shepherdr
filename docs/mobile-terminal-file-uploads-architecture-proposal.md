@@ -33,7 +33,7 @@ The design relies narrowly on the current product's one configured Herdr session
 
 ### Upload and send
 
-One workspace gate serializes sends only for that workspace. Different workspaces may send concurrently without a global admission scheduler.
+One workspace gate serializes sends only for that workspace. Different workspaces may stage and forward concurrently without a global admission scheduler. Reading and decoding a request body, which needs several times the files' size in memory, happens for one send at a time across the process: other sends wait for their turn without failing early, and a client that goes away gives its turn back.
 
 1. Resolve the exact current workspace, tab, pane, terminal, and recognized-agent observation from a complete truthful Herdr state. Atomically look up the stable workspace gate, then find or lazily create its association while holding it.
 2. After obtaining the gate, read/check current complete Herdr state again. The exact workspace and target terminal must still exist and that terminal must currently show a coherent Herdr-recognized agent. Otherwise fail before creating a directory or file.
@@ -76,7 +76,7 @@ One exact JSON mutation carries the exact Terminal target, optional person text,
 - default: 50 MiB;
 - explicit no-limit setting: no Shepherdr file-byte ceiling for that request.
 
-There is no separate per-file limit, file-count limit, active-storage quota, hard ceiling, process-wide concurrency limit, or admission scheduler. Finite mode uses a fixed 1 MiB allowance for all non-base64 JSON bytes: target fields, person text, filenames after JSON escaping, keys, delimiters, and other structural metadata. For each file of decoded size `n`, its encoded contribution is calculated separately as `4 * ceil(n / 3)`, so every file's base64 padding is counted. A request is accepted only when decoded file bytes total at most the configured limit and the HTTP body is no larger than the sum of those per-file encoded contributions plus the 1 MiB allowance. It may therefore fail at the transport boundary because names, count, text, or JSON structure exhaust the allowance even when decoded bytes remain below the file-byte limit. This is an honest transport bound, not a file-count or quota system.
+There is no separate per-file limit, file-count limit, active-storage quota, hard ceiling, or admission scheduler. The only process-wide limit is the one-at-a-time body decode above. Finite mode uses a fixed 1 MiB allowance for all non-base64 JSON bytes: target fields, person text, filenames after JSON escaping, keys, delimiters, and other structural metadata. For each file of decoded size `n`, its encoded contribution is calculated separately as `4 * ceil(n / 3)`, so every file's base64 padding is counted. A request is accepted only when decoded file bytes total at most the configured limit and the HTTP body is no larger than the sum of those per-file encoded contributions plus the 1 MiB allowance. It may therefore fail at the transport boundary because names, count, text, or JSON structure exhaust the allowance even when decoded bytes remain below the file-byte limit. This is an honest transport bound, not a file-count or quota system.
 
 The implemented bounded reader uses four times the configured decoded-byte limit plus 1 MiB as a conservative outer bound, followed by the exact per-file calculation. Tests may configure a tiny decoded limit while keeping the fixed allowance; they need not allocate 50 MiB.
 

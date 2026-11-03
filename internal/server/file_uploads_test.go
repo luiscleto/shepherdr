@@ -605,3 +605,115 @@ func infoMode(info os.FileInfo) os.FileMode {
 	}
 	return info.Mode().Perm()
 }
+
+func fileSendApplication(t *testing.T) *Server {
+	t.Helper()
+	source := newFakeTerminalStateSource(recognizedAgentState("workspace-1", "pane-1", "term-send"))
+	bridge := testTerminalBridge(source)
+	t.Cleanup(bridge.Close)
+	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
+	configureTestSignInOff(application)
+	application.SetFileUploads(testUploadManager(t), uploads.Limit{DecodedBytes: 32})
+	application.fileUploadState = source
+	return application
+}
+
+type watchedBody struct {
+	io.Reader
+	read chan struct{}
+}
+
+func (body *watchedBody) Read(buffer []byte) (int, error) {
+	select {
+	case <-body.read:
+	default:
+		close(body.read)
+	}
+	return body.Reader.Read(buffer)
+}
+
+func (*watchedBody) Close() error { return nil }
+
+func TestFileSendsReadTheirBodiesOneAtATime(t *testing.T) {
+	application := fileSendApplication(t)
+	handler := application.Handler()
+	first := newBlockingUploadBody()
+	firstRequest := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", first)
+	firstRequest.Header.Set("Content-Type", "application/json")
+	firstDone := make(chan int, 1)
+	go func() {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, firstRequest)
+		firstDone <- response.Code
+	}()
+	select {
+	case <-first.started:
+	case <-time.After(time.Second):
+		t.Fatal("the first send did not start reading")
+	}
+
+	second := &watchedBody{Reader: bytes.NewReader(terminalFileBody(t, "", "two.txt", []byte("two"), false)), read: make(chan struct{})}
+	secondRequest := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", second)
+	secondRequest.Header.Set("Content-Type", "application/json")
+	secondDone := make(chan int, 1)
+	go func() {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, secondRequest)
+		secondDone <- response.Code
+	}()
+	select {
+	case <-second.read:
+		t.Fatal("the second send read its body while the first was still reading")
+	case code := <-secondDone:
+		t.Fatalf("the second send ended early with %d instead of waiting", code)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	first.Close()
+	if code := <-firstDone; code != http.StatusBadRequest {
+		t.Fatalf("the first send returned %d after its client left", code)
+	}
+	select {
+	case <-second.read:
+	case <-time.After(time.Second):
+		t.Fatal("the second send did not get its turn after the first client left")
+	}
+	if code := <-secondDone; code != http.StatusOK {
+		t.Fatalf("the second send returned %d", code)
+	}
+}
+
+func TestWaitingFileSendWhoseClientLeavesStopsWithoutReading(t *testing.T) {
+	handler := fileSendApplication(t).Handler()
+	fileSendTurn <- struct{}{}
+	defer func() { <-fileSendTurn }()
+	body := &watchedBody{Reader: bytes.NewReader(terminalFileBody(t, "", "one.txt", []byte("one"), false)), read: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	request := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", body).WithContext(ctx)
+	request.Header.Set("Content-Type", "application/json")
+	done := make(chan int, 1)
+	go func() {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		done <- response.Code
+	}()
+	select {
+	case code := <-done:
+		t.Fatalf("the waiting send ended early with %d", code)
+	case <-time.After(200 * time.Millisecond):
+	}
+	cancel()
+	select {
+	case code := <-done:
+		if code != http.StatusBadRequest {
+			t.Fatalf("the abandoned send returned %d", code)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the abandoned send kept waiting for its turn")
+	}
+	select {
+	case <-body.read:
+		t.Fatal("the abandoned send read its body")
+	default:
+	}
+}

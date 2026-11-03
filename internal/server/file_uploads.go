@@ -115,7 +115,17 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 		writeUploadError(writer, http.StatusUnsupportedMediaType, "Files were not sent. Use application/json.")
 		return
 	}
+	// One send at a time reads and decodes its body, the part that needs
+	// several times the files' size in memory. Others wait for their turn
+	// without reading, and a client that leaves gives its turn back.
+	select {
+	case fileSendTurn <- struct{}{}:
+	case <-request.Context().Done():
+		writeUploadError(writer, http.StatusBadRequest, "Files were not sent because the request ended.")
+		return
+	}
 	envelope, files, err := readTerminalFileRequest(request, s.fileUploadLimit)
+	<-fileSendTurn
 	if err != nil {
 		status := http.StatusBadRequest
 		if errors.Is(err, errUploadTooLarge) {
@@ -192,6 +202,9 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 	}
 }
 
+// fileSendTurn lets one file send at a time read and decode its body.
+var fileSendTurn = make(chan struct{}, 1)
+
 var errUploadTooLarge = errors.New("The selected files exceed the send limit. Remove files or choose smaller ones.")
 
 func readTerminalFileRequest(request *http.Request, limit uploads.Limit) (terminalFileRequest, []uploads.File, error) {
@@ -243,6 +256,8 @@ func readTerminalFileRequest(request *http.Request, limit uploads.Limit) (termin
 	if err := limit.Validate(decodedTotal, encodedTotal, int64(len(body))); err != nil {
 		return terminalFileRequest{}, nil, errUploadTooLarge
 	}
+	// Keep only the decoded files, not their encoded copies.
+	envelope.Files = nil
 	return envelope, files, nil
 }
 
