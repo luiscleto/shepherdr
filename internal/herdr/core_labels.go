@@ -30,18 +30,24 @@ func coreSeenTurn(labels map[string]string) (uint64, bool) {
 	return turn, err == nil
 }
 
-// CoreShownStatus is the status Home shows: core's own word, except that a
-// done agent someone has looked at since its turn ended is idle, as in the
-// Herdr app. Notifications keep core's word.
+// CoreShownStatus is the status Home shows, by the Herdr app's rule: an
+// agent that reports done or idle is done while its last turn is unseen
+// (turn > herdr.seen) and idle once someone has looked. Working, blocked and
+// error, and any agent without a usable herdr.seen, keep core's own word.
+// Notifications keep core's word.
 func CoreShownStatus(terminal CoreTerminal) Status {
 	if terminal.Status == nil {
 		return ""
 	}
 	status := Status(terminal.Status.State)
-	if seen, ok := coreSeenTurn(terminal.Labels); ok && status == StatusDone && seen >= terminal.Turn {
-		return StatusIdle
+	seen, ok := coreSeenTurn(terminal.Labels)
+	if !ok || status != StatusDone && status != StatusIdle {
+		return status
 	}
-	return status
+	if terminal.Turn > seen {
+		return StatusDone
+	}
+	return StatusIdle
 }
 
 // CoreSeenNeedsRaise says whether a person looking at the terminal now should

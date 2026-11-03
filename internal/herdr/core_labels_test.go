@@ -31,10 +31,18 @@ func TestCoreShownStatusFollowsTheAppsSeenRule(t *testing.T) {
 		{"done", text("abc"), 0, StatusDone},
 		{"done", text("18446744073709551616"), 1, StatusDone},
 		{"done", text("18446744073709551615"), 1, StatusIdle},
-		// Only done becomes idle; every other word stays core's.
-		{"idle", text("1"), 3, StatusIdle},
+		// An idle report is done while its turn is unseen, as in the app.
+		{"idle", text("1"), 3, StatusDone},
+		{"idle", text("3"), 3, StatusIdle},
+		{"idle", text("0"), 0, StatusIdle},
+		{"idle", nil, 3, StatusIdle},
+		{"idle", text("junk"), 3, StatusIdle},
+		// Every other word stays core's.
+		{"working", text("0"), 3, StatusWorking},
 		{"working", text("9"), 3, StatusWorking},
+		{"blocked", text("0"), 3, StatusBlocked},
 		{"blocked", text("9"), 3, StatusBlocked},
+		{"error", text("0"), 3, StatusError},
 		{"error", text("9"), 3, StatusError},
 	} {
 		terminal := CoreTerminal{Status: &CoreStatus{State: test.state}, Turn: test.turn, Labels: map[string]string{}}
@@ -84,6 +92,9 @@ func TestCoreHomeShowsSeenAgentsAndNoticesKeepCoresWord(t *testing.T) {
 		case "t4": // a turn ended after it was seen
 			terminal.Status, terminal.Turn = &CoreStatus{App: "codex", State: "done"}, 5
 			terminal.Labels[CoreSeenLabel] = "4"
+		case "t5": // reported idle after a turn nobody has seen
+			terminal.Status, terminal.Turn = &CoreStatus{App: "pi", State: "idle"}, 2
+			terminal.Labels[CoreSeenLabel] = "1"
 		case "t8": // never seen by any client
 			terminal.Status, terminal.Turn = &CoreStatus{App: "pi", State: "done"}, 1
 		}
@@ -102,18 +113,18 @@ func TestCoreHomeShowsSeenAgentsAndNoticesKeepCoresWord(t *testing.T) {
 			}
 		}
 	}
-	if shown["t3"] != StatusIdle || shown["t4"] != StatusDone || shown["t8"] != StatusDone {
+	if shown["t3"] != StatusIdle || shown["t4"] != StatusDone || shown["t5"] != StatusDone || shown["t8"] != StatusDone {
 		t.Fatalf("shown = %v", shown)
 	}
 	alpha := home.Workspaces[0]
-	if alpha.AgentCounts == nil || alpha.AgentCounts.Idle != 1 || alpha.AgentCounts.Done != 1 {
+	if alpha.AgentCounts == nil || alpha.AgentCounts.Idle != 1 || alpha.AgentCounts.Done != 2 {
 		t.Fatalf("alpha counts = %+v", alpha.AgentCounts)
 	}
 	notices := map[string]Status{}
 	for _, agent := range snapshot.Agents {
 		notices[agent.PaneID] = agent.AgentStatus
 	}
-	if notices["t3"] != StatusDone || notices["t4"] != StatusDone || notices["t8"] != StatusDone {
+	if notices["t3"] != StatusDone || notices["t4"] != StatusDone || notices["t5"] != StatusIdle || notices["t8"] != StatusDone {
 		t.Fatalf("notice statuses = %v", notices)
 	}
 }
