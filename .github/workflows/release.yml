@@ -140,6 +140,14 @@ jobs:
           test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
           test -z "$(git status --porcelain --untracked-files=all)"
 
+      # govulncheck fails only on vulnerabilities the code reaches. Findings in
+      # required modules that nothing calls are listed but don't fail.
+      - name: Check for known vulnerabilities the code reaches
+        shell: bash
+        run: |
+          set -euo pipefail
+          go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
       - name: Test and verify embedded browser assets
         # Node's --test-timeout can't stop a test that spins synchronously;
         # this limit can.
