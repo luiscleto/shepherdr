@@ -141,6 +141,9 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=all)"
 
       - name: Test and verify embedded browser assets
+        # Node's --test-timeout can't stop a test that spins synchronously;
+        # this limit can.
+        timeout-minutes: 10
         shell: bash
         run: |
           set -euo pipefail
