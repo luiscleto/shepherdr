@@ -42,6 +42,7 @@ type Server struct {
 	notifications      *notifications.Manager
 	origin             access.Origin
 	signInOff          bool
+	signInOffOrigins   map[string]string
 	terminalLabEnabled bool
 	upgrader           websocket.Upgrader
 }

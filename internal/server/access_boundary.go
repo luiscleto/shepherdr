@@ -26,9 +26,26 @@ func (s *Server) ConfigureProtectedAccess(manager *access.Manager) {
 	s.signInOff = false
 }
 
-func (s *Server) ConfigureSignInOff() {
+// ConfigureSignInOff gives operator authority to browsers that open
+// Shepherdr by loopback on listenPort (127.0.0.1, [::1] or localhost) or,
+// when named is set, by that one private HTTPS origin. Every other Host is
+// refused, so a DNS-rebinding page cannot reach Shepherdr under its own name.
+func (s *Server) ConfigureSignInOff(listenPort string, named *access.Origin) {
 	s.access = nil
 	s.signInOff = true
+	authority := func(host string) string {
+		if listenPort == "80" {
+			return host
+		}
+		return host + ":" + listenPort
+	}
+	s.signInOffOrigins = map[string]string{}
+	for _, host := range []string{"127.0.0.1", "[::1]", "localhost"} {
+		s.signInOffOrigins[authority(host)] = "http://" + authority(host)
+	}
+	if named != nil {
+		s.signInOffOrigins[named.Authority] = named.Value
+	}
 }
 
 func sessionFromRequest(request *http.Request) (access.SessionIdentity, bool) {
@@ -51,7 +68,7 @@ func withCommitAuthority(request *http.Request, operation func() error) error {
 
 func (s *Server) accessBoundary(next http.Handler) http.Handler {
 	if s.access == nil {
-		return next
+		return s.signInOffBoundary(next)
 	}
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if !s.origin.ValidateHost(request.Host) {
@@ -102,6 +119,27 @@ func (s *Server) accessBoundary(next http.Handler) http.Handler {
 			return s.access.WithSessionRead(session, func(string) error { return operation() })
 		}))
 		next.ServeHTTP(writer, request.WithContext(contextWithSession))
+	})
+}
+
+// signInOffBoundary accepts only the exact Hosts ConfigureSignInOff allows,
+// and requires each mutation and WebSocket upgrade to carry that Host's exact
+// Origin. A server that was never configured refuses every request.
+func (s *Server) signInOffBoundary(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		origin, ok := s.signInOffOrigins[request.Host]
+		if !s.signInOff || !ok {
+			writeAccessError(writer, http.StatusMisdirectedRequest, "This address cannot use Shepherdr.")
+			return
+		}
+		if isMutationMethod(request.Method) || isWebSocketUpgrade(request) {
+			values := request.Header.Values("Origin")
+			if len(values) != 1 || values[0] != origin {
+				writeAccessError(writer, http.StatusForbidden, "This request cannot use Shepherdr.")
+				return
+			}
+		}
+		next.ServeHTTP(writer, request)
 	})
 }
 

@@ -21,7 +21,7 @@ func TestNotificationRoutesRequireStrictSameOriginJSONAndExposeNoSecrets(t *test
 	manager := notifications.NewManager(store, nil)
 	application := New(nil, nil, herdr.NewNotFollowedProjector(), nil, false)
 	application.SetNotifications(manager)
-	handler := application.Handler()
+	handler := signInOffHandler(application)
 
 	missingOrigin := notificationRequest(http.MethodPost, "/api/notifications/config", `{}`)
 	missingResponse := httptest.NewRecorder()
@@ -79,7 +79,7 @@ func TestNotificationSettingsReadDefaultsAndRemoveOnlyExactBrowser(t *testing.T)
 	manager := notifications.NewManager(store, nil)
 	application := New(nil, nil, herdr.NewNotFollowedProjector(), nil, false)
 	application.SetNotifications(manager)
-	handler := application.Handler()
+	handler := signInOffHandler(application)
 
 	read := notificationRequest(http.MethodPost, "/api/notifications/settings/read", `{"endpoint":"https://push.example/browser-one"}`)
 	read.Header.Set("Origin", "http://localhost")
@@ -114,7 +114,7 @@ func TestWebManifestUsesItsStandardsMediaType(t *testing.T) {
 	}, nil, herdr.NewNotFollowedProjector(), nil, false)
 	request := httptest.NewRequest(http.MethodGet, "http://localhost/manifest.webmanifest", nil)
 	response := httptest.NewRecorder()
-	application.Handler().ServeHTTP(response, request)
+	signInOffHandler(application).ServeHTTP(response, request)
 	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "application/manifest+json" {
 		t.Fatalf("manifest response status=%d content-type=%q", response.Code, response.Header().Get("Content-Type"))
 	}

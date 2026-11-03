@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"image/png"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -88,6 +89,88 @@ func TestProtectedRouteInventoryIsDenyByDefault(t *testing.T) {
 		if got := classifyProtectedRoute(test.path, test.method); got != test.want {
 			t.Errorf("%s %s classified %d, want %d", test.method, test.path, got, test.want)
 		}
+	}
+}
+
+// Sign-in-off mode accepts only loopback on its listen port and the one named
+// origin, so a DNS-rebinding page's own Host and Origin are refused.
+func TestSignInOffBoundaryAcceptsOnlyLoopbackAndTheNamedOrigin(t *testing.T) {
+	named, err := access.ParseCanonicalOrigin("https://shepherdr-host.example.ts.net")
+	if err != nil {
+		t.Fatal(err)
+	}
+	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), nil, false)
+	application.ConfigureSignInOff("9390", &named)
+	handler := application.Handler()
+	serve := func(method, host, origin string, upgrade bool) string {
+		request := httptest.NewRequest(method, "http://"+host+"/healthz", nil)
+		if method != http.MethodGet {
+			request = httptest.NewRequest(method, "http://"+host+"/api/notifications/config", strings.NewReader("{}"))
+			request.Header.Set("Content-Type", "application/json")
+		}
+		if origin != "" {
+			request.Header.Set("Origin", origin)
+		}
+		if upgrade {
+			request.Header.Set("Connection", "Upgrade")
+			request.Header.Set("Upgrade", "websocket")
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		switch response.Code {
+		case http.StatusMisdirectedRequest:
+			return "host"
+		case http.StatusForbidden:
+			return "origin"
+		default:
+			return "passed"
+		}
+	}
+	results := []string{}
+	for _, test := range []struct {
+		method, host, origin string
+		upgrade              bool
+	}{
+		{http.MethodGet, "127.0.0.1:9390", "", false},
+		{http.MethodGet, "[::1]:9390", "", false},
+		{http.MethodGet, "localhost:9390", "", false},
+		{http.MethodGet, "shepherdr-host.example.ts.net", "", false},
+		{http.MethodGet, "127.0.0.1:9390", "http://127.0.0.1:9390", true},
+		{http.MethodGet, "shepherdr-host.example.ts.net", "https://shepherdr-host.example.ts.net", true},
+		{http.MethodPost, "localhost:9390", "http://localhost:9390", false},
+		{http.MethodPost, "shepherdr-host.example.ts.net", "https://shepherdr-host.example.ts.net", false},
+		// A rebinding page, other loopback names and ports, and other names.
+		{http.MethodGet, "attacker.example:9390", "", false},
+		{http.MethodGet, "attacker.example:9390", "http://attacker.example:9390", true},
+		{http.MethodPost, "attacker.example:9390", "http://attacker.example:9390", false},
+		{http.MethodGet, "127.0.0.1:9391", "", false},
+		{http.MethodGet, "127.0.0.2:9390", "", false},
+		{http.MethodGet, "LOCALHOST:9390", "", false},
+		{http.MethodGet, "127.0.0.1", "", false},
+		{http.MethodGet, "shepherdr-host.example.ts.net:443", "", false},
+		{http.MethodGet, "other.example.ts.net", "", false},
+		// Each mutation and upgrade needs its own Host's exact Origin.
+		{http.MethodGet, "127.0.0.1:9390", "", true},
+		{http.MethodGet, "127.0.0.1:9390", "http://attacker.example:9390", true},
+		{http.MethodGet, "127.0.0.1:9390", "http://localhost:9390", true},
+		{http.MethodPost, "127.0.0.1:9390", "", false},
+		{http.MethodPost, "127.0.0.1:9390", "null", false},
+		{http.MethodPost, "127.0.0.1:9390", "https://127.0.0.1:9390", false},
+		{http.MethodPost, "shepherdr-host.example.ts.net", "http://shepherdr-host.example.ts.net", false},
+		{http.MethodDelete, "127.0.0.1:9390", "http://evil.example", false},
+	} {
+		results = append(results, serve(test.method, test.host, test.origin, test.upgrade))
+	}
+	want := strings.Repeat("passed,", 8) + strings.Repeat("host,", 9) + strings.TrimSuffix(strings.Repeat("origin,", 8), ",")
+	if got := strings.Join(results, ","); got != want {
+		t.Fatalf("statuses = %s\nwant       %s", got, want)
+	}
+
+	unconfigured := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), nil, false)
+	response := httptest.NewRecorder()
+	unconfigured.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8787/healthz", nil))
+	if response.Code != http.StatusMisdirectedRequest {
+		t.Fatalf("unconfigured server returned %d, want 421", response.Code)
 	}
 }
 
@@ -628,4 +711,49 @@ func signOutTestSession(t *testing.T, manager *access.Manager, token string) {
 		t.Fatal(err)
 	}
 	access.WaitRuntimes(runtimes)
+}
+
+// Sign-in-off test servers listen on port 80, so test requests to
+// http://localhost pass the loopback Host allowlist; signInOffRequest also
+// gives a request that Host's exact Origin.
+const testSignInOffHost = "localhost"
+
+func configureTestSignInOff(application *Server) {
+	application.ConfigureSignInOff("80", nil)
+}
+
+func signInOffRequest(method, path string, body io.Reader) *http.Request {
+	request := httptest.NewRequest(method, "http://"+testSignInOffHost+path, body)
+	request.Header.Set("Origin", "http://"+testSignInOffHost)
+	return request
+}
+
+func signInOffHandler(application *Server) http.Handler {
+	configureTestSignInOff(application)
+	return application.Handler()
+}
+
+// signInOffServer serves application in sign-in-off mode on a loopback test
+// listener; dial it with signInOffDial, which sends the listener's Origin.
+func signInOffServer(t *testing.T, application *Server) *httptest.Server {
+	t.Helper()
+	server := httptest.NewUnstartedServer(nil)
+	_, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	application.ConfigureSignInOff(port, nil)
+	server.Config.Handler = application.Handler()
+	server.Start()
+	t.Cleanup(server.Close)
+	return server
+}
+
+func signInOffDial(t *testing.T, serverURL, path string) *websocket.Conn {
+	t.Helper()
+	connection, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(serverURL, "http")+path, http.Header{"Origin": {serverURL}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return connection
 }

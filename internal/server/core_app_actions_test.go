@@ -89,7 +89,7 @@ func coreAppHandler(core *fakeCore, app *fakeApp, published homeWatcher, refresh
 	coordinator.app = app
 	coordinator.published = published
 	coordinator.homeDir = func() (string, error) { return "/home/user", nil }
-	return (&Server{coreActions: coordinator}).Handler()
+	return signInOffHandler(&Server{coreActions: coordinator})
 }
 
 func TestCoreNewSpaceSendsTheExpandedFolderAndOptionalName(t *testing.T) {
@@ -106,7 +106,7 @@ func TestCoreNewSpaceSendsTheExpandedFolderAndOptionalName(t *testing.T) {
 	coordinator := newCoreActionCoordinator(core, home, refresh)
 	coordinator.app = app
 	coordinator.homeDir = func() (string, error) { return home, nil }
-	handler := (&Server{coreActions: coordinator}).Handler()
+	handler := signInOffHandler(&Server{coreActions: coordinator})
 
 	assertOutcome(t, performSideActionRequest(t, handler, "/api/workspace-actions",
 		`{"herdr":"core","action":"create_space","working_directory":"~/work","label":"api work"}`), http.StatusOK, "succeeded", "")
@@ -265,7 +265,7 @@ func TestCoreNewSpaceWhileClosedStartsALabelledShellInCore(t *testing.T) {
 	coordinator := newCoreActionCoordinator(core, home, refresh)
 	coordinator.app = app
 	coordinator.homeDir = func() (string, error) { return home, nil }
-	handler := (&Server{coreActions: coordinator}).Handler()
+	handler := signInOffHandler(&Server{coreActions: coordinator})
 	run := func(body string) *httptest.ResponseRecorder {
 		return performSideActionRequest(t, handler, "/api/workspace-actions", `{"herdr":"core","action":"create_space",`+body+`}`)
 	}

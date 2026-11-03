@@ -77,6 +77,12 @@ The existing `-listen` loopback validation remains. Private DNS, TLS, Tailscale 
 
 `-no-sign-in` cannot be combined with `-public-origin` or `-session-lifetime`. Sign-in-off starts do not create or modify protected configuration.
 
+Sign-in-off mode has its own exact Host/Origin gate, applied before any handler, so a DNS-rebinding page cannot reach Shepherdr under its own name (approved 2026-11-03). Every request must have `Host` `127.0.0.1:P`, `[::1]:P`, or `localhost:P`, where `P` is the actual listen port, or the one private origin's authority named for that start:
+
+    ./shepherdr -no-sign-in -no-sign-in-origin https://shepherdr-host.example.ts.net
+
+`-no-sign-in-origin` follows the `-public-origin` serialization rules above, requires `-no-sign-in`, is never persisted, and cannot be combined with `-public-origin` or `-session-lifetime`. Every API mutation and every WebSocket upgrade must carry exactly one `Origin` equal to the request Host's origin: `http://` plus the loopback authority, or the named HTTPS origin. Absent, `null`, and any other value fail. Forwarded headers are never security inputs. Sign-in-off authority also reaches other operating-system accounts on the machine, because they can connect to the loopback listener.
+
 ### Configurable session duration
 
 The implemented spelling is:

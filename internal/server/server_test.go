@@ -10,7 +10,6 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/luiscleto/shepherdr/internal/herdr"
 )
 
@@ -22,7 +21,7 @@ func TestApplicationAssetsAlwaysRevalidate(t *testing.T) {
 	for _, target := range []string{"/", "/app.js"} {
 		request := httptest.NewRequest("GET", "http://localhost"+target, nil)
 		response := httptest.NewRecorder()
-		application.Handler().ServeHTTP(response, request)
+		signInOffHandler(application).ServeHTTP(response, request)
 		if got := response.Header().Get("Cache-Control"); got != "no-cache" {
 			t.Errorf("GET %s Cache-Control = %q, want no-cache", target, got)
 		}
@@ -118,12 +117,8 @@ func TestHomeMessageSaysWhichTerminalsCanOpen(t *testing.T) {
 
 func firstHomeMessage(t *testing.T, application *Server) []byte {
 	t.Helper()
-	httpServer := httptest.NewServer(application.Handler())
-	t.Cleanup(httpServer.Close)
-	connection, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(httpServer.URL, "http")+"/api/home", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	httpServer := signInOffServer(t, application)
+	connection := signInOffDial(t, httpServer.URL, "/api/home")
 	defer connection.Close()
 	_ = connection.SetReadDeadline(time.Now().Add(time.Second))
 	_, data, err := connection.ReadMessage()
@@ -149,7 +144,7 @@ func TestProductionTerminalRequiresCurrentHerdrTarget(t *testing.T) {
 	application := New(nil, nil, herdr.NewNotFollowedProjector(), &TerminalBridge{}, false)
 	request := httptest.NewRequest("GET", "http://localhost/api/terminal?herdr=tui&pane=w1:p1&terminal=term-1&mode=observe&cols=80&rows=24", nil)
 	response := httptest.NewRecorder()
-	application.Handler().ServeHTTP(response, request)
+	signInOffHandler(application).ServeHTTP(response, request)
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("terminal without current Herdr truth returned %d, want 404", response.Code)
 	}

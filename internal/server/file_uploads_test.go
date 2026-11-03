@@ -77,7 +77,7 @@ func trialController(t *testing.T, request *http.Request, writer io.WriteCloser)
 
 func TestTrialControllerHandleRequiresExactLiveTargetAndSignIn(t *testing.T) {
 	writer := &trialInputWriter{}
-	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files?herdr=tui", nil)
+	request := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", nil)
 	identity := access.SessionIdentity{Digest: "session-a", TrustID: "trust-a"}
 	request = request.WithContext(context.WithValue(request.Context(), sessionContextKey, identity))
 	bridge, controller := trialController(t, request, writer)
@@ -123,7 +123,7 @@ func TestTrialInsertionHasOnePasteAndNoSubmission(t *testing.T) {
 func TestTrialRetainedUploadStagesAndRollsBackOrRetainsUnknown(t *testing.T) {
 	for _, mode := range []string{"forwarded", "released", "unknown"} {
 		t.Run(mode, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodPost, "/api/terminal/files?herdr=tui", nil)
+			request := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", nil)
 			writer := &trialInputWriter{}
 			bridge, controller := trialController(t, request, writer)
 			if mode == "released" {
@@ -139,7 +139,7 @@ func TestTrialRetainedUploadStagesAndRollsBackOrRetainsUnknown(t *testing.T) {
 			}
 			t.Cleanup(manager.Close)
 			application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
-			application.ConfigureSignInOff()
+			configureTestSignInOff(application)
 			application.SetFileUploads(manager, uploads.Limit{DecodedBytes: 32})
 			application.fileUploadState = bridge.targets
 			body, _ := json.Marshal(map[string]any{
@@ -191,7 +191,7 @@ func TestTrialRetainedUploadStagesAndRollsBackOrRetainsUnknown(t *testing.T) {
 }
 
 func TestTrialReleaseAndInputSerializeWithCompleteUpload(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files?herdr=tui", nil)
+	request := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", nil)
 	writer := &trialInputWriter{}
 	bridge, controller := trialController(t, request, writer)
 	started, resume, done := make(chan struct{}), make(chan struct{}), make(chan terminalBatchOutcome, 1)
@@ -230,7 +230,7 @@ func TestTrialReleaseAndInputSerializeWithCompleteUpload(t *testing.T) {
 }
 
 func TestTrialUploadChecksStreamLifetimeBeforeEveryChunk(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files?herdr=tui", nil)
+	request := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", nil)
 	ctx, cancel := context.WithCancel(request.Context())
 	defer cancel()
 	writer := &trialInputWriter{}
@@ -292,12 +292,12 @@ func TestTerminalFileRouteStagesOpaqueBytesAndSendsOneServerDerivedBatch(t *test
 	}
 	manager := testUploadManager(t)
 	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
-	application.ConfigureSignInOff()
+	configureTestSignInOff(application)
 	application.SetFileUploads(manager, uploads.Limit{DecodedBytes: 32})
 	application.fileUploadState = source
 
 	body := terminalFileBody(t, "Please inspect", "../notes.txt", []byte{0, 1, 2, 255}, false)
-	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(body))
+	request := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
@@ -382,11 +382,11 @@ func TestTerminalFileRouteRevalidatesAgentAfterControlAndRollsBack(t *testing.T)
 	}
 	t.Cleanup(manager.Close)
 	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
-	application.ConfigureSignInOff()
+	configureTestSignInOff(application)
 	application.SetFileUploads(manager, uploads.Limit{DecodedBytes: 32})
 	application.fileUploadState = source
 
-	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(terminalFileBody(t, "", "late.txt", []byte("late"), false)))
+	request := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(terminalFileBody(t, "", "late.txt", []byte("late"), false)))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
@@ -420,17 +420,17 @@ func TestTerminalFileRouteRevalidatesAgentAfterControlAndRollsBack(t *testing.T)
 
 func TestTerminalFileRequestEnforcesFiniteDecodedAndCanonicalBase64ButNoneHasNoRouteBound(t *testing.T) {
 	finite := uploads.Limit{DecodedBytes: 3}
-	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(terminalFileBody(t, "", "four", []byte("four"), false)))
+	request := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(terminalFileBody(t, "", "four", []byte("four"), false)))
 	if _, _, err := readTerminalFileRequest(request, finite); !errors.Is(err, errUploadTooLarge) {
 		t.Fatalf("decoded overage = %v", err)
 	}
 	unlimited := uploads.Limit{Unlimited: true}
-	request = httptest.NewRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(terminalFileBody(t, "", "four", []byte("four"), false)))
+	request = signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(terminalFileBody(t, "", "four", []byte("four"), false)))
 	if _, files, err := readTerminalFileRequest(request, unlimited); err != nil || string(files[0].Data) != "four" {
 		t.Fatalf("none request = %+v, %v", files, err)
 	}
 	body := strings.Replace(string(terminalFileBody(t, "", "one", []byte("one"), false)), base64.StdEncoding.EncodeToString([]byte("one")), "b25l\\n", 1)
-	request = httptest.NewRequest(http.MethodPost, "/api/terminal/files?herdr=tui", strings.NewReader(body))
+	request = signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", strings.NewReader(body))
 	if _, _, err := readTerminalFileRequest(request, unlimited); err == nil {
 		t.Fatal("noncanonical base64 was accepted")
 	}
@@ -465,18 +465,18 @@ func TestTerminalFileRouteRequiresRecognizedAgentAndExactJSONInSignInOff(t *test
 	bridge := testTerminalBridge(source)
 	defer bridge.Close()
 	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
-	application.ConfigureSignInOff()
+	configureTestSignInOff(application)
 	application.SetFileUploads(testUploadManager(t), uploads.Limit{DecodedBytes: 32})
 	application.fileUploadState = source
 	body := terminalFileBody(t, "", "one", []byte("one"), false)
-	request := httptest.NewRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(body))
+	request := signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusConflict {
 		t.Fatalf("ordinary terminal returned %d: %s", response.Code, response.Body.String())
 	}
-	request = httptest.NewRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(body))
+	request = signInOffRequest(http.MethodPost, "/api/terminal/files?herdr=tui", bytes.NewReader(body))
 	response = httptest.NewRecorder()
 	application.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusUnsupportedMediaType {

@@ -21,7 +21,6 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/luiscleto/shepherdr/internal/herdr"
 )
 
@@ -340,8 +339,7 @@ func TestProductionObserverClosesBeforeReplacementOutput(t *testing.T) {
 	source := newFakeTerminalStateSource(liveTerminalState("pane-1", "term-1", 1))
 	bridge := testTerminalBridge(source)
 	defer bridge.Close()
-	server := httptest.NewServer(New(fstest.MapFS{}, nil, herdr.NewNotFollowedProjector(), bridge, false).Handler())
-	defer server.Close()
+	server := signInOffServer(t, New(fstest.MapFS{}, nil, herdr.NewNotFollowedProjector(), bridge, false))
 
 	endpoint, _ := url.Parse(server.URL)
 	endpoint.Scheme = "ws"
@@ -349,10 +347,7 @@ func TestProductionObserverClosesBeforeReplacementOutput(t *testing.T) {
 	endpoint.RawQuery = url.Values{
 		"herdr": {"tui"}, "pane": {"pane-1"}, "terminal": {"term-1"}, "mode": {"observe"}, "cols": {"80"}, "rows": {"24"},
 	}.Encode()
-	connection, _, err := websocket.DefaultDialer.Dial(endpoint.String(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
+	connection := signInOffDial(t, server.URL, endpoint.RequestURI())
 	defer connection.Close()
 	_ = connection.SetReadDeadline(time.Now().Add(2 * time.Second))
 	var first map[string]any
@@ -440,10 +435,10 @@ func TestTerminalLabRoutesStayOffWithoutFlag(t *testing.T) {
 		"index.html":        {Data: []byte("home")},
 		"terminal-lab.html": {Data: []byte("lab")},
 	}
-	application := New(assets, nil, herdr.NewNotFollowedProjector(), &TerminalBridge{}, false).Handler()
+	application := signInOffHandler(New(assets, nil, herdr.NewNotFollowedProjector(), &TerminalBridge{}, false))
 	for _, path := range []string{"/terminal-lab", "/terminal-lab.js", "/api/terminal-lab", "/api/terminal-lab/read"} {
 		response := httptest.NewRecorder()
-		application.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		application.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost"+path, nil))
 		if response.Code != http.StatusNotFound {
 			t.Errorf("%s returned %d, want 404", path, response.Code)
 		}

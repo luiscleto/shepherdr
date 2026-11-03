@@ -164,7 +164,7 @@ func (f *fakeCore) killed() []string {
 }
 
 func coreActionHandler(core *fakeCore, refresh homeRefresher) http.Handler {
-	return (&Server{coreActions: newCoreActionCoordinator(core, "/home/user", refresh)}).Handler()
+	return signInOffHandler(&Server{coreActions: newCoreActionCoordinator(core, "/home/user", refresh)})
 }
 
 func coreTarget(workspaceID, tabID, address string) string {

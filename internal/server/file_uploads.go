@@ -106,10 +106,6 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 	}
 	stopBodyClose := context.AfterFunc(request.Context(), func() { _ = request.Body.Close() })
 	defer stopBodyClose()
-	if s.access == nil && !sameOrigin(request) {
-		writeUploadError(writer, http.StatusForbidden, "Files were not sent. This request cannot use Shepherdr.")
-		return
-	}
 	side, ok := s.uploadSide(request.URL.Query().Get("herdr"))
 	if !ok {
 		writeUploadError(writer, http.StatusBadRequest, "Files were not sent because the exact target or file list is invalid")

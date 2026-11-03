@@ -8,7 +8,6 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"net/url"
 	"os"
 	"reflect"
 	"strings"
@@ -394,10 +393,6 @@ func expandTilde(value string, homeDir func() (string, error)) (string, error) {
 }
 
 func readActionObject(writer http.ResponseWriter, request *http.Request) (map[string]json.RawMessage, bool) {
-	if !sameOrigin(request) {
-		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
-		return nil, false
-	}
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
@@ -416,24 +411,6 @@ func readActionObject(writer http.ResponseWriter, request *http.Request) (map[st
 		return nil, false
 	}
 	return fields, true
-}
-
-func sameOrigin(request *http.Request) bool {
-	origin := request.Header.Get("Origin")
-	if origin == "" {
-		return true
-	}
-	parsed, err := url.Parse(origin)
-	if err != nil || parsed.Host != request.Host || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return false
-	}
-	scheme := "http"
-	if request.TLS != nil {
-		scheme = "https"
-	} else if forwarded := request.Header.Get("X-Forwarded-Proto"); forwarded == "http" || forwarded == "https" {
-		scheme = forwarded
-	}
-	return parsed.Scheme == scheme
 }
 
 func requireObjectKeys(writer http.ResponseWriter, fields map[string]json.RawMessage, allowed, required []string) bool {

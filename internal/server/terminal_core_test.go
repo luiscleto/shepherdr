@@ -68,7 +68,7 @@ func TestCoreKeyNamesFollowTheCoreTable(t *testing.T) {
 func TestTerminalEndpointsNeedTheirHerdr(t *testing.T) {
 	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), nil, false)
 	application.SetCoreTerminal(NewCoreTerminalBridge(herdr.NewCoreClient("/nonexistent/core.sock", nil), nil, herdr.NewNotFollowedProjector()))
-	application.ConfigureSignInOff()
+	configureTestSignInOff(application)
 	handler := application.Handler()
 	results := []string{}
 	for _, path := range []string{

@@ -6,8 +6,6 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"net/url"
-	"strings"
 
 	"github.com/luiscleto/shepherdr/internal/notifications"
 )
@@ -136,10 +134,6 @@ func (s *Server) notificationSettingsRemove(writer http.ResponseWriter, request 
 }
 
 func (s *Server) readNotificationJSON(writer http.ResponseWriter, request *http.Request, target any) bool {
-	if s.access == nil && !strictSameOrigin(request) {
-		writeNotificationError(writer, http.StatusForbidden)
-		return false
-	}
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		writeNotificationError(writer, http.StatusBadRequest)
@@ -158,24 +152,6 @@ func (s *Server) readNotificationJSON(writer http.ResponseWriter, request *http.
 		return false
 	}
 	return true
-}
-
-func strictSameOrigin(request *http.Request) bool {
-	origin := request.Header.Get("Origin")
-	if origin == "" {
-		return false
-	}
-	parsed, err := url.Parse(origin)
-	if err != nil || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || !strings.EqualFold(parsed.Host, request.Host) {
-		return false
-	}
-	scheme := "http"
-	if request.TLS != nil {
-		scheme = "https"
-	} else if forwarded := request.Header.Get("X-Forwarded-Proto"); forwarded == "http" || forwarded == "https" {
-		scheme = forwarded
-	}
-	return parsed.Scheme == scheme
 }
 
 func writeNotificationError(writer http.ResponseWriter, status int) {

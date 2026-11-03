@@ -53,6 +53,8 @@ func run() error {
 	flag.Var(&herdrCoreSocket, "herdr-core-socket", "Unix socket for herdr-core (default $XDG_RUNTIME_DIR/herdr-core/default.sock)")
 	terminalLabEnabled := flag.Bool("terminal-lab", false, "enable the development-only terminal comparison lab")
 	noSignIn := flag.Bool("no-sign-in", false, "run without passkey protection for this start")
+	var noSignInOrigin optionalStringFlag
+	flag.Var(&noSignInOrigin, "no-sign-in-origin", "with -no-sign-in, one private HTTPS origin accepted besides loopback, for this start")
 	var publicOrigin optionalStringFlag
 	flag.Var(&publicOrigin, "public-origin", "canonical private HTTPS origin for protected access")
 	var sessionLifetime optionalStringFlag
@@ -84,7 +86,7 @@ func run() error {
 		if flag.Args()[0] != "access" {
 			return fmt.Errorf("unknown command %q", flag.Args()[0])
 		}
-		if *noSignIn || publicOrigin.set || sessionLifetime.set || vapidContact.set || *resetNotifications ||
+		if *noSignIn || noSignInOrigin.set || publicOrigin.set || sessionLifetime.set || vapidContact.set || *resetNotifications ||
 			flagWasSet("listen") || flagWasSet("herdr-socket") || herdrCoreSocket.set || flagWasSet("terminal-lab") ||
 			flagWasSet("upload-parent") || flagWasSet("upload-limit") || flagWasSet("log-level") {
 			return errors.New("access commands cannot be combined with server configuration flags")
@@ -96,6 +98,20 @@ func run() error {
 	}
 	if *noSignIn && (publicOrigin.set || sessionLifetime.set) {
 		return errors.New("-no-sign-in cannot be combined with -public-origin or -session-lifetime")
+	}
+	if noSignInOrigin.set && (publicOrigin.set || sessionLifetime.set) {
+		return errors.New("-no-sign-in-origin cannot be combined with -public-origin or -session-lifetime")
+	}
+	if noSignInOrigin.set && !*noSignIn {
+		return errors.New("-no-sign-in-origin needs -no-sign-in")
+	}
+	var signInOffOrigin *access.Origin
+	if noSignInOrigin.set {
+		parsed, err := access.ParseCanonicalOrigin(noSignInOrigin.value)
+		if err != nil {
+			return errors.New("-no-sign-in-origin must be exactly https://lowercase-ascii-dns-name[:nondefault-port] without a path")
+		}
+		signInOffOrigin = &parsed
 	}
 	if uploadPathErr != nil {
 		return uploadPathErr
@@ -249,17 +265,21 @@ func run() error {
 		}
 	}
 	application.SetNotifications(notificationManager)
-	if accessManager != nil {
-		application.ConfigureProtectedAccess(accessManager)
-	} else {
-		application.ConfigureSignInOff()
-	}
 
 	listener, err := net.Listen("tcp", *listenAddress)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
 	defer listener.Close()
+	if accessManager != nil {
+		application.ConfigureProtectedAccess(accessManager)
+	} else {
+		_, listenPort, err := net.SplitHostPort(listener.Addr().String())
+		if err != nil {
+			return fmt.Errorf("listen: %w", err)
+		}
+		application.ConfigureSignInOff(listenPort, signInOffOrigin)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	notificationManager.Start(ctx)
@@ -276,6 +296,8 @@ func run() error {
 	address := "http://" + listener.Addr().String()
 	if accessManager != nil {
 		address = protectedOrigin.Value
+	} else if signInOffOrigin != nil {
+		address = signInOffOrigin.Value
 	}
 	logger.Info("Shepherdr is ready", "address", address, "local_address", "http://"+listener.Addr().String(), "herdr_socket", *socketPath, "herdr_core_socket", coreSocketPath, "terminal_lab", *terminalLabEnabled, "sign_in_off", *noSignIn, "upload_parent", *uploadParent, "upload_limit", *uploadLimitText)
 

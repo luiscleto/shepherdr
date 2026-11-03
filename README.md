@@ -109,10 +109,10 @@ Open the same private address. Sign in with a passkey. `http://127.0.0.1:8787` i
 ### Sign-in off (not recommended)
 
 ```sh
-shepherdr -no-sign-in
+shepherdr -no-sign-in -no-sign-in-origin PRIVATE_HTTPS_ADDRESS
 ```
 
-Anyone who can reach Shepherdr has operator authority. The flag is not saved. Do not combine it with `-public-origin` or `-session-lifetime`.
+Anyone who can reach Shepherdr has operator authority, including other accounts on this machine. Leave out `-no-sign-in-origin` to allow only loopback. The flags are not saved. Do not combine them with `-public-origin` or `-session-lifetime`.
 
 ## Keep it private
 

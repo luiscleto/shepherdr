@@ -8,6 +8,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 - Release builds use Go 1.27.3, which fixes security issues in Go's HTTP, TLS and certificate handling.
 - Release archives and the checksum file carry signed build provenance, so `gh attestation verify` with `--signer-workflow luiscleto/shepherdr/.github/workflows/release.yml` can confirm that Shepherdr's release workflow built them.
+- With sign-in off, Shepherdr accepts only loopback and the one private address you name with `-no-sign-in-origin`, so a website can no longer reach it through DNS rebinding.
 
 ## [0.6.0] - 2026-11-03
 
