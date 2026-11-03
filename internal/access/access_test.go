@@ -658,20 +658,18 @@ func TestConcurrentValidFinishesReserveOneAttemptAndIssueOneSession(t *testing.T
 	}
 }
 
-func TestInFlightCeremonyCountsTowardCapacityAndCompletionReleasesIt(t *testing.T) {
+func TestFullSignInPoolEvictsItsOldestCeremonyThatIsNotBeingVerified(t *testing.T) {
 	clock := &testClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
 	manager, store, _, trustIDs := seededManager(t, clock, 1, "30d")
 	defer manager.Close()
 	defer store.Close()
-	for index := 0; index < maxCeremonies-1; index++ {
+	for index := 0; index < maxSignInCeremonies; index++ {
 		if _, err := manager.BeginSignIn(ceremonyClient(index)); err != nil {
 			t.Fatalf("fill ceremony %d: %v", index, err)
 		}
+		clock.Advance(time.Second)
 	}
-	client := ceremonyClient(maxCeremonies - 1)
-	if _, err := manager.BeginSignIn(client); err != nil {
-		t.Fatal(err)
-	}
+	verifying := ceremonyClient(0)
 	credential := manager.state.Credentials[0].Credential
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -683,31 +681,112 @@ func TestInFlightCeremonyCountsTowardCapacityAndCompletionReleasesIt(t *testing.
 	}}
 	finished := make(chan error, 1)
 	go func() {
-		_, err := manager.FinishSignIn(client, failedCeremonyRequest(), nil)
+		_, err := manager.FinishSignIn(verifying, failedCeremonyRequest(), nil)
 		finished <- err
 	}()
 	<-started
+	if _, err := manager.BeginSignIn(ceremonyClient(maxSignInCeremonies)); err != nil {
+		t.Fatalf("full sign-in pool refused a begin: %v", err)
+	}
 	manager.ceremonyMu.Lock()
 	ceremonyCount, attemptCount := len(manager.ceremonies), len(manager.attempts)
+	_, verifyingLive := manager.ceremonies[ceremonyKey(CeremonySignIn, digestToken(verifying))]
+	_, oldestLive := manager.ceremonies[ceremonyKey(CeremonySignIn, digestToken(ceremonyClient(1)))]
 	manager.ceremonyMu.Unlock()
-	if ceremonyCount != maxCeremonies || attemptCount != maxCeremonies {
-		t.Fatalf("capacity ceremonies=%d attempts=%d", ceremonyCount, attemptCount)
+	if ceremonyCount != maxSignInCeremonies || attemptCount != maxSignInCeremonies || !verifyingLive || oldestLive {
+		t.Fatalf("after eviction ceremonies=%d attempts=%d verifying=%t oldest unverified=%t", ceremonyCount, attemptCount, verifyingLive, oldestLive)
 	}
-	if _, err := manager.BeginSignIn(ceremonyClient(maxCeremonies)); !errors.Is(err, ErrCapacity) {
-		t.Fatalf("in-flight ceremony did not hold capacity: %v", err)
+	if _, err := manager.FinishSignIn(ceremonyClient(1), failedCeremonyRequest(), nil); !errors.Is(err, ErrUnauthorized) || CeremonyCanRetry(err) {
+		t.Fatalf("evicted ceremony finish = %v", err)
 	}
 	close(release)
 	if err := <-finished; err != nil {
+		t.Fatalf("ceremony under verification was disturbed: %v", err)
+	}
+
+	if _, err := manager.BeginSignIn(ceremonyClient(201)); err != nil {
 		t.Fatal(err)
 	}
 	manager.ceremonyMu.Lock()
-	ceremonyCount, attemptCount = len(manager.ceremonies), len(manager.attempts)
-	manager.ceremonyMu.Unlock()
-	if ceremonyCount != maxCeremonies-1 || attemptCount != maxCeremonies-1 {
-		t.Fatalf("completion leaked capacity ceremonies=%d attempts=%d", ceremonyCount, attemptCount)
+	for _, current := range manager.ceremonies {
+		current.inFlight = true
 	}
-	if _, err := manager.BeginSignIn(ceremonyClient(maxCeremonies)); err != nil {
-		t.Fatalf("released capacity could not be reused: %v", err)
+	manager.ceremonyMu.Unlock()
+	if _, err := manager.BeginSignIn(ceremonyClient(200)); !errors.Is(err, ErrCapacity) {
+		t.Fatalf("a pool of ceremonies all being verified accepted a begin: %v", err)
+	}
+}
+
+func TestOutsidersCannotFillReauthenticationOrTrustCeremonies(t *testing.T) {
+	clock := &testClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
+	manager, store, tokens, _ := seededManager(t, clock, 1, "30d")
+	defer manager.Close()
+	defer store.Close()
+	for index := 0; index < maxSignInCeremonies+40; index++ {
+		if _, err := manager.BeginSignIn(""); err != nil {
+			t.Fatalf("outsider begin %d: %v", index, err)
+		}
+	}
+	for index := 0; index < 40; index++ {
+		forged := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{byte(index)}, 32))
+		if _, err := manager.BeginTrust("", forged, "Outsider"); !errors.Is(err, ErrInvitationGeneric) {
+			t.Fatalf("forged invitation began trust: %v", err)
+		}
+	}
+	manager.ceremonyMu.Lock()
+	signIns, trusts := poolSize(manager.ceremonies, CeremonySignIn), poolSize(manager.ceremonies, CeremonyTrust)
+	manager.ceremonyMu.Unlock()
+	if signIns != maxSignInCeremonies || trusts != 0 {
+		t.Fatalf("pools sign-in=%d trust=%d", signIns, trusts)
+	}
+	identity, ok := manager.AuthenticateToken(tokens[0])
+	if !ok {
+		t.Fatal("session did not authenticate")
+	}
+	if _, err := manager.BeginReauthentication(ceremonyClient(90), identity); err != nil {
+		t.Fatalf("reauthentication was locked out: %v", err)
+	}
+	link, _, err := manager.CreateLocalInvitation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	invitationToken := strings.TrimPrefix(link, manager.origin.Value+"/#trust=")
+	if _, err := manager.BeginTrust(ceremonyClient(91), invitationToken, "Phone"); err != nil {
+		t.Fatalf("trust was locked out: %v", err)
+	}
+	if _, err := manager.BeginSignIn(ceremonyClient(92)); err != nil {
+		t.Fatalf("sign-in did not recover: %v", err)
+	}
+}
+
+func TestOneTrustCeremonyPerBrowserCookie(t *testing.T) {
+	clock := &testClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
+	manager, store, _, _ := seededManager(t, clock, 1, "30d")
+	defer manager.Close()
+	defer store.Close()
+	tokens := []string{}
+	for range 2 {
+		link, _, err := manager.CreateLocalInvitation()
+		if err != nil {
+			t.Fatal(err)
+		}
+		tokens = append(tokens, strings.TrimPrefix(link, manager.origin.Value+"/#trust="))
+	}
+	client := ceremonyClient(93)
+	for _, token := range tokens {
+		if _, err := manager.BeginTrust(client, token, "Phone"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manager.ceremonyMu.Lock()
+	current := manager.ceremonies[ceremonyKey(CeremonyTrust, digestToken(tokens[1]))]
+	trusts := poolSize(manager.ceremonies, CeremonyTrust)
+	manager.ceremonyMu.Unlock()
+	if trusts != 1 || current == nil || current.clientDigest != digestToken(client) {
+		t.Fatalf("trust ceremonies=%d latest=%+v", trusts, current)
+	}
+	if _, err := manager.BeginTrust(ceremonyClient(94), tokens[0], "Other"); !errors.Is(err, ErrInvitationGeneric) {
+		t.Fatalf("another browser took the still-reserved first invitation: %v", err)
 	}
 }
 
@@ -902,6 +981,9 @@ func TestAssertionCommitRechecksCeremonyDeadlineInsideAuthorityGate(t *testing.T
 				t.Fatal("deadline commit invalidated the existing session token")
 			}
 			key := ceremonyKey(test.kind, digestToken(client))
+			if test.kind == CeremonyReauth {
+				key = ceremonyKey(test.kind, identity.Digest)
+			}
 			manager.ceremonyMu.Lock()
 			_, ceremonyLive := manager.ceremonies[key]
 			_, attemptsLive := manager.attempts[key]

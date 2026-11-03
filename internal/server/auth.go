@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -48,7 +49,9 @@ func (s *Server) signInBegin(writer http.ResponseWriter, request *http.Request) 
 
 func (s *Server) signInFinish(writer http.ResponseWriter, request *http.Request) {
 	clientToken := cookieValue(request, signInCeremonyCookie)
-	boundAccessBody(writer, request)
+	if !readCeremonyBody(writer, request) {
+		return
+	}
 	var old *access.SessionIdentity
 	if cookie, err := request.Cookie(sessionCookieName); err == nil {
 		if identity, ok := s.access.AuthenticateToken(cookie.Value); ok {
@@ -85,7 +88,9 @@ func (s *Server) trustBegin(writer http.ResponseWriter, request *http.Request) {
 
 func (s *Server) trustFinish(writer http.ResponseWriter, request *http.Request) {
 	clientToken := cookieValue(request, trustCeremonyCookie)
-	boundAccessBody(writer, request)
+	if !readCeremonyBody(writer, request) {
+		return
+	}
 	var old *access.SessionIdentity
 	if cookie, err := request.Cookie(sessionCookieName); err == nil {
 		if identity, ok := s.access.AuthenticateToken(cookie.Value); ok {
@@ -128,7 +133,9 @@ func (s *Server) reauthenticateFinish(writer http.ResponseWriter, request *http.
 		return
 	}
 	clientToken := cookieValue(request, reauthCeremonyCookie)
-	boundAccessBody(writer, request)
+	if !readCeremonyBody(writer, request) {
+		return
+	}
 	issue, err := s.access.FinishReauthentication(clientToken, request, session)
 	finishCeremonyCookie(writer, reauthCeremonyCookie, err)
 	if err != nil {
@@ -264,8 +271,17 @@ func readAccessJSON(writer http.ResponseWriter, request *http.Request, target an
 	return true
 }
 
-func boundAccessBody(writer http.ResponseWriter, request *http.Request) {
-	request.Body = http.MaxBytesReader(writer, request.Body, maxAccessRequestBytes)
+// readCeremonyBody reads a ceremony finish body before verification starts,
+// so a slow body never holds a ceremony as being verified, where a full
+// sign-in pool could not evict it.
+func readCeremonyBody(writer http.ResponseWriter, request *http.Request) bool {
+	body, err := io.ReadAll(http.MaxBytesReader(writer, request.Body, maxAccessRequestBytes))
+	if err != nil {
+		writeAccessError(writer, http.StatusBadRequest, "This request could not be completed.")
+		return false
+	}
+	request.Body = io.NopCloser(bytes.NewReader(body))
+	return true
 }
 
 func cookieValue(request *http.Request, name string) string {
