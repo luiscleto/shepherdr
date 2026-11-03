@@ -243,7 +243,7 @@ func TestEachHerdrKeepsItsOwnFileRecords(t *testing.T) {
 				}
 				for _, workspace := range workspaces {
 					_, err = earlier.StageAndForward(context.Background(), workspace, "label", []uploads.File{{Data: strings.NewReader("notes"), Name: "notes.txt", Size: 5}},
-						func() error { return nil }, func(paths []string, _ func() error) (uploads.ForwardResult, error) {
+						nil, func() error { return nil }, func(paths []string, _ func() error) (uploads.ForwardResult, error) {
 							staged[side+":"+workspace] = paths[0]
 							return uploads.Forwarded, nil
 						})

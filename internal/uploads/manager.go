@@ -45,13 +45,54 @@ type association struct {
 
 // workspaceGate keeps a workspace's folder for its sends. Sends hold it
 // shared, so one long send doesn't hold up the next; cleanup holds it alone,
-// so a folder never goes while a send is using it. setup guards the folder
+// so a folder never goes while a send is using it. setup guards the other
 // fields while sends share the gate.
 type workspaceGate struct {
 	mu          sync.RWMutex
 	setup       sync.Mutex
 	association *association
 	directory   *ownedDirectory
+	// open ends, with its cause, when cleanup or Close begins, and so stops
+	// the gate's sends instead of waiting for them.
+	open context.Context
+	end  context.CancelCauseFunc
+}
+
+var (
+	errWorkspaceClosed = errors.New("the workspace closed during the send")
+	errStopping        = errors.New("Shepherdr is stopping")
+)
+
+func newWorkspaceGate(record *association) *workspaceGate {
+	gate := &workspaceGate{association: record}
+	gate.open, gate.end = context.WithCancelCause(context.Background())
+	return gate
+}
+
+// stopSends ends the gate's current sends, and any that take the gate before
+// reopen, with cause.
+func (gate *workspaceGate) stopSends(cause error) {
+	gate.setup.Lock()
+	defer gate.setup.Unlock()
+	gate.end(cause)
+}
+
+func (gate *workspaceGate) reopen() {
+	gate.setup.Lock()
+	defer gate.setup.Unlock()
+	gate.open, gate.end = context.WithCancelCause(context.Background())
+}
+
+// release ends one send's use of directory. A handle that is no longer the
+// gate's folder closes when its last send ends, so a send never loses the
+// handle it writes and rolls back through.
+func (gate *workspaceGate) release(directory *ownedDirectory) {
+	gate.setup.Lock()
+	defer gate.setup.Unlock()
+	directory.users--
+	if directory.users == 0 && directory != gate.directory {
+		closeOwnedDirectory(directory)
+	}
 }
 
 type Manager struct {
@@ -105,7 +146,7 @@ func Open(root, statePath string, logger *slog.Logger) (*Manager, error) {
 	}
 	for workspaceID, record := range records {
 		copy := record
-		manager.gates[workspaceID] = &workspaceGate{association: &copy}
+		manager.gates[workspaceID] = newWorkspaceGate(&copy)
 	}
 	return manager, nil
 }
@@ -158,7 +199,7 @@ func (m *Manager) gate(workspaceID string) *workspaceGate {
 	defer m.gatesMu.Unlock()
 	gate := m.gates[workspaceID]
 	if gate == nil {
-		gate = &workspaceGate{}
+		gate = newWorkspaceGate(nil)
 		m.gates[workspaceID] = gate
 	}
 	return gate
@@ -169,10 +210,15 @@ func (m *Manager) gate(workspaceID string) *workspaceGate {
 // written as their bytes arrive. Definite pre-forward outcomes remove only
 // files created by this request. An unknown result retains them because their
 // paths may already be in the terminal.
+//
+// If the workspace closes or the manager closes before forwarding, the send
+// stops: interrupt, when given, is called once from another goroutine and
+// must make waiting reads of the files' data fail at once.
 func (m *Manager) StageAndForward(
 	ctx context.Context,
 	workspaceID, workspaceLabel string,
 	files []File,
+	interrupt func(),
 	validate func() error,
 	forward func([]string, func() error) (ForwardResult, error),
 ) (ForwardResult, error) {
@@ -182,18 +228,31 @@ func (m *Manager) StageAndForward(
 	gate := m.gate(workspaceID)
 	gate.mu.RLock()
 	defer gate.mu.RUnlock()
-	if err := ctx.Err(); err != nil {
-		return NotSent, err
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	gate.setup.Lock()
+	open := gate.open
+	gate.setup.Unlock()
+	defer context.AfterFunc(open, func() { cancel(context.Cause(open)) })()
+	if interrupt != nil {
+		defer context.AfterFunc(ctx, interrupt)()
+	}
+	if ctx.Err() != nil {
+		return NotSent, context.Cause(ctx)
 	}
 	if err := validate(); err != nil {
 		return NotSent, err
 	}
 	gate.setup.Lock()
 	directory, err := m.ensureAssociation(gate, workspaceID, workspaceLabel)
+	if err == nil {
+		directory.users++
+	}
 	gate.setup.Unlock()
 	if err != nil {
 		return NotSent, err
 	}
+	defer gate.release(directory)
 	staged, err := stageFiles(ctx, directory, files)
 	if err != nil {
 		return NotSent, err
@@ -203,8 +262,8 @@ func (m *Manager) StageAndForward(
 		paths[index] = staged[index].path
 	}
 	validateStaged := func() error {
-		if err := ctx.Err(); err != nil {
-			return err
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
 		}
 		present, err := verifyOwnedDirectory(directory)
 		if err != nil {
@@ -236,7 +295,9 @@ func (m *Manager) ensureAssociation(gate *workspaceGate, workspaceID, workspaceL
 		if err != nil {
 			m.logger.Error("recorded upload directory was refused", "workspace", workspaceID, "error", err)
 		}
-		closeOwnedDirectory(gate.directory)
+		if gate.directory.users == 0 {
+			closeOwnedDirectory(gate.directory)
+		}
 		gate.directory = nil
 	} else if gate.association != nil {
 		directory, present, err := openOwnedDirectory(*gate.association)
@@ -285,8 +346,10 @@ func (m *Manager) replaceRecord(workspaceID string, record *association) error {
 
 func (m *Manager) cleanupWorkspace(workspaceID string) error {
 	gate := m.gate(workspaceID)
+	gate.stopSends(errWorkspaceClosed)
 	gate.mu.Lock()
 	defer gate.mu.Unlock()
+	defer gate.reopen()
 	if gate.association == nil {
 		return nil
 	}
@@ -378,6 +441,9 @@ func (m *Manager) Close() {
 		gates = append(gates, gate)
 	}
 	m.gatesMu.Unlock()
+	for _, gate := range gates {
+		gate.stopSends(errStopping)
+	}
 	for _, gate := range gates {
 		gate.mu.Lock()
 		closeOwnedDirectory(gate.directory)

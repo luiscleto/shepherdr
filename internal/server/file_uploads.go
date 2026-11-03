@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/luiscleto/shepherdr/internal/herdr"
@@ -118,7 +119,7 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 		writeUploadError(writer, http.StatusUnsupportedMediaType, "Files were not sent. Use application/octet-stream.")
 		return
 	}
-	paceUploadBody(writer, request, s.uploadMinRate)
+	paced := paceUploadBody(writer, request, s.uploadMinRate)
 	envelope, files, body, err := readTerminalFileRequest(request.Body, s.fileUploadLimit)
 	if err != nil {
 		status := http.StatusBadRequest
@@ -140,7 +141,7 @@ func (s *Server) terminalFileSend(writer http.ResponseWriter, request *http.Requ
 		}
 		return nil
 	}
-	result, sendErr := side.manager.StageAndForward(request.Context(), initial.workspace, initial.label, files, validate, func(paths []string, validateStaged func() error) (uploads.ForwardResult, error) {
+	result, sendErr := side.manager.StageAndForward(request.Context(), initial.workspace, initial.label, files, paced.stop, validate, func(paths []string, validateStaged func() error) (uploads.ForwardResult, error) {
 		validateBeforeWrite := func() error {
 			if err := validateStaged(); err != nil {
 				return err
@@ -214,36 +215,67 @@ const DefaultUploadMinRate = int64(8 << 10)
 
 // paceUploadBody replaces the general body time with the file send's pace,
 // or with no read deadline when rate is 0.
-func paceUploadBody(writer http.ResponseWriter, request *http.Request, rate int64) {
-	controller := http.NewResponseController(writer)
+func paceUploadBody(writer http.ResponseWriter, request *http.Request, rate int64) *uploadBody {
+	body := &uploadBody{ReadCloser: request.Body, controller: http.NewResponseController(writer), rate: rate, start: time.Now()}
 	if rate == 0 {
-		_ = controller.SetReadDeadline(time.Time{})
-		request.Body = &uploadBody{ReadCloser: request.Body}
-		return
+		_ = body.controller.SetReadDeadline(time.Time{})
 	}
-	request.Body = &uploadBody{ReadCloser: request.Body, controller: controller, rate: rate, start: time.Now()}
+	request.Body = body
+	return body
 }
 
-// uploadBody marks read failures as errUploadBody and keeps the pace.
+// uploadBody marks read failures as errUploadBody and keeps the pace. Once
+// the body has ended it never sets a read deadline again: net/http then
+// reads the connection in the background, and a deadline there would cancel
+// the request while it forwards.
 type uploadBody struct {
 	io.ReadCloser
 	controller *http.ResponseController
 	rate       int64
 	start      time.Time
-	read       int64
+
+	mu      sync.Mutex
+	read    int64
+	ended   bool
+	stopped bool
 }
 
 func (body *uploadBody) Read(buffer []byte) (int, error) {
-	if body.controller != nil {
+	body.mu.Lock()
+	if body.ended {
+		body.mu.Unlock()
+		return 0, io.EOF
+	}
+	if body.stopped {
+		body.mu.Unlock()
+		return 0, fmt.Errorf("%w: the send was stopped", errUploadBody)
+	}
+	if body.rate > 0 {
 		allowed := uploadBodyGrace + time.Duration(body.read/body.rate)*time.Second
 		_ = body.controller.SetReadDeadline(body.start.Add(allowed))
 	}
+	body.mu.Unlock()
 	count, err := body.ReadCloser.Read(buffer)
+	body.mu.Lock()
 	body.read += int64(count)
+	body.ended = errors.Is(err, io.EOF)
+	body.mu.Unlock()
 	if err != nil && !errors.Is(err, io.EOF) {
 		err = fmt.Errorf("%w: %w", errUploadBody, err)
 	}
 	return count, err
+}
+
+// stop makes a waiting read fail at once, and every later one. It leaves a
+// body that has ended alone.
+func (body *uploadBody) stop() {
+	body.mu.Lock()
+	defer body.mu.Unlock()
+	if body.ended || body.stopped {
+		return
+	}
+	body.stopped = true
+	_ = body.controller.SetReadDeadline(time.Now())
 }
 
 var (

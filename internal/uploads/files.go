@@ -26,6 +26,7 @@ type ownedDirectory struct {
 	parent     *os.Root
 	record     association
 	root       *os.Root
+	users      int // sends using this handle, guarded by its gate's setup
 }
 
 type stagedFile struct {
@@ -252,8 +253,8 @@ func stageFiles(ctx context.Context, directory *ownedDirectory, files []File) ([
 	}
 	staged := make([]stagedFile, 0, len(files))
 	for _, upload := range files {
-		if err := ctx.Err(); err != nil {
-			return nil, rollbackStageFiles(directory.root, staged, err)
+		if ctx.Err() != nil {
+			return nil, rollbackStageFiles(directory.root, staged, context.Cause(ctx))
 		}
 		name := safeBasename(upload.Name)
 		created, file, err := reserveFile(directory, name)
@@ -281,11 +282,12 @@ func rollbackStageFiles(root *os.Root, files []stagedFile, cause error) error {
 
 // writeUploadedFile copies exactly size bytes from data as they arrive, so
 // no send holds a whole file in memory.
+// A read that fails because the send was stopped reports why it stopped.
 func writeUploadedFile(ctx context.Context, file *os.File, data io.Reader, size int64) error {
 	buffer := make([]byte, 64<<10)
 	for size > 0 {
-		if err := ctx.Err(); err != nil {
-			return err
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
 		}
 		count, err := data.Read(buffer[:min(int64(len(buffer)), size)])
 		if count > 0 {
@@ -294,6 +296,9 @@ func writeUploadedFile(ctx context.Context, file *os.File, data io.Reader, size 
 			}
 			size -= int64(count)
 		}
+		if err != nil && ctx.Err() != nil {
+			return context.Cause(ctx)
+		}
 		if size > 0 && errors.Is(err, io.EOF) {
 			return io.ErrUnexpectedEOF
 		}
@@ -301,7 +306,10 @@ func writeUploadedFile(ctx context.Context, file *os.File, data io.Reader, size 
 			return err
 		}
 	}
-	return ctx.Err()
+	if ctx.Err() != nil {
+		return context.Cause(ctx)
+	}
+	return nil
 }
 
 func safeBasename(name string) string {

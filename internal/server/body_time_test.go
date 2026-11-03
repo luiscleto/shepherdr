@@ -111,3 +111,39 @@ func TestSlowFileSendIsNotCutOffWhenThePaceIsOff(t *testing.T) {
 		t.Fatalf("slow send with the pace off answered %q", status)
 	}
 }
+
+// After a file send's body has ended, checking for extra bytes must not set
+// the read deadline again: net/http reads the connection in the background
+// then, and a deadline there would cancel the request while it forwards.
+func TestEndedFileSendBodyKeepsItsContextWhileForwarding(t *testing.T) {
+	previous := uploadBodyGrace
+	uploadBodyGrace = 300 * time.Millisecond
+	defer func() { uploadBodyGrace = previous }()
+	ended := make(chan error, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		paceUploadBody(writer, request, DefaultUploadMinRate)
+		if _, err := io.ReadAll(request.Body); err != nil {
+			ended <- err
+			return
+		}
+		if err := requireBodyEnd(request.Body); err != nil {
+			ended <- err
+			return
+		}
+		select {
+		case <-request.Context().Done():
+			ended <- request.Context().Err()
+		case <-time.After(800 * time.Millisecond):
+			ended <- nil
+		}
+	}))
+	defer server.Close()
+	response, err := http.Post(server.URL, "application/octet-stream", strings.NewReader(strings.Repeat("x", 100)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if err := <-ended; err != nil {
+		t.Fatalf("a send whose body ended was cancelled while forwarding: %v", err)
+	}
+}
