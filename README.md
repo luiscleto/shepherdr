@@ -33,7 +33,7 @@
 
 ## Install
 
-Shepherdr needs [Herdr](https://github.com/herdrdev/herdr) 0.9.0 or later, or the Herdr desktop app, running locally under the same OS account, with `herdr` (or `herdr-app`) on `PATH`. Herdr 0.9.0–0.9.5 and the Herdr app 0.1.10–0.1.12 are validated; newer versions run best effort with a warning.
+Shepherdr needs [Herdr](https://github.com/herdrdev/herdr) 0.9.0 or later, or the Herdr desktop app, running locally under the same OS account, with `herdr` (or `herdr-app`) on `PATH`. Herdr 0.9.0–0.9.5, and the Herdr app 0.1.10–0.1.12 with herdr-core 0.1.15–0.1.17, are validated; newer versions run best effort with a warning.
 
 Use matching Herdr CLI and server versions for terminal reads and control.
 
@@ -151,7 +151,7 @@ An HTTPS website is also accepted.
 
 | On by default | Off by default |
 | --- | --- |
-| `blocked`, `done`, trusted sign-in added/removed | `working`, `idle`, `unknown`, workspace opened/closed |
+| `blocked`, `error` (Herdr app), `done`, trusted sign-in added/removed | `working`, `idle`, `unknown`, workspace opened/closed |
 
 iPhone or iPad: add Shepherdr to the Home Screen and open it there before enabling. Android Chrome does not need that.
 
@@ -178,7 +178,7 @@ After the workspace is closed, Shepherdr deletes that folder. Cleanup is best ef
 | `-herdr-socket` | `~/.config/herdr/herdr.sock` | Uses `$XDG_CONFIG_HOME/herdr/herdr.sock` when nonempty, including on macOS. Pass an absolute path to override. |
 | `-herdr-core-socket` | `$XDG_RUNTIME_DIR/herdr-core/default.sock` | herdr-core, behind the Herdr desktop app. Absolute path. Without it, when `XDG_RUNTIME_DIR` is unset, Shepherdr follows only the Herdr TUI. |
 | `-log-level` | `info` | Runtime logging: `debug`, `info`, `warn`, or `error`. |
-| `-upload-parent` | system temp | Staging directory for selected files. |
+| `-upload-parent` | system temp | Staging directory for selected files. System temp may be in RAM. |
 | `-upload-limit` | `1GiB` | Per send. Bytes, `KiB`/`MiB`/`GiB`, or `none`. |
 | `-upload-min-rate` | `8KiB` | Per second, after a send's first 30 seconds. Bytes, `KiB`/`MiB`/`GiB`, or `none`. |
 | `-request-body-time` | `30s` | For every other request body. At least `1s`. |
