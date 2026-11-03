@@ -24,7 +24,7 @@ Sending text or a shortcut takes ordinary control only long enough to send one b
 
 While the exact current terminal has a Herdr-recognized agent, the phone composer shows **Add files**. Its **Photos** and **Files** choices use platform pickers; **Files** accepts arbitrary files. The phone and browser decide the sources, multi-selection, and focus behavior they offer.
 
-**Preparing files…** appears while selected files are read. Prepared files appear as compact, horizontally scrolling attachment cards with filename, size, a remove action, and a browser-local thumbnail for an image when available. Picker cancel, temporary disconnect, definite failure, and an unknown result preserve text and pending files. Files may be sent without text.
+Selected files are read only while they are sent. They appear as compact, horizontally scrolling attachment cards with filename, size, a remove action, and a browser-local thumbnail for an image when available. Picker cancel, temporary disconnect, definite failure, and an unknown result preserve text and pending files. Files may be sent without text.
 
 On send, Shepherdr stages opaque bytes in the exact workspace's owner-only local directory and starts one Terminal batch in this form:
 
@@ -49,9 +49,9 @@ The former Herdr 0.8.0–0.9.0 support range is superseded by the accepted minim
 
 The server rechecks the exact target for reads and sends. Current mobile file forwarding uses the retained controller as specified in the accepted direction; release-after-send is superseded. Shepherdr rechecks the exact current workspace, terminal, and recognized agent immediately before sending. Herdr cannot bind agent presence atomically to the terminal write, so a recognized agent can still exit in the final interval; Shepherdr makes no stronger delivery claim.
 
-One workspace-scoped gate coordinates file send with workspace cleanup. Files remain through agent exit or replacement, reconnect, and Shepherdr restart. After a complete Herdr state observes the workspace missing, best-effort cleanup waits for any send and removes only the exactly recorded and verified directory. Startup reconciles recorded associations against the first complete workspace set. There are no cleanup timers, directory scans, storage quotas, file-count limits, or per-file limits.
+One workspace-scoped gate coordinates file send with workspace cleanup. Files remain through agent exit or replacement, reconnect, and Shepherdr restart. After a complete Herdr state observes the workspace missing, best-effort cleanup stops any send that has not yet forwarded, waits for it to end, and removes only the exactly recorded and verified directory. Startup reconciles recorded associations against the first complete workspace set. There are no cleanup timers, directory scans, storage quotas, file-count limits, or per-file limits.
 
-`-upload-parent` defaults to the platform temporary directory. `-upload-limit` defaults to `50MiB` decoded bytes per send; `none` removes Shepherdr's upload-request bound and accepts the corresponding memory, disk, and transfer risk. Shepherdr and Herdr agents run as the same operating-system account.
+`-upload-parent` defaults to the platform temporary directory. `-upload-limit` defaults to `1GiB` of file bytes per send; files stream to disk, and `none` removes the file-byte and request-line bounds and accepts the corresponding disk and transfer risk and an unbounded request line in memory. Shepherdr and Herdr agents run as the same operating-system account.
 
 The renderer comparison lab remains development-only behind its explicit flag. Shepherdr has no durable terminal store and does not parse terminal output into Home, agent state, access, or application actions.
 

@@ -179,14 +179,14 @@ A credential revocation disables that credential and invalidates all of its sess
 
 ## Deny-by-default application boundary
 
-One outer access middleware owns route classification. Unknown routes and any unclassified `/api/` route fail closed. Exact `Host` validation happens before handlers. Exact `Origin` plus `Content-Type: application/json` is mandatory for every POST/PUT/PATCH/DELETE API request, including read-shaped POSTs, ceremonies, notification deletion, and sign-out. GET and HEAD never mutate. No CORS response grants another origin, and no synchronizer CSRF token is added.
+One outer access middleware owns route classification. Unknown routes and any unclassified `/api/` route fail closed. Exact `Host` validation happens before handlers. Exact `Origin` plus `Content-Type: application/json` is mandatory for every POST/PUT/PATCH/DELETE API request, including read-shaped POSTs, ceremonies, notification deletion, and sign-out, except the file send `POST /api/terminal/files`, which requires exact `Content-Type: application/octet-stream`, a type another site's page likewise can't send without asking first. GET and HEAD never mutate. No CORS response grants another origin, and no synchronizer CSRF token is added.
 
 | Current or added surface | Protected-mode rule |
 | --- | --- |
 | `GET /api/home` WebSocket | Valid session and exact WebSocket `Origin` at upgrade; closure on any bound-session invalidation. |
 | `GET /api/terminal` WebSocket | Valid session and exact WebSocket `Origin` at upgrade; recheck before input, takeover, release, or control forwarding; stop child/control ownership on invalidation. |
 | `GET /api/terminal/read` ordinary JSON fetch | Valid session; bind the Herdr read child to session cancellation, buffer output, and recheck authority before committing the response. No WebSocket `Origin` rule applies. |
-| `POST /api/terminal/files` base64-JSON mutation | Valid bound session, exact `Origin`, exact JSON content type, configured finite or `none` body handling, exact current workspace/pane/terminal/recognized-agent checks, and authority rechecks before each part of the shared Terminal batch. Revocation cancels staging or forwarding, waits for rollback or unknown-result handling, and releases the session lease before completing. |
+| `POST /api/terminal/files` streamed file mutation | Valid bound session, exact `Origin`, exact `application/octet-stream` content type, configured finite or `none` body handling, exact current workspace/pane/terminal/recognized-agent checks, and authority rechecks before each part of the shared Terminal batch. Revocation cancels staging or forwarding, waits for rollback or unknown-result handling, and releases the session lease before completing. |
 | `GET /api/terminal-lab` WebSocket when explicitly enabled | Same WebSocket rules as `/api/terminal`; enabling the lab never bypasses access. |
 | `GET /api/terminal-lab/read` ordinary JSON fetch when explicitly enabled | Same session-bound child cancellation and final authority check as `/api/terminal/read`. No WebSocket `Origin` rule applies. |
 | `POST /api/workspace-actions/prepare` and `POST /api/workspace-actions` | Valid session, exact `Origin`, JSON, existing size/target checks, and a final authority recheck immediately before the Herdr action. |
