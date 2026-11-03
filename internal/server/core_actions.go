@@ -33,6 +33,7 @@ type coreActionClient interface {
 	Read(context.Context) (herdr.CoreRead, error)
 	Kill(context.Context, string) (string, error)
 	Run(ctx context.Context, folder, space, tab string) (string, error)
+	Label(ctx context.Context, address string, labels map[string]string) (map[string]string, error)
 }
 
 // appActionClient runs commands in the Herdr app window.
@@ -188,6 +189,10 @@ func (c *coreActionCoordinator) runTerminal(writer http.ResponseWriter, request 
 	action, actionOK := decodeString(fields["action"])
 	if actionOK && action == string(herdr.TerminalActionSplit) {
 		c.runSplitTerminal(writer, request, fields)
+		return
+	}
+	if actionOK && (action == string(herdr.TerminalActionPin) || action == string(herdr.TerminalActionUnpin)) {
+		c.runPinAgent(writer, request, fields, herdr.TerminalAction(action))
 		return
 	}
 	if !actionOK || action != string(herdr.TerminalActionClose) {
@@ -463,6 +468,59 @@ func (c *coreActionCoordinator) runRenameSpace(writer http.ResponseWriter, reque
 		return
 	}
 	if !renamed.OK {
+		c.unknown(writer, http.StatusBadGateway)
+		return
+	}
+	c.succeeded(writer)
+}
+
+// runPinAgent pins or unpins the exact current agent through its
+// herdr.pinned label in core, which every Herdr client reads, so it works
+// with the app window open or closed. The agent must still offer the action.
+func (c *coreActionCoordinator) runPinAgent(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage, action herdr.TerminalAction) {
+	keys := []string{"action", "workspace_id", "tab_id", "pane_id", "terminal_id"}
+	if !requireObjectKeys(writer, fields, keys, keys) {
+		return
+	}
+	target, targetOK := decodeTerminalTarget(fields)
+	if !targetOK {
+		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
+		return
+	}
+	if !c.acquire() {
+		writeRefusal(writer, http.StatusConflict, "busy", "")
+		return
+	}
+	defer c.release()
+	current, err := c.view(context.Background(), herdr.AppWindowUnpaired)
+	if err != nil {
+		writeRefusal(writer, http.StatusServiceUnavailable, "herdr_unavailable", err.Error())
+		return
+	}
+	terminal, found := findCoreTerminal(current.home, target)
+	if !found {
+		writeRefusal(writer, http.StatusNotFound, "not_found", "")
+		return
+	}
+	if !containsTerminalAction(terminal.Actions, action) {
+		writeRefusal(writer, http.StatusConflict, "not_applicable", "")
+		return
+	}
+	value := ""
+	if action == herdr.TerminalActionPin {
+		value = "1"
+	}
+	var labels map[string]string
+	err = withCommitAuthority(request, func() error {
+		var labelErr error
+		labels, labelErr = c.client.Label(context.Background(), target.PaneID, map[string]string{herdr.CorePinnedLabel: value})
+		return labelErr
+	})
+	if err != nil {
+		c.finishError(writer, err)
+		return
+	}
+	if (labels[herdr.CorePinnedLabel] != "") != (action == herdr.TerminalActionPin) {
 		c.unknown(writer, http.StatusBadGateway)
 		return
 	}
@@ -839,8 +897,10 @@ func coreTerminalFacts(current coreView, target terminalActionTarget) (terminalC
 		Target: target, WorkspaceLabel: displayWorkspaceLabel(workspace.Label),
 		TabLabel: displayTabLabel(tab.Label), TerminalTitle: terminal.Title,
 	}
+	// A pin is no fact of closing, so pinning meanwhile never makes it stale.
 	if terminal.Agent != nil {
 		agent := *terminal.Agent
+		agent.Pinned = false
 		facts.Agent = &agent
 	}
 	ending := herdr.CoreEndsWith(current.read.Terminals, target.PaneID)

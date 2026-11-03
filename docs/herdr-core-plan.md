@@ -70,6 +70,11 @@ The Herdr app 0.1.12's `docs/labels.md` defines it, and Shepherdr follows it on 
 - While a Terminal page for an agent is in view (document visible, observing or controlling), the page says so on its terminal stream (`terminal.view {visible}`) and the server follows that terminal (`events.subscribe {terminal}`). It writes `herdr.seen=<turn>` with `terminal.label` on coming into view and once when each turn ends (on the `turn` event) while the page stays in view; only to raise it, or when it is missing; only on the page's exact current terminal. The turn always comes from core. Out of view, on Home or after leaving, nothing is written. This is core's own path, so it works with the app window open or closed.
 - A terminal Shepherdr starts gets `herdr.seen=0`, as the app's do.
 
+### `herdr.pinned` label (shared with every Herdr client)
+
+- Present and non-empty: the agent is pinned. Home marks a pinned agent's row, and **N pinned** opens the Pinned view. A terminal with no status is never shown as pinned.
+- **Pin** writes `herdr.pinned=1` and **Unpin** writes `herdr.pinned=` (empty, which removes it) with `terminal.label`, on the exact current agent from a fresh complete read, and only while the agent offers that action. The app shows the change live, with its window open or closed. The pin ends with the terminal.
+
 ### Workers and other terminals
 
 - A worker started from inside an app terminal (`hc run --bg` from alpha's shell; an agent's `hc run` looks the same) has `parent: "t1"` and `die_with_parent: true`. It has no `herdr.space` or `herdr.tab`; the app copies the parent's `where` onto it. The app lists it as a **sub-agent of its parent** and gives it no pane.
@@ -145,7 +150,7 @@ Liveness: core's 15 s `heartbeat` on the event connection counts as liveness, li
   - wave 3a adds `terminal.kill`;
   - wave 3c adds `terminal.run`.
 - `terminal.run` is used only for two labelled runs while the Herdr app window is closed: **New space** and **New terminal** (wave 3c, `docs/herdr-core-closed-create-plan.md`). Each is `{cwd, labels: {herdr.space, herdr.tab, herdr.seen: "0"}, keep: true}`, with no `argv`, `name`, `env` or caller. Stale-id rule: a labelled run for a space or tab the app has closed brings it back, so New terminal takes its ids from a fresh complete read just before the run (while the window is closed only the app writes the document, so it can't change), and New space uses new ids that aren't in that read.
-- `terminal.label` writes only `herdr.seen` on the exact terminal a Terminal page shows while it is in view, and `events.subscribe {terminal}` follows that terminal meanwhile (section 1, the `herdr.seen` label). Neither is required by the gate: without them nothing is marked.
+- `terminal.label` writes only `herdr.seen` on the exact terminal a Terminal page shows while it is in view, and `herdr.pinned` for **Pin** and **Unpin**; `events.subscribe {terminal}` follows the terminal a page shows meanwhile (section 1, the `herdr.seen` and `herdr.pinned` labels). Neither is required by the gate: without them nothing is marked, and **Pin** is refused.
 - Never used: `terminal.read` (it scrolls full-screen apps), `terminal.send`, `doc.set`, `terminal.put`, `machine.*`, `server.*`, `exec`/`file.*`, and `terminal.run` for anything else.
 - Validated range: 0.1.15 through 0.1.17 (0.1.16 added 2026-11-01 and 0.1.17 on 2026-11-03, each after its parity run). Newer runs best effort with a warning. Add each version to the range only after the real acceptance below.
 

@@ -1251,6 +1251,20 @@ button.terminal-row:hover {
   color: #716b67;
 }
 
+.terminal-pin {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 0.8rem;
+  height: 0.8rem;
+  color: var(--ink-muted);
+}
+
+.terminal-pin svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
 .attention-bar {
   position: fixed;
   z-index: 20;
@@ -1269,6 +1283,12 @@ button.terminal-row:hover {
   background: var(--ink);
   border-color: var(--ink);
   color: var(--paper-raised);
+}
+
+/* Pins are a reading aid, not attention: a quieter button. */
+.attention-bar button.attention-pinned {
+  background: var(--paper-raised);
+  color: var(--ink);
 }
 
 .terminal-screen {

@@ -214,6 +214,7 @@ function makeView(window: Window, actions: Partial<ConstructorParameters<typeof 
     onShowAll: actions.onShowAll ?? (() => undefined),
     onShowBlocked: actions.onShowBlocked ?? (() => undefined),
     onShowError: actions.onShowError,
+    onShowPinned: actions.onShowPinned,
     onShowHerdr: actions.onShowHerdr,
     prepareWorkspaceAction: actions.prepareWorkspaceAction ?? (async () => ({
       outcome: "refused",
@@ -1214,5 +1215,102 @@ test("The Herdr TUI keeps one row with a picker for a workspace with several tab
   assert.equal(app.querySelectorAll(".space-tabs").length, 0);
   assert.equal(requiredElement(requiredWorkspaceRow(view, "sp-douro"), ".terminal-count-badge").textContent, "5");
   assert.equal(requiredElement(app, ".workspace-expand-action").hidden, true);
+  window.close();
+});
+
+function pinnedDouroHome(): Home {
+  const home = douroHome();
+  for (const workspace of home.workspaces) {
+    for (const tab of workspace.tabs) {
+      for (const terminal of tab.terminals) {
+        if (!terminal.agent) continue;
+        terminal.actions = [["t2", "t5", "t8"].includes(terminal.pane_id) ? "unpin_agent" : "pin_agent", ...terminal.actions];
+        if (["t2", "t5", "t8"].includes(terminal.pane_id)) terminal.agent.pinned = true;
+      }
+    }
+  }
+  return home;
+}
+
+test("Herdr Core marks pinned agents, counts them, and Pinned lists only them under plain space headings", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const shown: string[] = [];
+  const opened: string[] = [];
+  const { app, view } = makeView(window, {
+    onShowPinned: () => shown.push("pinned"),
+    onOpen: (entry) => opened.push(entry.terminal.pane_id),
+  });
+  render(view, state(pinnedDouroHome()), { herdr: "core" });
+
+  const mark = requiredRow(view, "t2").querySelector(".terminal-pin");
+  assert.equal(mark?.getAttribute("role"), "img");
+  assert.equal(mark?.getAttribute("aria-label"), "Pinned");
+  assert.equal(requiredRow(view, "t2").getAttribute("aria-label"), "Open Ops setup, space Douro, claude-code, done, pinned");
+  assert.equal(requiredRow(view, "t1").querySelector(".terminal-pin"), null);
+  // The split tab's picker marks its pinned terminal.
+  requiredWorkspaceRow(view, tabRowKey("sp-douro", "tb-d")).click();
+  assert.deepEqual(["t4", "t5"].map((pane) => requiredRow(view, pane).querySelector(".terminal-pin") !== null), [false, true]);
+  requiredElement(app, ".terminal-picker-close").click();
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".attention-bar > :not([hidden])"), (node) => node.textContent),
+    ["1 working", "3 pinned"],
+  );
+  requiredElement(app, ".attention-pinned").click();
+  assert.deepEqual(shown, ["pinned"]);
+
+  render(view, state(pinnedDouroHome()), { herdr: "core", mode: "pinned" });
+  assert.equal(requiredElement(app, "h1").textContent, "Pinned");
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".pinned-space"), (section) => [
+      section.querySelector("h2")?.textContent,
+      ...Array.from(section.querySelectorAll(".terminal-row .terminal-name"), (node) => node.textContent),
+    ]),
+    [["Douro", "Ops setup", "claude-code"], ["Split", "claude-code"]],
+  );
+  assert.equal(app.querySelectorAll(".workspace-menu-trigger, .terminal-count-badge").length, 0);
+  assert.deepEqual(
+    Array.from(app.querySelectorAll(".attention-bar > :not([hidden])"), (node) => node.textContent),
+    ["1 working", "Show all terminals"],
+  );
+  requiredRow(view, "t5").click();
+  assert.deepEqual(opened, ["t5"]);
+
+  // Back on Home every terminal appears once, in Home's order.
+  render(view, state(pinnedDouroHome()), { herdr: "core" });
+  assert.equal(app.querySelectorAll(".pinned-space").length, 0);
+  assert.equal(app.querySelectorAll('[data-pane-key="t2"]').length, 1);
+  window.close();
+});
+
+test("Pin and Unpin run at once from an agent's menu, and the Herdr TUI shows no pins", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  const requests: unknown[] = [];
+  const { app, view } = makeView(window, {
+    runTerminalAction: async (request) => { requests.push(request); return { outcome: "succeeded" }; },
+  });
+  render(view, state(pinnedDouroHome()), { herdr: "core" });
+  const menuItems = (pane: string) => {
+    const trigger = requiredRow(view, pane).parentElement!.querySelector<HTMLElement>(".workspace-menu-trigger")!;
+    trigger.click();
+    return Array.from(trigger.parentElement!.querySelectorAll<HTMLElement>("[role=menuitem]"));
+  };
+  const items = menuItems("t1");
+  assert.deepEqual(items.map((node) => node.textContent), ["Pin", "New terminal", "Close terminal"]);
+  items[0].click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(requests, [{
+    herdr: "core", action: "pin_agent", workspace_id: "sp-douro", tab_id: "tb-a", pane_id: "t1", terminal_id: "core:t1",
+  }]);
+  assert.equal(app.querySelector(".home-action-layer:not([hidden])"), null);
+  assert.equal(menuItems("t2")[0].textContent, "Unpin");
+
+  const tui = pinnedDouroHome();
+  for (const workspace of tui.workspaces) {
+    for (const tab of workspace.tabs) for (const terminal of tab.terminals) {
+      terminal.actions = terminal.actions.filter((action) => action !== "pin_agent" && action !== "unpin_agent");
+    }
+  }
+  render(view, state(tui), { herdr: "tui" });
+  assert.equal(app.querySelectorAll(".attention-pinned").length, 0);
   window.close();
 });

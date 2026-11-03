@@ -22,7 +22,7 @@ const workspaceActions = new Set<WorkspaceAction>([
   "delete_checkout",
   "rename_space",
 ]);
-const terminalActions = new Set<TerminalAction>(["split_terminal", "rename_terminal", "close_terminal"]);
+const terminalActions = new Set<TerminalAction>(["split_terminal", "rename_terminal", "close_terminal", "pin_agent", "unpin_agent"]);
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -41,10 +41,11 @@ function nonnegativeInteger(value: unknown): value is number {
 
 function parseAgent(value: unknown): Agent | undefined {
   const agent = record(value);
-  if (!agent || !exactKeys(agent, ["kind", "name", "status"]) ||
+  if (!agent || !exactKeys(agent, ["kind", "name", "status"], ["pinned"]) ||
     typeof agent.kind !== "string" || typeof agent.name !== "string" ||
-    typeof agent.status !== "string" || !agentStatuses.has(agent.status as AgentStatus)) return undefined;
-  return { kind: agent.kind, name: agent.name, status: agent.status as AgentStatus };
+    typeof agent.status !== "string" || !agentStatuses.has(agent.status as AgentStatus) ||
+    (Object.hasOwn(agent, "pinned") && agent.pinned !== true)) return undefined;
+  return { kind: agent.kind, name: agent.name, status: agent.status as AgentStatus, ...(agent.pinned === true ? { pinned: true as const } : {}) };
 }
 
 function parseTerminal(value: unknown): Terminal | undefined {

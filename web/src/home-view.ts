@@ -5,7 +5,9 @@ import {
   allWorkspaces,
   herdrNames,
   homeRowFor,
+  inView,
   listsTabs,
+  pinnedCount,
   showTabHeadings,
   spaceWord,
   tabAgentCounts,
@@ -13,10 +15,10 @@ import {
   terminalCount,
   visibleTabs,
   type AgentCounts,
-  type AgentStatus,
   type Herdr,
   type Home,
   type HomeMode,
+  type TemporaryView,
   type HomeState,
   type Tab,
   type TerminalAction,
@@ -36,6 +38,7 @@ import {
   type WorkspaceAction,
 } from "./workspace-actions";
 import {
+  type PinAgentRequest,
   type PreparedTerminalActionResponse,
   type PrepareTerminalCloseRequest,
   type RunTerminalActionRequest,
@@ -59,6 +62,7 @@ interface HomeViewActions {
   onShowAll: () => void;
   onShowBlocked: () => void;
   onShowError?: () => void;
+  onShowPinned?: () => void;
   onShowHerdr?: (herdr: Herdr) => void;
   prepareWorkspaceAction: (request: PrepareWorkspaceActionRequest) => Promise<PreparedWorkspaceActionResponse>;
   runWorkspaceAction: (request: RunWorkspaceActionRequest) => Promise<RunWorkspaceActionResponse>;
@@ -153,8 +157,17 @@ interface RowNodes {
   main: HTMLElement;
   meta: HTMLElement;
   name: HTMLElement;
+  // pin marks a pinned Herdr Core agent; it exists only while one is shown.
+  pin?: HTMLElement;
   row: HTMLElement;
   status: HTMLElement;
+}
+
+// A space in Pinned: a plain heading and a row for each pinned agent.
+interface PinnedSpaceNodes {
+  heading: HTMLHeadingElement;
+  list: HTMLUListElement;
+  section: HTMLElement;
 }
 
 type UsedTabs = Map<string, Set<string>>;
@@ -250,6 +263,7 @@ export class HomeView {
   readonly #attention: HTMLElement;
   readonly #attentionBlocked: HTMLButtonElement;
   readonly #attentionError: HTMLButtonElement;
+  readonly #attentionPinned: HTMLButtonElement;
   readonly #attentionShowAll: HTMLButtonElement;
   readonly #attentionWorking: HTMLElement;
   readonly #connectionDot: HTMLElement;
@@ -290,6 +304,9 @@ export class HomeView {
   readonly #terminalMenus = new Map<string, WorkspaceMenuNodes>();
   readonly #workspaceValues = new Map<string, Workspace>();
   readonly #entries = new Map<string, TerminalEntry>();
+  readonly #pinnedSpaces = new Map<string, PinnedSpaceNodes>();
+  readonly #pinnedItems = new Map<string, HTMLLIElement>();
+  #pinRunning = false;
   #actionCancel: (() => void) | undefined;
   #actionRunning = false;
   #filterValue = "";
@@ -304,6 +321,7 @@ export class HomeView {
   #terminalActionSheetKey: string | undefined;
   #terminalActionSheetPickerScroll = 0;
   #renderedSpaceTabs = new Set<string>();
+  #renderedPinnedSpaces = new Set<string>();
   #renderedTabRows = new Set<string>();
   #spaceTabsSequence = 0;
   #workspaceHeadingSequence = 0;
@@ -365,6 +383,8 @@ export class HomeView {
     this.#attentionWorking = element(this.#document, "strong");
     this.#attentionBlocked = this.#button("", actions.onShowBlocked);
     this.#attentionError = this.#button("", () => actions.onShowError?.());
+    this.#attentionPinned = this.#button("", () => actions.onShowPinned?.());
+    this.#attentionPinned.className = "attention-pinned";
     this.#attentionShowAll = this.#button("Show all terminals", actions.onShowAll);
     this.#attention.append(this.#attentionWorking, this.#attentionBlocked, this.#attentionError, this.#attentionShowAll);
 
@@ -506,11 +526,12 @@ export class HomeView {
     if (this.#lastRender && this.#lastRender.herdr !== model.herdr) this.#forgetShownHerdr();
     this.#lastRender = model.restore ? { ...model, restore: undefined } : model;
     this.#renderedSpaceTabs = new Set();
+    this.#renderedPinnedSpaces = new Set();
     this.#renderedTabRows = new Set();
     const view = this.#document.defaultView;
     const oldScroll = model.restore?.scroll ?? view?.scrollY ?? 0;
     setClass(this.#app, "home");
-    setText(this.#headerHeading, model.mode === "blocked" ? "Blocked" : model.mode === "error" ? "Error" : "Home");
+    setText(this.#headerHeading, { all: "Home", blocked: "Blocked", error: "Error", pinned: "Pinned" }[model.mode]);
     setHidden(this.#headerHeading, model.mode === "all");
     setHidden(this.#accessNotice, !model.signInOff);
     const live = model.reachability === "current" && model.state.connection === "live" && !model.state.last_known;
@@ -550,7 +571,12 @@ export class HomeView {
       const total = allTerminals(model.state.home).length;
       const empty = live && total === 0 && allWorkspaceValues.length === 0;
 
-      if (model.mode !== "all") {
+      if (model.mode === "pinned") {
+        for (const workspace of allWorkspaceValues) {
+          const section = this.#renderPinnedSpace(workspace, model.actionsAvailable);
+          if (section) desired.push(section);
+        }
+      } else if (model.mode !== "all") {
         if (empty) desired.push(this.#empty);
         for (const workspace of allWorkspaceValues) {
           const section = this.#listsTabs(workspace)
@@ -621,6 +647,16 @@ export class HomeView {
       setText(this.#attentionError, `${model.state.home.error_count} error`);
       setHidden(this.#attentionError, !showError);
       setHidden(this.#attentionShowAll, !showAll);
+      // Herdr Core shares pins with the Herdr app; only nonzero shows.
+      const pinned = core ? pinnedCount(model.state.home) : 0;
+      setText(this.#attentionPinned, `${pinned} pinned`);
+      reconcileChildren(this.#attention, [
+        this.#attentionWorking,
+        this.#attentionBlocked,
+        this.#attentionError,
+        ...(!showAll && pinned > 0 ? [this.#attentionPinned] : []),
+        this.#attentionShowAll,
+      ]);
       desired.push(this.#attention);
     }
 
@@ -701,6 +737,8 @@ export class HomeView {
     this.#terminalMenus.clear();
     this.#workspaceValues.clear();
     this.#entries.clear();
+    this.#pinnedSpaces.clear();
+    this.#pinnedItems.clear();
     this.#expandedSets.clear();
     this.#filterValue = "";
     this.#filterInput.value = "";
@@ -747,7 +785,7 @@ export class HomeView {
 
   #renderWorkspace(
     workspace: Workspace,
-    only: AgentStatus | undefined,
+    only: TemporaryView | undefined,
     actionsAvailable: boolean,
     managementAvailable: boolean,
     hideTitle = false,
@@ -847,7 +885,7 @@ export class HomeView {
   // then a row for each tab the shown workspace keeps, in the app's order.
   #renderSpaceTabs(
     workspace: Workspace,
-    only: AgentStatus | undefined,
+    only: TemporaryView | undefined,
     actionsAvailable: boolean,
     managementAvailable: boolean,
     forceExpanded: boolean,
@@ -882,6 +920,40 @@ export class HomeView {
       reconcileChildren(nodes.header, [this.#workspaceActionRow(full, nodes.disclosure, managementAvailable)]);
     }
     reconcileChildren(nodes.list, tabs.map((tab) => this.#tabItem(full, tab, actionsAvailable, managementAvailable)));
+    return nodes.section;
+  }
+
+  // Pinned shows a space as a plain heading with a row for each of its
+  // pinned agents, in Home's order; each row opens its terminal.
+  #renderPinnedSpace(workspace: Workspace, actionsAvailable: boolean): HTMLElement | undefined {
+    const full = this.#workspaceValues.get(workspace.id) ?? workspace;
+    const entries = full.tabs.flatMap((tab) =>
+      tab.terminals.filter((terminal) => inView(terminal, "pinned")).map((terminal) => ({ workspace: full, tab, terminal })));
+    if (entries.length === 0) return undefined;
+    this.#renderedPinnedSpaces.add(full.id);
+    let nodes = this.#pinnedSpaces.get(full.id);
+    if (!nodes) {
+      const section = element(this.#document, "section", "workspace pinned-space");
+      const heading = element(this.#document, "h2", "workspace-title");
+      heading.id = `pinned-heading-${++this.#workspaceHeadingSequence}`;
+      section.setAttribute("aria-labelledby", heading.id);
+      const list = element(this.#document, "ul", "terminal-list");
+      section.append(heading, list);
+      nodes = { heading, list, section };
+      this.#pinnedSpaces.set(full.id, nodes);
+    }
+    setText(nodes.heading, full.label);
+    const tabRows = this.#listsTabs(full);
+    reconcileChildren(nodes.list, entries.map((entry) => {
+      let item = this.#pinnedItems.get(entry.terminal.pane_id);
+      if (!item) {
+        item = element(this.#document, "li");
+        this.#pinnedItems.set(entry.terminal.pane_id, item);
+      }
+      const tabRow = tabRows && entry.tab.terminals.length === 1;
+      reconcileChildren(item, [this.#terminalRow(entry, showTabHeadings(full), actionsAvailable, tabRow).row]);
+      return item;
+    }));
     return nodes.section;
   }
 
@@ -1498,8 +1570,10 @@ export class HomeView {
       this.#usesTerminalActionSheet(`terminal:${entry.terminal.pane_id}`) ? "dialog" : "menu",
     );
     const items: Node[] = [];
-    const terminalOrder: TerminalAction[] = ["split_terminal", "rename_terminal", "close_terminal"];
+    const terminalOrder: TerminalAction[] = ["pin_agent", "unpin_agent", "split_terminal", "rename_terminal", "close_terminal"];
     const terminalLabels: Record<TerminalAction, string> = {
+      pin_agent: "Pin",
+      unpin_agent: "Unpin",
       split_terminal: "New terminal",
       rename_terminal: "Rename terminal",
       close_terminal: "Close terminal",
@@ -1724,6 +1798,7 @@ export class HomeView {
       setClass(nodes.status, entry.terminal.agent ? `status status-${entry.terminal.agent.status}` : "");
       setText(nodes.status, entry.terminal.agent?.status ?? "");
       setHidden(nodes.status, !entry.terminal.agent);
+      this.#updatePinMark(nodes, entry.terminal.agent?.pinned === true);
       return nodes;
     }
     if (actionsAvailable) setAttribute(nodes.row, "aria-label", accessibleTerminalName(entry, tabsShown, this.#lastRender?.herdr));
@@ -1753,7 +1828,35 @@ export class HomeView {
       setText(nodes.status, "");
       setHidden(nodes.status, true);
     }
+    this.#updatePinMark(nodes, entry.terminal.agent?.pinned === true);
     return nodes;
+  }
+
+  // A pinned agent's row ends its status line with a small pin, named for
+  // assistive technology; a row's own accessible name also says "pinned".
+  #updatePinMark(nodes: RowNodes, pinned: boolean): void {
+    if (!pinned) {
+      nodes.pin?.remove();
+      nodes.pin = undefined;
+      return;
+    }
+    if (!nodes.pin) {
+      const pin = element(this.#document, "span", "terminal-pin");
+      pin.setAttribute("role", "img");
+      pin.setAttribute("aria-label", "Pinned");
+      pin.title = "Pinned";
+      const svgNS = "http://www.w3.org/2000/svg";
+      const icon = this.#document.createElementNS(svgNS, "svg");
+      icon.setAttribute("viewBox", "0 0 16 16");
+      icon.setAttribute("aria-hidden", "true");
+      icon.setAttribute("focusable", "false");
+      const path = this.#document.createElementNS(svgNS, "path");
+      path.setAttribute("d", "M5.5 1.5h5l-1 4 2.5 2.5v1.5h-3.25V15L8 15.5 7.25 15V9.5H4V8l2.5-2.5z");
+      icon.append(path);
+      pin.append(icon);
+      nodes.pin = pin;
+    }
+    if (nodes.pin.parentElement !== nodes.meta || nodes.pin.nextSibling !== null) nodes.meta.append(nodes.pin);
   }
 
   #openNewSpace(): void {
@@ -1902,6 +2005,11 @@ export class HomeView {
   #chooseTerminalAction(paneID: string, action: TerminalAction, returnFocus: HTMLElement): void {
     const entry = this.#entries.get(paneID);
     if (!entry || !entry.terminal.actions.includes(action) || this.#actionRunning) return;
+    if (action === "pin_agent" || action === "unpin_agent") {
+      this.#closeMenu(true);
+      void this.#pinAgent(entry, action);
+      return;
+    }
     this.#closeMenu();
     this.#returnFocus = returnFocus;
     const herdr = this.#shownHerdr();
@@ -1911,6 +2019,26 @@ export class HomeView {
       this.#openRenameTerminal(entry, herdr);
     } else {
       void this.#prepareTerminalClose(this.#terminalTarget(entry), herdr);
+    }
+  }
+
+  // Pin and Unpin need no confirmation and no success message: Home shows the
+  // pin, and the menu offers the other action, once Herdr Core has it.
+  async #pinAgent(entry: TerminalEntry, action: "pin_agent" | "unpin_agent"): Promise<void> {
+    if (this.#pinRunning) return;
+    this.#pinRunning = true;
+    const herdr = this.#shownHerdr();
+    let response: RunTerminalActionResponse;
+    try {
+      response = await this.#actions.runTerminalAction({ herdr, action, ...this.#terminalTarget(entry) });
+    } catch {
+      response = { outcome: "unknown" };
+    }
+    this.#pinRunning = false;
+    if (response.outcome === "refused") {
+      this.#showRefusal(response, herdr, "This agent is no longer here.");
+    } else if (response.outcome === "unknown") {
+      this.#showResult("Result unknown", `Check Home before ${action === "pin_agent" ? "pinning" : "unpinning"} this agent again.`);
     }
   }
 
@@ -2065,11 +2193,11 @@ export class HomeView {
     );
   }
 
-  async #submitTerminalAction(request: RunTerminalActionRequest): Promise<void> {
+  async #submitTerminalAction(request: Exclude<RunTerminalActionRequest, PinAgentRequest>): Promise<void> {
     if (this.#actionRunning) return;
     this.#actionRunning = true;
     const inCore = request.action === "split_terminal" && "best_effort" in request;
-    const headings: Record<RunTerminalActionRequest["action"], string> = {
+    const headings: Record<typeof request.action, string> = {
       split_terminal: inCore ? "New terminal" : "Splitting terminal",
       rename_terminal: "Renaming terminal",
       close_terminal: request.action === "close_terminal" && request.expected.workspace_expected
@@ -2480,6 +2608,9 @@ export class HomeView {
         if (this.#openMenuKey === `workspace:${key}`) this.#openMenuKey = undefined;
       }
     }
+    for (const key of this.#pinnedSpaces.keys()) {
+      if (!this.#renderedPinnedSpaces.has(key)) this.#pinnedSpaces.delete(key);
+    }
     for (const key of this.#tabItems.keys()) {
       if (!this.#renderedTabRows.has(key)) {
         this.#tabItems.delete(key);
@@ -2490,6 +2621,7 @@ export class HomeView {
       if (!paneIDs.has(key)) {
         this.#rows.delete(key);
         this.#items.delete(key);
+        this.#pinnedItems.delete(key);
         this.#entries.delete(key);
         this.#terminalMenus.delete(key);
         if (this.#openMenuKey === `terminal:${key}`) this.#openMenuKey = undefined;

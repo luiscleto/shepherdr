@@ -23,12 +23,14 @@ import {
   herdrPresent,
   herdrSwitchShown,
   homeRowFor,
+  inView,
   readRememberedHerdr,
   rememberHerdr,
   suggestedFolders,
   viewCount,
   type Herdr,
   type HomeMode,
+  type TemporaryView,
   type HomePlace,
   type HomeSides,
   type HomeState,
@@ -130,6 +132,7 @@ const homeView = new HomeView(app, {
   onShowAll: showAllTerminals,
   onShowBlocked: () => showStatusTerminals("blocked"),
   onShowError: () => showStatusTerminals("error"),
+  onShowPinned: () => showStatusTerminals("pinned"),
   onShowHerdr: switchHerdr,
   prepareWorkspaceAction: (request) => workspaceActions.prepare(request),
   runWorkspaceAction: (request) => workspaceActions.run(request),
@@ -515,14 +518,15 @@ function currentFocusedWorkspace(): string | undefined {
   return document.activeElement instanceof HTMLElement ? document.activeElement.dataset.workspaceKey : undefined;
 }
 
-function showStatusTerminals(status: "blocked" | "error"): void {
+function showStatusTerminals(view: TemporaryView): void {
   allTerminalsScroll = window.scrollY;
   allTerminalsFocusPane = currentFocusedPane() ?? lastFocusedHomePane;
   allTerminalsFocusWorkspace = currentFocusedWorkspace() ?? lastFocusedHomeWorkspace;
-  const firstBlocked = allTerminals(shownState().home).find(({ terminal }) => terminal.agent?.status === status);
-  homeMode = status;
+  const first = allTerminals(shownState().home).find(({ terminal }) => inView(terminal, view));
+  homeMode = view;
   homeScroll = 0;
-  const firstRow = firstBlocked ? homeRowFor(firstBlocked, shownHerdr ?? "tui") : undefined;
+  // Pinned lists each agent as its own row.
+  const firstRow = first && view === "pinned" ? { pane: first.terminal.pane_id } : first ? homeRowFor(first, shownHerdr ?? "tui") : undefined;
   homeFocusPane = firstRow && "pane" in firstRow ? firstRow.pane : undefined;
   homeFocusWorkspace = firstRow && "workspace" in firstRow ? firstRow.workspace : undefined;
   restoreHomePlace = true;

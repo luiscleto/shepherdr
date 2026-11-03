@@ -2,13 +2,17 @@ import type { WorkspaceAction } from "./workspace-actions";
 
 export type AgentStatus = "working" | "blocked" | "error" | "idle" | "done" | "unknown";
 export type Herdr = "tui" | "core";
-export type HomeMode = "all" | "blocked" | "error";
+export type HomeMode = "all" | "blocked" | "error" | "pinned";
+// TemporaryView is a temporary view of Home: only blocked, error or pinned agents.
+export type TemporaryView = Exclude<HomeMode, "all">;
 export type Connection = "reconnecting" | "live" | "not_running" | "incompatible";
-export type TerminalAction = "split_terminal" | "rename_terminal" | "close_terminal";
+export type TerminalAction = "split_terminal" | "rename_terminal" | "close_terminal" | "pin_agent" | "unpin_agent";
 
 export interface Agent {
   kind: string;
   name: string;
+  // Herdr Core only: pinned to the top of the Herdr app's agent lists.
+  pinned?: true;
   status: AgentStatus;
 }
 
@@ -181,7 +185,17 @@ export function automaticAllTerminalsPlace(
 export function viewCount(mode: HomeMode, home: Home): number {
   if (mode === "blocked") return home.blocked_count;
   if (mode === "error") return home.error_count;
+  if (mode === "pinned") return pinnedCount(home);
   return 0;
+}
+
+export function pinnedCount(home: Home): number {
+  return allTerminals(home).filter(({ terminal }) => terminal.agent?.pinned === true).length;
+}
+
+// inView says whether a terminal belongs in a temporary view of Home.
+export function inView(terminal: Terminal, view: TemporaryView): boolean {
+  return view === "pinned" ? terminal.agent?.pinned === true : terminal.agent?.status === view;
 }
 
 export function allTerminals(home: Home): TerminalEntry[] {
@@ -206,11 +220,11 @@ export function showTabHeadings(workspace: Workspace): boolean {
   return workspace.tabs.filter((tab) => tab.terminals.length > 0).length > 1;
 }
 
-export function visibleTabs(workspace: Workspace, only?: AgentStatus): Array<{ tab: Tab; terminals: Terminal[] }> {
+export function visibleTabs(workspace: Workspace, only?: TemporaryView): Array<{ tab: Tab; terminals: Terminal[] }> {
   return workspace.tabs
     .map((tab) => ({
       tab,
-      terminals: only ? tab.terminals.filter((terminal) => terminal.agent?.status === only) : tab.terminals,
+      terminals: only ? tab.terminals.filter((terminal) => inView(terminal, only)) : tab.terminals,
     }))
     .filter(({ terminals }) => terminals.length > 0);
 }
@@ -257,6 +271,7 @@ export function accessibleTerminalName(entry: TerminalEntry, tabsShown: boolean,
       parts.push(entry.terminal.agent.name);
     }
     parts.push(entry.terminal.agent.status);
+    if (entry.terminal.agent.pinned) parts.push("pinned");
   }
   return parts.join(", ");
 }
@@ -271,6 +286,7 @@ export function accessibleTabTerminalName(entry: TerminalEntry): string {
       parts.push(entry.terminal.agent.name);
     }
     parts.push(entry.terminal.agent.status);
+    if (entry.terminal.agent.pinned) parts.push("pinned");
   }
   return parts.join(", ");
 }

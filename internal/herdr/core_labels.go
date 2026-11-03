@@ -10,9 +10,14 @@ import (
 	"time"
 )
 
-// Herdr clients share which agents a person has seen through a terminal
-// label (the Herdr app's docs/labels.md): the last turn a person looked at.
-const CoreSeenLabel = "herdr.seen"
+// Herdr clients share which agents a person has seen and which are pinned
+// through two terminal labels (the Herdr app's docs/labels.md).
+const (
+	// CoreSeenLabel holds the last turn a person looked at.
+	CoreSeenLabel = "herdr.seen"
+	// CorePinnedLabel is present and non-empty while the agent is pinned.
+	CorePinnedLabel = "herdr.pinned"
+)
 
 // coreSeenTurn reads herdr.seen as the Herdr app does: an unsigned decimal
 // number, optionally after one "+". Anything else counts as missing.
@@ -45,6 +50,10 @@ func CoreShownStatus(terminal CoreTerminal) Status {
 func CoreSeenNeedsRaise(terminal CoreTerminal) bool {
 	seen, ok := coreSeenTurn(terminal.Labels)
 	return !ok || seen < terminal.Turn
+}
+
+func corePinned(terminal CoreTerminal) bool {
+	return terminal.Labels[CorePinnedLabel] != ""
 }
 
 // CoreTerminalFollow follows one terminal's facts on its own event

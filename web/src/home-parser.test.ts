@@ -208,3 +208,22 @@ test("parses a closed Herdr app window, and nothing else", () => {
     assert.equal(parseCompleteHomeState(frame), undefined);
   }
 });
+
+test("parses a pinned agent with Pin and Unpin, and nothing else as a pin", () => {
+  const withAgent = (agent: Record<string, unknown>, actions = ["unpin_agent", "close_terminal"]) => {
+    const frame = completeFrame();
+    const home = tuiOf(frame).home as Record<string, unknown>;
+    const workspace = (home.workspaces as Array<Record<string, unknown>>)[0];
+    const terminal = ((workspace.tabs as Array<Record<string, unknown>>)[0].terminals as Array<Record<string, unknown>>)[0];
+    terminal.agent = agent;
+    terminal.actions = actions;
+    return parseCompleteHomeState(frame)?.tui.home.workspaces[0].tabs[0].terminals[0];
+  };
+  const pinned = withAgent({ kind: "claude-code", name: "Claude Code", status: "idle", pinned: true });
+  assert.deepEqual(pinned?.agent, { kind: "claude-code", name: "Claude Code", status: "idle", pinned: true });
+  assert.deepEqual(pinned?.actions, ["unpin_agent", "close_terminal"]);
+  assert.deepEqual(withAgent({ kind: "pi", name: "pi", status: "done" }, ["pin_agent"])?.actions, ["pin_agent"]);
+  assert.equal(withAgent({ kind: "pi", name: "pi", status: "done", pinned: false }), undefined);
+  assert.equal(withAgent({ kind: "pi", name: "pi", status: "done", pinned: "1" }), undefined);
+  assert.equal(withAgent({ kind: "pi", name: "pi", status: "done" }, ["pin_terminal"]), undefined);
+});

@@ -212,7 +212,7 @@ func projectCore(read CoreRead, homeFolder string, repositories func(folder stri
 		projected := coreTerminal(read.CoreID, terminal)
 		// New terminal starts next to a terminal the app shows in a pane.
 		if pane && paired {
-			projected.Actions = []TerminalAction{TerminalActionSplit, TerminalActionClose}
+			projected.Actions = slices.Insert(projected.Actions, len(projected.Actions)-1, TerminalActionSplit)
 		}
 		tab.Terminals = append(tab.Terminals, projected)
 		snapshot.Panes = append(snapshot.Panes, PaneInfo{
@@ -378,13 +378,20 @@ func coreStatusValid(status Status) bool {
 }
 
 // Every terminal Home shows can be closed, including those under Other
-// terminals; a space can be closed, but Other terminals can't.
+// terminals; a space can be closed, but Other terminals can't. An agent can
+// be pinned or unpinned.
 func coreTerminal(coreID string, source CoreTerminal) Terminal {
 	terminal := Terminal{Actions: []TerminalAction{TerminalActionClose}, PaneID: source.Address, TerminalID: coreID + ":" + source.Address}
 	// The agent name is the app core reports, never the live title, so a row
 	// keeps its name while the agent works.
 	if source.Status != nil {
-		terminal.Agent = &Agent{Kind: source.Status.App, Name: source.Status.App, Status: CoreShownStatus(source)}
+		pinned := corePinned(source)
+		terminal.Agent = &Agent{Kind: source.Status.App, Name: source.Status.App, Status: CoreShownStatus(source), Pinned: pinned}
+		pin := TerminalActionPin
+		if pinned {
+			pin = TerminalActionUnpin
+		}
+		terminal.Actions = []TerminalAction{pin, TerminalActionClose}
 	}
 	switch {
 	case terminal.Agent != nil && terminal.Agent.Name != "":

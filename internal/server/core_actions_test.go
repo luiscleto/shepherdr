@@ -36,6 +36,7 @@ type fakeCore struct {
 	runs     []string
 	runErr   error
 	afterRun func()
+	labels   []string
 }
 
 func newFakeCore(t *testing.T) *fakeCore {
@@ -105,6 +106,33 @@ func (f *fakeCore) Run(_ context.Context, folder, space, tab string) (string, er
 		after()
 	}
 	return address, nil
+}
+
+// Label sets labels as core does: an empty value removes one.
+func (f *fakeCore) Label(_ context.Context, address string, labels map[string]string) (map[string]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.labels = append(f.labels, address)
+	for index := range f.read.Terminals {
+		terminal := &f.read.Terminals[index]
+		if terminal.Address != address {
+			continue
+		}
+		merged := map[string]string{}
+		for key, value := range terminal.Labels {
+			merged[key] = value
+		}
+		for key, value := range labels {
+			if value == "" {
+				delete(merged, key)
+			} else {
+				merged[key] = value
+			}
+		}
+		terminal.Labels = merged
+		return merged, nil
+	}
+	return nil, &herdr.APIError{Code: "not_found", Message: "not_found"}
 }
 
 func (f *fakeCore) ran() []string {
@@ -459,4 +487,61 @@ func mustMarshal(t *testing.T, value any) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+// Pin and Unpin write only herdr.pinned on the exact current agent, which
+// must still offer the action, with the app window open or closed.
+func TestCorePinAndUnpinWriteTheExactAgentsPinLabel(t *testing.T) {
+	core := newFakeCore(t)
+	core.change(func(read *herdr.CoreRead) {
+		read.Terminals[0].Status = &herdr.CoreStatus{App: "claude", State: "done"}
+	})
+	refresh := &countingHomeRefresher{}
+	handler := coreActionHandler(core, refresh)
+	pin := `{"herdr":"core","action":"pin_agent",` + coreTarget(coreAlpha, coreAlphaTab, "t3") + `}`
+	unpin := `{"herdr":"core","action":"unpin_agent",` + coreTarget(coreAlpha, coreAlphaTab, "t3") + `}`
+	pinned := func() string {
+		read, _ := core.Read(context.Background())
+		return read.Terminals[0].Labels[herdr.CorePinnedLabel]
+	}
+
+	assertOutcome(t, performSideActionRequest(t, handler, "/api/terminal-actions", pin), http.StatusOK, "succeeded", "")
+	if pinned() != "1" || refresh.count.Load() != 1 {
+		t.Fatalf("pin label = %q, refreshes = %d", pinned(), refresh.count.Load())
+	}
+	// Closing a pinned agent confirms the same facts as before it was pinned.
+	expected, confirm := prepareCore(t, handler, "/api/terminal-actions",
+		`{"herdr":"core","action":"close_terminal",`+coreTarget(coreAlpha, coreAlphaTab, "t3")+`}`)
+	if string(expected["agent"]) != `{"kind":"claude","name":"claude","status":"done"}` {
+		t.Fatalf("close facts agent = %s", expected["agent"])
+	}
+	if !strings.Contains(confirm, `"status":"done"}`) {
+		t.Fatalf("confirm = %s", confirm)
+	}
+	// Already pinned: only Unpin applies now.
+	assertOutcome(t, performSideActionRequest(t, handler, "/api/terminal-actions", pin), http.StatusConflict, "refused", "not_applicable")
+	assertOutcome(t, performSideActionRequest(t, handler, "/api/terminal-actions", unpin), http.StatusOK, "succeeded", "")
+	if _, present := core.read.Terminals[0].Labels[herdr.CorePinnedLabel]; present {
+		t.Fatalf("unpin left labels %v", core.read.Terminals[0].Labels)
+	}
+
+	// A plain terminal is not an agent; another core's terminal id, a stale
+	// tab, an extra field and an unknown address are refused, and nothing is
+	// written.
+	before := slices.Clone(core.labels)
+	for _, test := range []struct {
+		body, reason string
+		status       int
+	}{
+		{`{"herdr":"core","action":"pin_agent",` + coreTarget(coreAlpha, coreAlphaTab, "t4") + `}`, "not_applicable", http.StatusConflict},
+		{`{"herdr":"core","action":"pin_agent","workspace_id":"` + coreAlpha + `","tab_id":"` + coreAlphaTab + `","pane_id":"t3","terminal_id":"other:t3"}`, "not_found", http.StatusNotFound},
+		{`{"herdr":"core","action":"pin_agent",` + coreTarget(coreAlpha, coreSecond, "t3") + `}`, "not_found", http.StatusNotFound},
+		{`{"herdr":"core","action":"pin_agent",` + coreTarget(coreAlpha, coreAlphaTab, "t77") + `}`, "not_found", http.StatusNotFound},
+		{`{"herdr":"core","action":"pin_agent","labels":{"herdr.seen":"9"},` + coreTarget(coreAlpha, coreAlphaTab, "t3") + `}`, "invalid_request", http.StatusBadRequest},
+	} {
+		assertOutcome(t, performSideActionRequest(t, handler, "/api/terminal-actions", test.body), test.status, "refused", test.reason)
+	}
+	if !slices.Equal(core.labels, before) {
+		t.Fatalf("labels written = %q", core.labels)
+	}
 }

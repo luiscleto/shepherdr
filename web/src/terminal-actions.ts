@@ -48,7 +48,13 @@ export interface CloseTerminalRequest {
   expected: TerminalCloseFacts;
 }
 
-export type RunTerminalActionRequest = SplitTerminalRequest | RenameTerminalRequest | CloseTerminalRequest;
+// Herdr Core: pin an agent to the top of the Herdr app's agent lists, or unpin it.
+export interface PinAgentRequest extends TerminalActionTarget {
+  herdr: Herdr;
+  action: "pin_agent" | "unpin_agent";
+}
+
+export type RunTerminalActionRequest = SplitTerminalRequest | RenameTerminalRequest | CloseTerminalRequest | PinAgentRequest;
 
 export interface PreparedTerminalClose {
   outcome: "prepared";

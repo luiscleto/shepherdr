@@ -164,3 +164,51 @@ func TestCoreTerminalFollowTracksTurnsAndLabels(t *testing.T) {
 }
 
 func text(value string) *string { return &value }
+
+// A pinned agent shows its pin and offers Unpin; another agent offers Pin. A
+// plain terminal is never pinned, whatever its labels say.
+func TestCoreHomeShowsPinnedAgentsWithPinOrUnpin(t *testing.T) {
+	read := loadCoreRead(t, "core-read-app.json")
+	read.AppWindow = AppWindowOpen
+	for index := range read.Terminals {
+		terminal := &read.Terminals[index]
+		switch terminal.Address {
+		case "t3":
+			terminal.Status = &CoreStatus{App: "claude-code", State: "done"}
+			terminal.Labels[CorePinnedLabel] = "1"
+		case "t4":
+			terminal.Status = &CoreStatus{App: "codex", State: "working"}
+			terminal.Labels[CorePinnedLabel] = ""
+		case "t8": // under Other terminals; any non-empty value pins
+			terminal.Status = &CoreStatus{App: "pi", State: "blocked"}
+			terminal.Labels = map[string]string{CorePinnedLabel: "yes"}
+		case "t9":
+			terminal.Labels[CorePinnedLabel] = "1"
+		}
+	}
+	_, home, err := ProjectCore(read, "/home/me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown := map[string]Terminal{}
+	for _, workspace := range home.Workspaces {
+		for _, tab := range workspace.Tabs {
+			for _, terminal := range tab.Terminals {
+				shown[terminal.PaneID] = terminal
+			}
+		}
+	}
+	check := func(address string, pinned bool, actions ...TerminalAction) {
+		t.Helper()
+		terminal := shown[address]
+		if terminal.Agent == nil || terminal.Agent.Pinned != pinned || !slices.Equal(terminal.Actions, actions) {
+			t.Fatalf("%s = %+v %+v", address, terminal.Agent, terminal.Actions)
+		}
+	}
+	check("t3", true, TerminalActionUnpin, TerminalActionSplit, TerminalActionClose)
+	check("t4", false, TerminalActionPin, TerminalActionSplit, TerminalActionClose)
+	check("t8", true, TerminalActionUnpin, TerminalActionClose)
+	if plain := shown["t9"]; plain.Agent != nil || slices.Contains(plain.Actions, TerminalActionPin) || slices.Contains(plain.Actions, TerminalActionUnpin) {
+		t.Fatalf("plain terminal = %+v", plain)
+	}
+}

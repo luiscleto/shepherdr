@@ -146,6 +146,8 @@ type Agent struct {
 	Kind   string `json:"kind"`
 	Name   string `json:"name"`
 	Status Status `json:"status"`
+	// Pinned is set only on Herdr Core, from the herdr.pinned label.
+	Pinned bool `json:"pinned,omitempty"`
 }
 
 type Terminal struct {
@@ -163,6 +165,10 @@ const (
 	TerminalActionSplit  TerminalAction = "split_terminal"
 	TerminalActionRename TerminalAction = "rename_terminal"
 	TerminalActionClose  TerminalAction = "close_terminal"
+	// Herdr Core agents only: pin to the top of the Herdr app's agent lists,
+	// or unpin.
+	TerminalActionPin   TerminalAction = "pin_agent"
+	TerminalActionUnpin TerminalAction = "unpin_agent"
 )
 
 type Tab struct {
