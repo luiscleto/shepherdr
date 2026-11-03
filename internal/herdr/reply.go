@@ -8,8 +8,9 @@ import (
 )
 
 // MaxReplyBytes bounds one reply or event from a Herdr socket or herdr-app.
-// A complete read of a large real Home is well under 1 MiB, so this only
-// stops a reply that would otherwise grow Shepherdr's memory without limit.
+// A complete Herdr TUI read takes about 1 KiB per workspace and terminal, so
+// real Homes stay far below this; it stops a reply that would otherwise grow
+// Shepherdr's memory without limit.
 const MaxReplyBytes = 16 << 20
 
 // ErrReplyTooLarge is a Herdr reply over MaxReplyBytes. Shepherdr refuses it
