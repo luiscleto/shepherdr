@@ -1,4 +1,5 @@
 import { FitAddon } from "@xterm/addon-fit";
+import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { Terminal } from "@xterm/xterm";
 import { terminalPaste } from "../terminal-input";
 import {
@@ -42,7 +43,9 @@ export class XTermAdapter implements TerminalAdapter {
     ]);
     if (this.#destroyed) return;
     const terminal = new Terminal({
-      allowProposedApi: false,
+      // The grapheme addon below uses xterm's unicode API, which xterm counts
+      // as proposed. Page code is the only caller; output can't reach it.
+      allowProposedApi: true,
       cursorBlink: true,
       fontFamily: '"IBM Plex Mono", "Cascadia Mono", monospace',
       fontSize: 14,
@@ -79,6 +82,10 @@ export class XTermAdapter implements TerminalAdapter {
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
+    // Character widths follow Herdr: herdr-core 0.1.17 and the Herdr TUI 0.9.5
+    // count a grapheme cluster as one character, so emoji with VS16 (✍️),
+    // skin tones, flags and ZWJ sequences take two cells.
+    terminal.loadAddon(new UnicodeGraphemesAddon());
     terminal.open(host);
     this.#terminal = terminal;
     this.#fit = fit;

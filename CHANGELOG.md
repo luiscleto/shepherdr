@@ -8,6 +8,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 - An agent's notification leads with the name you gave its tab or terminal, such as "Review PR17 CI is done", and its text is the space or workspace name alone. Without a given name it still says "Agent is done".
 
+### Fixed
+
+- The full terminal gives characters the same widths as Herdr Core 0.1.17 and the Herdr TUI, so emoji such as ✍️, ❤️, 👍, 🇵🇹 and 👩‍💻 take two columns and no longer cover the next character or push a full-screen program's layout a column off.
+
 ### Compatibility
 
 - Support Herdr Core 0.1.17 and the Herdr app 0.1.12.
