@@ -4,38 +4,36 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
-### Security
-
-- Release builds use Go 1.27.3, which fixes security issues in Go's HTTP, TLS and certificate handling.
-- Release archives and the checksum file carry signed build provenance, so `gh attestation verify` with `--signer-workflow luiscleto/shepherdr/.github/workflows/release.yml` can confirm that Shepherdr's release workflow built them.
-- With sign-in off, Shepherdr accepts only loopback and the one private address you name with `-no-sign-in-origin`, so a website can no longer reach it through DNS rebinding.
-- Someone who can reach Shepherdr can no longer block sign-in, passkey checks or trusting a new device by starting many sign-ins.
-- Browsers are told to keep Shepherdr's window apart from pages it opens, and to turn off features such as location and USB that Shepherdr never uses.
-- Sent files are saved without characters a shell could act on, such as `$`, `;`, `|`, `&`, `<`, `>`, parentheses, quotes and `!`, so their pasted paths stay harmless if a shell reads them.
-- Sent files go straight to disk as they arrive, so several large sends at once can't exhaust Shepherdr's memory, and no send waits for another.
-- A client that sends a request slowly is cut off instead of holding a connection open indefinitely: after 30 seconds (`-request-body-time`), or for a file send once it falls below 8 KiB a second after its first 30 seconds (`-upload-min-rate`).
-- A reply from the Herdr TUI, Herdr Core or the Herdr app larger than 64 MiB (`-herdr-reply-limit`) is refused with a clear error instead of growing Shepherdr's memory without limit.
-- Notifications drop control and text-direction characters from workspace names and trusted sign-in labels, so a name can't disguise or break the notification text.
-- Shepherdr refuses notification state that is a link, has another owner or extra hard links, or isn't private, instead of changing its permissions and using it. Notifications stay off until it's fixed; a normal install is unaffected.
-
-### Changed
-
-- A send can carry up to 1 GiB of files by default, enough for a video. The browser streams the files instead of encoding them first. New flags `-upload-min-rate`, `-request-body-time` and `-herdr-reply-limit` set the other limits.
-
-## [0.6.0] - 2026-11-03
+## [0.6.1] - 2026-11-03
 
 ### Added
 
 - In Herdr Core, an agent that finished shows **done** until you look at it, in the Herdr app or on a Shepherdr terminal page you have open, then **idle**, as it does in the app. Looking at an agent doesn't change when you're notified.
 - In Herdr Core, pins are shared with the Herdr app: a pinned agent's row shows a pin, its menu offers **Pin** or **Unpin**, and **N pinned** opens a **Pinned** view with only those agents.
+- Release archives and the checksum file carry signed build provenance. `gh attestation verify` with `--signer-workflow luiscleto/shepherdr/.github/workflows/release.yml` confirms that Shepherdr's release workflow built them.
 
 ### Changed
 
 - An agent's notification leads with the name you gave its tab or terminal, such as "Review PR17 CI is done", and its text is the space or workspace name alone. Without a given name it still says "Agent is done".
+- Sent files stream straight to disk as they arrive. A send can carry up to 1 GiB by default, enough for a video, and sends no longer wait for one another.
 
 ### Fixed
 
 - The full terminal gives characters the same widths as Herdr Core 0.1.17 and the Herdr TUI, so emoji such as ✍️, ❤️, 👍, 🇵🇹 and 👩‍💻 take two columns and no longer cover the next character or push a full-screen program's layout a column off.
+- Stopping Shepherdr no longer waits for a slow file send: it stops within a few seconds, and at once on a second Ctrl-C.
+
+### Security
+
+- Release builds use Go 1.27.3, which fixes security issues in Go's HTTP, TLS and certificate handling.
+- With sign-in off, Shepherdr accepts only loopback and the one private address you name with `-no-sign-in-origin`, so a website can no longer reach it through DNS rebinding. Add that flag if you open Shepherdr from another device with sign-in off.
+- Someone who can reach Shepherdr can no longer block sign-in, passkey checks or trusting a new device by starting many sign-ins.
+- Browsers are told to keep Shepherdr's window apart from pages it opens, and to turn off features such as location and USB that Shepherdr never uses.
+- Several large file sends at once can no longer exhaust Shepherdr's memory.
+- Sent files are saved without characters a shell could act on, such as `$`, `;`, `|`, `&`, `<`, `>`, parentheses, quotes and `!`, so their pasted paths stay harmless if a shell reads them.
+- A client that sends a request slowly is cut off instead of holding a connection open: after 30 seconds (`-request-body-time`), or for a file send once it falls below 8 KiB a second after its first 30 seconds (`-upload-min-rate`).
+- A reply from the Herdr TUI, Herdr Core or the Herdr app larger than 64 MiB (`-herdr-reply-limit`) is refused with a clear error instead of growing Shepherdr's memory without limit.
+- Notifications drop control and text-direction characters from workspace names and trusted sign-in labels, so a name can't disguise or break the notification text.
+- Shepherdr refuses notification state that is a link, has another owner or extra hard links, or isn't private, instead of repairing it. Notifications stay off until it's fixed; a normal install is unaffected.
 
 ### Compatibility
 
@@ -204,8 +202,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Works with Herdr 0.8.0 through 0.8.2. Older versions do not start; newer versions start with a warning that they have not been tested.
 - macOS downloads are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.6.0...HEAD
-[0.6.0]: https://github.com/luiscleto/shepherdr/compare/v0.5.2...v0.6.0
+[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/luiscleto/shepherdr/compare/v0.5.2...v0.6.1
 [0.5.2]: https://github.com/luiscleto/shepherdr/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/luiscleto/shepherdr/compare/v0.4.3...v0.5.1
 [0.4.3]: https://github.com/luiscleto/shepherdr/compare/v0.4.2...v0.4.3
