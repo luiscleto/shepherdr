@@ -220,9 +220,10 @@ export const herdrNames: Record<Herdr, string> = { core: "Herdr Core", tui: "Her
 // terminals no space places.
 const otherTerminalsID = "other";
 
-// terminalFrom names a terminal from Home the way a file it shares will be:
-// its space, plus the tab when a Herdr Core space has several, or its own
-// title when it is outside every space.
+// terminalFrom names a terminal as Home does now: its space, plus the tab
+// when a Herdr Core space has several, or its own title when it is outside
+// every space. A file records Other terminals for that last case, shown once
+// the terminal is gone.
 export function terminalFrom(herdr: Herdr, entry: TerminalEntry): SharedFrom {
   const place = herdr === "core" && entry.workspace.id === otherTerminalsID ? entry.terminal.title : entry.workspace.label;
   const tab = herdr === "core" && entry.workspace.tabs.length > 1 ? entry.tab.label : undefined;

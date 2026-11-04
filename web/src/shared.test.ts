@@ -264,7 +264,7 @@ test("a file from a current terminal takes its live name; a gone terminal's file
   const shared = [
     file("a", { from: { herdr: "core", place: "claude-code 2", source: site, agent: "claude-code", current: helper } }),
     file("b", { from: { herdr: "core", place: "reports", tab: "drafts", source: review, agent: "codex", current: { ...helper, pane_id: "t9" } } }),
-    file("c", { from: { herdr: "core", place: "claude-code 1", source: review, agent: "claude-code" } }),
+    file("c", { from: { herdr: "core", place: "Other terminals", source: review, agent: "claude-code" } }),
     file("d"),
   ];
   const live = (herdr: string, target: { pane_id: string }) => target.pane_id === "t11"
@@ -277,8 +277,21 @@ test("a file from a current terminal takes its live name; a gone terminal's file
   assert.deepEqual(named[0].from?.current, helper);
   // A live place drops a recorded tab and agent it no longer has.
   assert.equal(fromText(named[1].from, false), "reports");
-  // A gone terminal keeps its recorded name; outside Herdr stays so.
-  assert.equal(fromText(named[2].from, false), "claude-code 1 · claude-code");
+  // A gone terminal keeps its recorded place; outside Herdr stays so.
+  assert.equal(fromText(named[2].from, false), "Other terminals · claude-code");
   assert.equal(fromText(named[3].from, false), "Outside Herdr");
   assert.equal(named[3], shared[3]);
+});
+
+test("a gone terminal outside every space goes by Other terminals in its rows, bar and group", () => {
+  const gone = { herdr: "core" as const, place: "Other terminals", source: review, agent: "claude-code" };
+  const shared = [file("a", { from: gone }), file("b", { from: { ...gone, source: site, place: "reports" } })];
+  const { host, view, full } = page({ files: shared, route: { filter: { herdr: "core", source: review } } });
+  assert.equal(host.querySelector(".shared-filter p")?.textContent, "From Other terminals · claude-code");
+  assert.deepEqual(texts(host, ".shared-from"), ["Other terminals · claude-code"]);
+  view.update({ ...full, route: {}, sort: "agent" });
+  assert.deepEqual(texts(host, ".shared-group-heading"), ["Other terminals · claude-code · 1", "reports · claude-code · 1"]);
+  // Its files are gone too: the filter names no one.
+  view.update({ ...full, files: [shared[1]] });
+  assert.equal(host.querySelector(".shared-empty h2")?.textContent, "Nothing shared from this terminal");
 });

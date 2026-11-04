@@ -379,10 +379,11 @@ func CoreShareLookup(client *herdr.CoreClient, homeFolder string) shares.Lookup 
 	}
 }
 
-// shareTerminal is the terminal Home shows for paneID with its labels. On
-// Herdr Core a space with several tabs adds the tab, as Home lists them, and a
-// terminal outside every space is named by its own Home title, not by the
-// Other terminals group. Herdr TUI has no such group.
+// shareTerminal is the terminal Home shows for paneID with its labels: its
+// space or workspace, which is Other terminals for a Herdr Core terminal
+// outside every space. On Herdr Core a space with several tabs adds the tab,
+// as Home lists them. While the terminal is current, the page names it as
+// Home does now; the place recorded here names it once it is gone.
 func shareTerminal(home herdr.Home, paneID string, core bool) (shares.Terminal, bool) {
 	var search func(workspaces []herdr.Workspace) (shares.Terminal, bool)
 	search = func(workspaces []herdr.Workspace) (shares.Terminal, bool) {
@@ -393,9 +394,6 @@ func shareTerminal(home herdr.Home, paneID string, core bool) (shares.Terminal, 
 						continue
 					}
 					found := shares.Terminal{PaneID: terminal.PaneID, TerminalID: terminal.TerminalID, Place: workspace.Label}
-					if core && workspace.ID == herdr.OtherTerminalsID {
-						found.Place = terminal.Title
-					}
 					if core && len(workspace.Tabs) > 1 {
 						found.Tab = tab.Label
 					}

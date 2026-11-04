@@ -245,30 +245,20 @@ func TestPageAllowsSameOriginMediaOnly(t *testing.T) {
 	}
 }
 
-func TestShareTerminalNamesATerminalOutsideEverySpaceByItsTitle(t *testing.T) {
+func TestShareTerminalRecordsOtherTerminalsForATerminalOutsideEverySpace(t *testing.T) {
+	// A title moves with renumbering and programs, so a terminal outside
+	// every space is recorded by its group, which the page shows once it is gone.
 	terminal := func(pane, title string) herdr.Terminal {
 		return herdr.Terminal{PaneID: pane, TerminalID: "c:" + pane, Title: title}
 	}
 	home := herdr.Home{Workspaces: []herdr.Workspace{
 		{ID: "sp1", Label: "reports", Tabs: []herdr.Tab{{ID: "tb1", Label: "1", Terminals: []herdr.Terminal{terminal("t3", "reports")}}}},
-		{ID: herdr.OtherTerminalsID, Label: "Other terminals", Tabs: []herdr.Tab{{ID: herdr.OtherTerminalsID, Label: "Other terminals", Terminals: []herdr.Terminal{terminal("t4", "site"), terminal("t2", "notes")}}}},
+		{ID: herdr.OtherTerminalsID, Label: "Other terminals", Tabs: []herdr.Tab{{ID: herdr.OtherTerminalsID, Label: "Other terminals", Terminals: []herdr.Terminal{terminal("t4", "claude-code 1"), terminal("t2", "notes")}}}},
 	}}
-	for pane, place := range map[string]string{"t3": "reports", "t4": "site", "t2": "notes"} {
+	for pane, place := range map[string]string{"t3": "reports", "t4": "Other terminals", "t2": "Other terminals"} {
 		found, ok := shareTerminal(home, pane, true)
 		if !ok || found.Place != place || found.Tab != "" {
 			t.Fatalf("%s: got %+v %v, want place %q", pane, found, ok, place)
 		}
-	}
-}
-
-func TestShareTerminalNamesAHerdrTUIWorkspaceByItsLabelWhateverItsID(t *testing.T) {
-	// A Herdr TUI workspace id is opaque, so one may read "other"; the
-	// client names it by its label too.
-	home := herdr.Home{Workspaces: []herdr.Workspace{
-		{ID: herdr.OtherTerminalsID, Label: "site", Tabs: []herdr.Tab{{ID: "1", Label: "1", Terminals: []herdr.Terminal{{PaneID: "p1", TerminalID: "term-1", Title: "claude"}}}}},
-	}}
-	found, ok := shareTerminal(home, "p1", false)
-	if !ok || found.Place != "site" {
-		t.Fatalf("got %+v %v, want place site", found, ok)
 	}
 }
