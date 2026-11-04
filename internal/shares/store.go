@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -37,6 +38,9 @@ const (
 var (
 	ErrTooLarge = errors.New("file is larger than the limit for one shared file")
 	ErrFull     = errors.New("shared files are full")
+	// ErrInUse is another Shepherdr already keeping shared files in the
+	// folder. Open leaves the folder untouched.
+	ErrInUse = errors.New("another Shepherdr already keeps shared files")
 )
 
 // FullError says how much is kept when a share would pass the total limit.
@@ -73,11 +77,13 @@ func (v View) matches(record Record, current func(Source) bool) bool {
 }
 
 // Store keeps shared files in an owner-only folder: one 0700 subfolder per
-// file, named by a random ID, and the index beside them. Nothing else writes
-// there, so startup can clear what an interrupted share left behind.
+// file, named by a random ID, and the index beside them. It holds an
+// exclusive lock on the folder while open, so nothing else writes there and
+// startup can clear what an interrupted share left behind.
 type Store struct {
 	dir    string
 	root   *os.Root
+	lock   *os.File
 	limit  uploads.Limit
 	total  uploads.Limit
 	logger *slog.Logger
@@ -112,9 +118,10 @@ func DefaultDirectory(getenv func(string) string, goos string) (string, error) {
 	return filepath.Join(home, ".local", "share", "shepherdr", "shared"), nil
 }
 
-// Open opens or creates the store in dir. It clears unfinished shares, drops
-// index entries whose file is gone and removes folders the index doesn't
-// name.
+// Open opens or creates the store in dir and locks it for this process. It
+// clears unfinished shares, drops index entries whose file is gone and
+// removes folders the index doesn't name. If another process holds the
+// folder it returns ErrInUse and changes nothing.
 func Open(dir string, limit, total uploads.Limit, logger *slog.Logger) (*Store, error) {
 	if !filepath.IsAbs(dir) {
 		return nil, errors.New("the shared files folder must be an absolute path")
@@ -133,24 +140,43 @@ func Open(dir string, limit, total uploads.Limit, logger *slog.Logger) (*Store, 
 	if err != nil {
 		return nil, err
 	}
-	opened, err := root.Stat(".")
+	lock, err := root.Open(".")
+	if err != nil {
+		root.Close()
+		return nil, err
+	}
+	opened, err := lock.Stat()
 	if err != nil || !os.SameFile(info, opened) {
+		lock.Close()
 		root.Close()
 		return nil, errors.New("the shared files folder changed while it was opened")
 	}
+	// Two Shepherdrs on one folder would each keep their own list and drop
+	// the other's files.
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		lock.Close()
+		root.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, fmt.Errorf("%w in %s; give this one -share-dir", ErrInUse, dir)
+		}
+		return nil, fmt.Errorf("lock the shared files folder: %w", err)
+	}
 	store := &Store{
-		dir: dir, root: root, limit: limit, total: total, logger: logger,
+		dir: dir, root: root, lock: lock, limit: limit, total: total, logger: logger,
 		views: map[any]View{}, subscribers: map[chan struct{}]struct{}{},
 		current: func(Source) bool { return false },
 	}
 	if err := store.load(); err != nil {
-		root.Close()
+		store.Close()
 		return nil, err
 	}
 	return store, nil
 }
 
-func (s *Store) Close() error { return s.root.Close() }
+// Close releases the folder.
+func (s *Store) Close() error {
+	return errors.Join(s.root.Close(), s.lock.Close())
+}
 
 // SetCurrent sets how the store tells whether a source terminal is still
 // current, for views named by terminal IDs.

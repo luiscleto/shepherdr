@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -237,6 +238,7 @@ func TestViewsMarkListedFilesSeen(t *testing.T) {
 			t.Fatal("view by IDs didn't mark its terminal's file")
 		}
 	}
+	store.Close()
 	reopened := openStore(t, dir, 100, 100)
 	for _, record := range reopened.List() {
 		if record.Name == "a" && !record.Seen {
@@ -465,5 +467,30 @@ func TestFileTypesAndSizes(t *testing.T) {
 	}
 	if Tag("x.jpeg") != "JPG" || Tag("x.tar.gz") != "GZ" || Tag("x.verylong") != "FILE" || Tag("noext") != "FILE" {
 		t.Fatal("tags")
+	}
+}
+
+func TestASecondStoreOnTheSameFolderIsRefusedAndChangesNothing(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "shared")
+	first := openStore(t, dir, 1<<20, 1<<20)
+	put(t, first, "kept.txt", "kept", nil)
+	// The first store has a share in flight.
+	inFlight := filepath.Join(dir, incomingName, "in-flight")
+	if err := os.WriteFile(inFlight, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	index, _ := os.ReadFile(filepath.Join(dir, indexName))
+	second, err := Open(dir, uploads.Limit{Unlimited: true}, uploads.Limit{Unlimited: true}, quietLogger())
+	if !errors.Is(err, ErrInUse) || second != nil {
+		t.Fatalf("second open = %v, %v", second, err)
+	}
+	after, _ := os.ReadFile(filepath.Join(dir, indexName))
+	if _, err := os.Stat(inFlight); err != nil || string(after) != string(index) {
+		t.Fatalf("second open changed the folder: %v, index equal %v", err, string(after) == string(index))
+	}
+	first.Close()
+	reopened := openStore(t, dir, 1<<20, 1<<20)
+	if list := reopened.List(); len(list) != 1 || list[0].Name != "kept.txt" {
+		t.Fatalf("after the first closed = %+v", list)
 	}
 }

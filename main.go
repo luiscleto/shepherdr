@@ -326,12 +326,18 @@ func run() error {
 		}
 	}
 	application.SetNotifications(notificationManager)
+	// Another Shepherdr keeping shared files in the same folder turns sharing
+	// off here and leaves its folder alone; the rest of Shepherdr runs.
 	shareStore, err := shares.Open(sharePath, shareLimit, shareTotal, logger)
-	if err != nil {
+	switch {
+	case errors.Is(err, shares.ErrInUse):
+		logger.Error("Agents can't share files with this Shepherdr", "error", err)
+	case err != nil:
 		return fmt.Errorf("open shared files: %w", err)
+	default:
+		defer shareStore.Close()
+		application.SetShares(shareStore)
 	}
-	defer shareStore.Close()
-	application.SetShares(shareStore)
 	shareHerdrs := shares.Herdrs{TUISocket: *socketPath, TUI: server.TUIShareLookup(actionClient)}
 	if coreClient != nil {
 		shareHerdrs.CoreSocket, shareHerdrs.Core = coreSocketPath, server.CoreShareLookup(coreClient, homeFolder)
@@ -365,14 +371,16 @@ func run() error {
 			notifyShared(notificationManager, tuiProjector, coreProjector, records[0].Source)
 		}}
 	shareCommand := "shepherdr share FILE"
-	if shareListener, err := shares.Listen(shareSocketPath); err != nil {
-		logger.Error("Agents can't share files with this Shepherdr", "error", err)
-	} else {
-		go shareService.Serve(ctx, shareListener)
-		if executable, err := os.Executable(); err == nil {
-			shareCommand = executable + " share FILE"
-			if shareSocket.set {
-				shareCommand = executable + " share -socket " + shareSocketPath + " FILE"
+	if shareStore != nil {
+		if shareListener, err := shares.Listen(shareSocketPath); err != nil {
+			logger.Error("Agents can't share files with this Shepherdr", "error", err)
+		} else {
+			go shareService.Serve(ctx, shareListener)
+			if executable, err := os.Executable(); err == nil {
+				shareCommand = executable + " share FILE"
+				if shareSocket.set {
+					shareCommand = executable + " share -socket " + shareSocketPath + " FILE"
+				}
 			}
 		}
 	}
