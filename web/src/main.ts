@@ -86,8 +86,9 @@ const terminalActions = new TerminalActionsClient();
 // Each Home message carries both Herdrs. Home shows one of them; the other is
 // kept for the switch, notification settings and terminal links.
 let sides: HomeSides = { core: emptyHomeState(), tui: emptyHomeState() };
-// The files agents shared, as the Home connection last listed them.
-let sharedFiles: SharedFile[] = [];
+// The files agents shared, as the Home connection last listed them;
+// undefined until the first list arrives.
+let sharedFiles: SharedFile[] | undefined;
 let sharedSort = readSharedSort(() => window.localStorage);
 let sharedPage: SharedPage | undefined;
 // The list in view that this browser last told the server about, so it can
@@ -384,7 +385,7 @@ function sharedViewMessage(): string {
   if (!shown) return JSON.stringify({ type: "shared.leave" });
   const filter = route.filter;
   if (!filter) return JSON.stringify({ type: "shared.view", all: true });
-  const source = filterSource(sharedFiles, filter) ?? "";
+  const source = filterSource(sharedFiles ?? [], filter) ?? "";
   return JSON.stringify({
     type: "shared.view",
     herdr: filter.herdr,
@@ -423,8 +424,8 @@ function terminalLabel(terminal: SharedTerminal): SharedFrom | undefined {
 // renderShared shows the shared files list wherever it appears: the Home
 // and Terminal counts, the Terminal notice and the Shared files page.
 function renderShared(): void {
-  homeView.setSharedCount(unseenCount(sharedFiles));
-  terminalPage?.setShared(sharedFiles);
+  homeView.setSharedCount(unseenCount(sharedFiles ?? []));
+  terminalPage?.setShared(sharedFiles ?? []);
   const route = parseSharedRoute(window.location.hash);
   if (sharedPage && route) {
     const terminal = route.filter?.terminal;
@@ -578,7 +579,7 @@ function renderHome(): void {
     state,
     suggestedFolders: suggestedFolders(sides),
   });
-  homeView.setSharedCount(unseenCount(sharedFiles));
+  homeView.setSharedCount(unseenCount(sharedFiles ?? []));
   syncSharedView();
   homeFocusPane = undefined;
   homeFocusWorkspace = undefined;
@@ -798,7 +799,7 @@ function renderTerminal(route: TerminalRoute): void {
     onHome: leaveTerminal,
     onNotifications: () => notifications.openSettings(),
     onShared: () => openSharedFiles(exact),
-    shared: sharedFiles,
+    shared: sharedFiles ?? [],
     ...(asking ? { message: askForFileMessage } : {}),
   });
   syncSharedView();

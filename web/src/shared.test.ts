@@ -205,3 +205,22 @@ test("the viewer shows a file's actions and closes when it is deleted", () => {
   view.destroy();
   window.close();
 });
+
+test("an address with a file waits for the list, then opens that file", () => {
+  const id = "a".repeat(32);
+  const { calls, host, view, window, full } = page({ files: undefined, route: { file: id } });
+  // Before the list arrives the page claims nothing and keeps the file.
+  assert.equal(host.querySelector<HTMLElement>(".shared-empty")?.hidden, true);
+  assert.equal(host.querySelector(".terminal-connection")?.textContent, "");
+  assert.equal(host.querySelectorAll(".viewer").length, 0);
+  assert.deepEqual(calls, []);
+  view.update({ ...full, files: files() });
+  assert.equal(host.querySelector(".viewer .viewer-name")?.textContent, "a.png");
+  assert.deepEqual(calls, []);
+  // An id the list really doesn't have falls back to the list.
+  view.update({ ...full, files: files(), route: { file: "f".repeat(32) } });
+  assert.equal(host.querySelectorAll(".viewer").length, 0);
+  assert.equal(calls.at(-1), "navigate #shared");
+  view.destroy();
+  window.close();
+});

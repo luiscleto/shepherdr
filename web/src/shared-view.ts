@@ -75,7 +75,8 @@ export class SharedFilesAction {
 }
 
 export interface SharedPageModel {
-  files: readonly SharedFile[];
+  // files is undefined until the first list arrives.
+  files: readonly SharedFile[] | undefined;
   // markHerdr says whether a file from this Herdr names it: both are present
   // and Home shows the other one.
   markHerdr(herdr: Herdr): boolean;
@@ -94,6 +95,11 @@ export interface SharedPageActions {
   openTerminal(herdr: Herdr, target: SharedTarget): void;
   remove(ids: string[]): Promise<boolean>;
   sort(sort: SharedSort): void;
+}
+
+// ListedModel is a model whose list has arrived.
+interface ListedModel extends SharedPageModel {
+  files: readonly SharedFile[];
 }
 
 interface RowNodes {
@@ -131,7 +137,7 @@ export class SharedPage {
   readonly #empty: HTMLElement;
   readonly #layer: HTMLDivElement;
   readonly #rows = new Map<string, RowNodes>();
-  #model: SharedPageModel | undefined;
+  #model: ListedModel | undefined;
   #openMenu: string | undefined;
   #sheet: (() => void) | undefined;
   #sheetFiles: string[] = [];
@@ -205,13 +211,21 @@ export class SharedPage {
     this.#host.className = "";
   }
 
-  update(model: SharedPageModel): void {
-    const firstRender = this.#model === undefined;
-    this.#model = model;
-    const shown = this.#shown(model);
-    const route = model.route;
+  update(update: SharedPageModel): void {
+    const route = update.route;
     this.#backButton.textContent = route.back ? "Back" : "Home";
     this.#backButton.setAttribute("aria-label", route.back ? "Back to the terminal" : "Home");
+    // Until the list arrives nothing is known about it: the page says
+    // nothing and keeps the file in its address for when it does.
+    if (update.files === undefined) {
+      for (const node of [this.#filterBar, this.#tools, this.#columns, this.#empty, this.#pageMenu]) node.hidden = true;
+      this.#subtitle.textContent = "";
+      return;
+    }
+    const firstRender = this.#model === undefined;
+    const model: ListedModel = { ...update, files: update.files };
+    this.#model = model;
+    const shown = this.#shown(model);
     const total = model.files.reduce((sum, file) => sum + file.size, 0);
     const shownTotal = shown.reduce((sum, file) => sum + file.size, 0);
     const files = (count: number) => `${count} ${count === 1 ? "file" : "files"}`;
@@ -233,11 +247,11 @@ export class SharedPage {
     if (firstRender && !route.file) this.#backButton.focus({ preventScroll: true });
   }
 
-  #shown(model: SharedPageModel): SharedFile[] {
+  #shown(model: ListedModel): SharedFile[] {
     return filesFor(model.files, model.route.filter);
   }
 
-  #renderFilter(model: SharedPageModel, shown: SharedFile[]): void {
+  #renderFilter(model: ListedModel, shown: SharedFile[]): void {
     const filter = model.route.filter;
     this.#filterBar.hidden = !filter;
     if (!filter) return;
@@ -256,7 +270,7 @@ export class SharedPage {
     this.#filterBar.replaceChildren(text, showAll);
   }
 
-  #renderPageMenu(model: SharedPageModel, shown: SharedFile[]): void {
+  #renderPageMenu(model: ListedModel, shown: SharedFile[]): void {
     const items: HTMLButtonElement[] = [];
     if (model.canAsk) items.push(this.#menuItem("Ask for a file", () => this.#actions.askForFile()));
     if (shown.length > 0) items.push(this.#menuItem(`Delete all shown (${shown.length})`, () => this.#confirmDeleteShown()));
@@ -265,7 +279,7 @@ export class SharedPage {
     if (items.length === 0 && this.#openMenu === "") this.#closeMenus(false);
   }
 
-  #renderEmpty(model: SharedPageModel, shown: SharedFile[]): void {
+  #renderEmpty(model: ListedModel, shown: SharedFile[]): void {
     const document = this.#document;
     this.#empty.hidden = shown.length > 0;
     if (shown.length > 0) return;
@@ -288,7 +302,7 @@ export class SharedPage {
     );
   }
 
-  #renderRows(model: SharedPageModel): void {
+  #renderRows(model: ListedModel): void {
     const document = this.#document;
     const now = new Date();
     const shown = this.#shown(model);
@@ -329,7 +343,7 @@ export class SharedPage {
     else if (focused && focused !== document.activeElement) focused.focus({ preventScroll: true });
   }
 
-  #row(file: SharedFile, model: SharedPageModel, now: Date): RowNodes {
+  #row(file: SharedFile, model: ListedModel, now: Date): RowNodes {
     const document = this.#document;
     let row = this.#rows.get(file.id);
     if (!row) {
@@ -584,7 +598,7 @@ export class SharedPage {
     }
   }
 
-  #renderViewer(model: SharedPageModel): void {
+  #renderViewer(model: ListedModel): void {
     const id = model.route.file;
     const file = id ? model.files.find((candidate) => candidate.id === id) : undefined;
     if (id && !file) {
@@ -626,7 +640,7 @@ export class SharedPage {
     back.focus({ preventScroll: true });
   }
 
-  #renderViewerInfo(file: SharedFile, model: SharedPageModel): void {
+  #renderViewerInfo(file: SharedFile, model: ListedModel): void {
     const foot = this.#layer.querySelector<HTMLElement>(".viewer-foot");
     if (!foot) return;
     const document = this.#document;
