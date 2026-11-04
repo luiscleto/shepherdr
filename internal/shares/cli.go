@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/luiscleto/shepherdr/internal/uploads"
 )
 
 // AgentNote is what `shepherdr --skill` prints and Settings shows under For
@@ -107,10 +109,16 @@ func RunShare(arguments []string, stdout, stderr io.Writer, getenv func(string) 
 }
 
 // dialFailure says why the share socket couldn't be reached. No socket, or
-// nothing listening, means Shepherdr isn't running. Anything else, such as a
-// sandbox that blocks local sockets, is not that, and saying so would send
-// the person to restart a Shepherdr that is running.
+// nothing listening, means Shepherdr isn't running, unless its folder is one
+// Shepherdr refuses to listen in. Anything else, such as a sandbox that
+// blocks local sockets, is not that, and saying so would send the person to
+// restart a Shepherdr that is running.
 func dialFailure(path string, err error) string {
+	directory := filepath.Dir(path)
+	if info, statErr := os.Lstat(directory); errors.Is(err, syscall.ENOENT) && statErr == nil && !uploads.OwnerOnlyDirectory(info) {
+		return fmt.Sprintf("Shepherdr couldn't open its share socket in %s, so nothing was shared. Shepherdr's log says why: "+
+			"that folder must be an owner-only 0700 folder.", directory)
+	}
 	if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED) {
 		return "Shepherdr isn't running, so nothing was shared. Ask the person to start Shepherdr, then share again."
 	}

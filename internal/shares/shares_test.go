@@ -368,6 +368,15 @@ func TestShareCommandSaysWhenShepherdrIsNotRunningOrFull(t *testing.T) {
 	if code == 0 || !strings.Contains(stderr, "Shepherdr isn't running") {
 		t.Fatalf("not running: %d %q", code, stderr)
 	}
+	// A socket folder Shepherdr refuses to listen in is not "not running".
+	open := shortDir(t)
+	if err := os.Chmod(open, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, code = runShare(t, nil, "-socket", filepath.Join(open, "share.sock"), "x")
+	if code == 0 || strings.Contains(stderr, "isn't running") || !strings.Contains(stderr, "Shepherdr couldn't open its share socket in "+open) {
+		t.Fatalf("refused folder: %d %q", code, stderr)
+	}
 	// A socket that is there but can't be reached is not "not running".
 	blocked := serve(t, nil, 1, 1)
 	if err := os.Chmod(filepath.Dir(blocked.path), 0); err != nil {
