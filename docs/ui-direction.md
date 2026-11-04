@@ -134,7 +134,7 @@ File language stays local and truthful: Shepherdr sends local filesystem paths t
 
 **Notifications** settings apply only to this browser or installed app. Opening settings does not request permission. A quiet invitation offers **Turn on notifications** and **Not now**; only the enable action asks the browser.
 
-Settings can turn notifications on or off and select agent-status, workspace, and trusted-sign-in events. A status notification opens only its exact current terminal or **Terminal unavailable**. Workspace notices open Home. Do not add history, unread state, replay, banners, or delivery claims.
+Settings can turn notifications on or off and select agent-status, workspace, trusted-sign-in, and **File shared** events. A status notification opens only its exact current terminal or **Terminal unavailable**. Workspace notices open Home. **File shared** starts off, never names the files, and opens **Shared files** filtered to that terminal. Do not add history, unread state, replay, banners, or delivery claims.
 
 ## Mobile behavior and honesty
 

@@ -33,6 +33,9 @@ type EventSettings struct {
 	WorkspaceClosed      bool `json:"workspace_closed"`
 	TrustedSignInAdded   bool `json:"trusted_sign_in_added"`
 	TrustedSignInRemoved bool `json:"trusted_sign_in_removed"`
+	// FileShared is an agent sharing files with shepherdr share. It starts
+	// off.
+	FileShared bool `json:"file_shared"`
 }
 
 func DefaultEventSettings() EventSettings {
@@ -53,6 +56,7 @@ func (s *EventSettings) UnmarshalJSON(data []byte) error {
 		WorkspaceClosed      bool  `json:"workspace_closed"`
 		TrustedSignInAdded   *bool `json:"trusted_sign_in_added"`
 		TrustedSignInRemoved *bool `json:"trusted_sign_in_removed"`
+		FileShared           bool  `json:"file_shared"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -66,7 +70,7 @@ func (s *EventSettings) UnmarshalJSON(data []byte) error {
 	*s = EventSettings{
 		Working: value.Working, Blocked: value.Blocked, Idle: value.Idle, Done: value.Done,
 		Unknown: value.Unknown, WorkspaceOpened: value.WorkspaceOpened, WorkspaceClosed: value.WorkspaceClosed,
-		Error: true, TrustedSignInAdded: true, TrustedSignInRemoved: true,
+		Error: true, TrustedSignInAdded: true, TrustedSignInRemoved: true, FileShared: value.FileShared,
 	}
 	// Settings saved before the Herdr app's error status existed start with
 	// error on, like blocked.
@@ -109,6 +113,7 @@ const (
 	EventWorkspaceClosed      EventKind = "workspace_closed"
 	EventTrustedSignInAdded   EventKind = "trusted_sign_in_added"
 	EventTrustedSignInRemoved EventKind = "trusted_sign_in_removed"
+	EventFileShared           EventKind = "file_shared"
 )
 
 type Event struct {
@@ -139,6 +144,8 @@ func (e Event) selected(settings EventSettings) bool {
 		return settings.TrustedSignInAdded
 	case EventTrustedSignInRemoved:
 		return settings.TrustedSignInRemoved
+	case EventFileShared:
+		return settings.FileShared
 	case EventStatus:
 		switch e.Status {
 		case herdr.StatusWorking:
@@ -234,6 +241,39 @@ func (e *snapshotEvaluator) Observe(snapshot herdr.Snapshot, baseline bool) []Ev
 		})
 	}
 	return events
+}
+
+// fileSharedEvent is one File shared notice for the files one command
+// shared from paneID and terminalID, by the Herdr snapshot shows them. It
+// names the workspace or space and the name the person gave the tab, never
+// the files: file names are agent-written. Its destination is Shared files
+// filtered to that terminal, by its opaque source. With no terminal the
+// files came from outside Herdr, and it opens the whole list.
+func fileSharedEvent(backend herdr.Backend, snapshot herdr.Snapshot, paneID, terminalID, source string) Event {
+	if backend == "" || source == "" {
+		return Event{Kind: EventFileShared, Destination: "/#shared"}
+	}
+	event := Event{
+		Kind: EventFileShared, Herdr: backend, PaneID: paneID, TerminalID: terminalID,
+		Destination: "/#shared&herdr=" + url.QueryEscape(string(backend)) + "&source=" + url.QueryEscape(source),
+	}
+	for _, pane := range snapshot.Panes {
+		if pane.PaneID != paneID || pane.TerminalID != terminalID {
+			continue
+		}
+		for _, workspace := range snapshot.Workspaces {
+			if workspace.WorkspaceID == pane.WorkspaceID {
+				event.WorkspaceName = notificationWorkspaceName(workspace.Label)
+			}
+		}
+		for _, tab := range snapshot.Tabs {
+			if tab.TabID == pane.TabID {
+				event.GivenName = notificationGivenName(givenName(backend, pane, tab))
+			}
+		}
+		event.OtherTerminals = backend == herdr.BackendCore && pane.WorkspaceID == herdr.OtherTerminalsID
+	}
+	return event
 }
 
 func singleWorkspaceName(workspaces []herdr.WorkspaceInfo) string {

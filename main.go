@@ -360,7 +360,10 @@ func run() error {
 	} else if signInOffOrigin != nil {
 		shareAddress = signInOffOrigin.Value
 	}
-	shareService := &shares.Service{Store: shareStore, Attribute: shareHerdrs.Attribute, Origin: shareAddress, MinRate: uploadMinRate, Logger: logger}
+	shareService := &shares.Service{Store: shareStore, Attribute: shareHerdrs.Attribute, Origin: shareAddress, MinRate: uploadMinRate, Logger: logger,
+		Shared: func(records []shares.Record) {
+			notifyShared(notificationManager, tuiProjector, coreProjector, records[0].Source)
+		}}
 	shareCommand := "shepherdr share FILE"
 	if shareListener, err := shares.Listen(shareSocketPath); err != nil {
 		logger.Error("Agents can't share files with this Shepherdr", "error", err)
@@ -416,6 +419,21 @@ func run() error {
 		}
 		return err
 	}
+}
+
+// notifyShared sends one File shared notice for the files one shepherdr
+// share command stored; they all come from the same terminal, or from
+// outside Herdr.
+func notifyShared(manager *notifications.Manager, tui, core *herdr.Projector, source *shares.Source) {
+	if source == nil {
+		manager.FileShared("", herdr.Snapshot{}, "", "", "")
+		return
+	}
+	projector := tui
+	if source.Herdr == string(herdr.BackendCore) {
+		projector = core
+	}
+	manager.FileShared(herdr.Backend(source.Herdr), projector.Current().Snapshot, source.PaneID, source.TerminalID, source.Handle())
 }
 
 type snapshotObservers interface {

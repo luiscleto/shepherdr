@@ -169,6 +169,15 @@ func (m *Manager) TrustedSignInAdded(label string) {
 	m.enqueue(event)
 }
 
+// FileShared notifies once for the files one shepherdr share command
+// stored, from the terminal paneID and terminalID name in snapshot's Herdr,
+// or, with an empty backend, from outside Herdr.
+func (m *Manager) FileShared(backend herdr.Backend, snapshot herdr.Snapshot, paneID, terminalID, source string) {
+	event := fileSharedEvent(backend, snapshot, paneID, terminalID, source)
+	m.logger.Info("Files shared", notificationLogFields(event)...)
+	m.enqueue(event)
+}
+
 func (m *Manager) RemoveTrustSubscriptions(trustID, label string) error {
 	label = notificationTrustLabel(label)
 	event := Event{Kind: EventTrustedSignInRemoved, Destination: "/", TrustLabel: label}
@@ -274,7 +283,7 @@ func notificationLogFields(event Event) []any {
 			fields = append(fields, "other_terminals", true)
 		}
 		return fields
-	case EventWorkspaceOpened, EventWorkspaceClosed:
+	case EventWorkspaceOpened, EventWorkspaceClosed, EventFileShared:
 		return append(fields, "workspace_name", event.WorkspaceName)
 	case EventTrustedSignInAdded, EventTrustedSignInRemoved:
 		return append(fields, "trusted_sign_in_label", displayTrustLabel(event.TrustLabel))

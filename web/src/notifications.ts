@@ -3,6 +3,7 @@ export interface NotificationEvents {
   blocked: boolean;
   done: boolean;
   error: boolean;
+  file_shared: boolean;
   idle: boolean;
   trusted_sign_in_added: boolean;
   trusted_sign_in_removed: boolean;
@@ -60,6 +61,7 @@ export const defaultNotificationEvents: NotificationEvents = {
   blocked: true,
   done: true,
   error: true,
+  file_shared: false,
   idle: false,
   trusted_sign_in_added: true,
   trusted_sign_in_removed: true,
@@ -626,6 +628,7 @@ const eventChoices: ReadonlyArray<[keyof NotificationEvents, string]> = [
   ["workspace_closed", "Workspace closed"],
   ["trusted_sign_in_added", "Trusted sign-in added"],
   ["trusted_sign_in_removed", "Trusted sign-in removed"],
+  ["file_shared", "File shared"],
 ];
 
 export interface PresentHerdrs {
@@ -672,6 +675,7 @@ function eventsFromForm(form: HTMLFormElement, previous: NotificationEvents, pre
     blocked: data.has("blocked"),
     done: data.has("done"),
     error: present.core ? data.has("error") : previous.error,
+    file_shared: data.has("file_shared"),
     idle: data.has("idle"),
     trusted_sign_in_added: data.has("trusted_sign_in_added"),
     trusted_sign_in_removed: data.has("trusted_sign_in_removed"),

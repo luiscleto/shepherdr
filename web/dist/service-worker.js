@@ -63,6 +63,7 @@ function notificationFor(value) {
       ? { title: `${Space} closed`, body: workspaceName, destination: "/" }
       : { title: "Shepherdr", body: `A ${space} closed.`, destination: "/" };
   }
+  if (value.kind === "file_shared") return fileSharedNotice(value, destination, workspaceName, core);
   if (value.kind !== "status" || !validOpaqueID(value.pane_id) || !validOpaqueID(value.terminal_id)) {
     return fallbackNotice();
   }
@@ -90,6 +91,34 @@ function notificationFor(value) {
   // A name the person gave the terminal or its tab, when there is one.
   const name = usableGivenName(value.name);
   return { title: name ? `${name} is ${value.status}` : titles[value.status], body: workspaceName, destination };
+}
+
+// A File shared notice never names the files. It opens Shared files,
+// filtered to the terminal that shared them when it has one.
+function fileSharedNotice(value, destination, workspaceName, core) {
+  if (!sharedDestination(destination)) return fallbackNotice();
+  if (!workspaceName) return { title: "File shared", body: "A file was shared.", destination };
+  const name = usableGivenName(value.name);
+  const place = core && value.other_terminals === true ? "" : workspaceName;
+  return {
+    title: name ? `File shared from ${name}` : "File shared",
+    body: place || "A file was shared.",
+    destination,
+  };
+}
+
+function sharedDestination(destination) {
+  try {
+    const parsed = new URL(destination, self.location.origin);
+    if (parsed.pathname !== "/") return false;
+    if (parsed.hash === "#shared") return true;
+    const parameters = new URLSearchParams(parsed.hash.slice(1));
+    return parsed.hash.startsWith("#shared&") && parameters.get("shared") === "" &&
+      (parameters.get("herdr") === "tui" || parameters.get("herdr") === "core") &&
+      /^[0-9a-f]{24}$/.test(parameters.get("source") ?? "");
+  } catch {
+    return false;
+  }
 }
 
 function usableWorkspaceName(value) {

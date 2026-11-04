@@ -6,7 +6,7 @@ Status: implemented technical direction
 
 Shepherdr sends standard Web Push from its existing process. Notification settings belong to one browser profile or installed app at one origin, represented by its push subscription. Another profile, installed app, or origin has separate settings and may receive the same event.
 
-`blocked`, `done`, trusted sign-in added, and trusted sign-in removed start on. `working`, `idle`, `unknown`, workspace opened, and workspace closed start off. Settings changes take effect only after the server confirms them; a failure leaves the previous choices in place. Turning notifications off removes the server record and asks the browser to unsubscribe. A push service's definite gone response removes a stale server record.
+`blocked`, `done`, trusted sign-in added, and trusted sign-in removed start on. `working`, `idle`, `unknown`, workspace opened, workspace closed, and file shared start off. Settings changes take effect only after the server confirms them; a failure leaves the previous choices in place. Turning notifications off removes the server record and asks the browser to unsubscribe. A push service's definite gone response removes a stale server record.
 
 The first eligible visit quietly offers **Turn on notifications** and **Not now**. Only **Turn on notifications** requests browser permission. The offer appears when push is supported, permission is undecided, an operator-supplied VAPID contact exists, and that browser has not chosen **Not now**. That choice is stored in the browser, so clearing site data may make it eligible again. Shepherdr does not offer permission when push is unsupported, already granted, or blocked. When blocked, settings say **Notifications are blocked in this browser. Allow them in browser settings.**
 
@@ -21,6 +21,7 @@ Shepherdr reports events only from consecutive complete, validated Herdr snapsho
 | Workspace closed | A workspace identifier is present and then absent. The notice does not claim that a checkout, branch, or files were deleted. |
 | Trusted sign-in added | Protected access commits a new trusted passkey. Other selected subscriptions may name its untrusted display label; the new trust does not notify itself before owning a subscription. |
 | Trusted sign-in removed | Protected access commits revocation of a passkey. Its subscriptions are removed; other selected active subscriptions may name its untrusted display label. |
+| File shared | One `shepherdr share` command stores files. One notice per command, never per file. It names the workspace or space and the name the person gave the tab, never the files, and opens **Shared files** filtered to that terminal, or the whole list for files from outside Herdr. |
 
 The first valid snapshot after startup, reconnect, or an event gap is a silent baseline. Real changes during that gap and fast intermediate statuses may be missed. Terminal output, prompts, focus changes, renames, and ordering changes are not notification events.
 

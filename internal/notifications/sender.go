@@ -132,6 +132,10 @@ func eventPayload(event Event) ([]byte, error) {
 		Destination: event.Destination, Herdr: string(event.Herdr), Kind: string(event.Kind), TrustLabel: event.TrustLabel,
 		WorkspaceName: event.WorkspaceName,
 	}
+	if event.Kind == EventFileShared {
+		payload.Name = event.GivenName
+		payload.OtherTerminals = event.OtherTerminals
+	}
 	if event.Kind == EventStatus {
 		payload.Name = event.GivenName
 		payload.OtherTerminals = event.OtherTerminals

@@ -729,3 +729,19 @@ test("a status push opens only a link to the same Herdr", async () => {
   await worker.push({ ...tui, destination: "/#terminal=w1%3Ap1&terminal_id=term-1&herdr=tui", herdr: "tui" });
   assert.equal(worker.shownBody(), "api");
 });
+
+test("a File shared notice names the place, never the files, and opens that terminal's shared files", async () => {
+  const worker = serviceWorkerHarness();
+  const source = "0123456789abcdef01234567";
+  await worker.push({ kind: "file_shared", herdr: "core", workspace_name: "site", name: "review", destination: `/#shared&herdr=core&source=${source}` });
+  assert.equal(worker.shownTitle(), "File shared from review");
+  assert.equal(worker.shownBody(), "site");
+  assert.equal(worker.shownDestination(), `/#shared&herdr=core&source=${source}`);
+  await worker.push({ kind: "file_shared", destination: "/#shared" });
+  assert.equal(worker.shownTitle(), "File shared");
+  assert.equal(worker.shownBody(), "A file was shared.");
+  // A destination that isn't Shared files falls back to Home.
+  await worker.push({ kind: "file_shared", herdr: "core", workspace_name: "site", destination: "/#terminal=t3&herdr=core" });
+  assert.equal(worker.shownTitle(), "Shepherdr");
+  assert.equal(worker.shownDestination(), "/");
+});
