@@ -434,7 +434,7 @@ func TestAttributionChecksTheClaimedTerminalIsAnAncestor(t *testing.T) {
 	t.Cleanup(func() { stranger.Process.Kill(); stranger.Wait() })
 	lookup := func(pid int) Lookup {
 		return func(_ context.Context, claimed string) (Terminal, bool, error) {
-			return Terminal{PID: pid, WorkspaceID: "w1", PaneID: claimed, TerminalID: "term_x", Place: "site", Agent: "claude"}, true, nil
+			return Terminal{PID: pid, PaneID: claimed, TerminalID: "term_x", Place: "site", Agent: "claude"}, true, nil
 		}
 	}
 	claim := Claim{TUI: &TUIClaim{Socket: "/run/herdr.sock", Pane: "w1:p1"}}

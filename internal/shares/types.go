@@ -29,12 +29,11 @@ type Record struct {
 // process and its start time make the key: Herdr may give a later terminal
 // the same pane or terminal ID, but never the same running process.
 type Source struct {
-	Herdr       string `json:"herdr"`
-	WorkspaceID string `json:"workspace_id"`
-	PaneID      string `json:"pane_id"`
-	TerminalID  string `json:"terminal_id"`
-	PID         int    `json:"pid"`
-	Start       uint64 `json:"start"`
+	Herdr      string `json:"herdr"`
+	PaneID     string `json:"pane_id"`
+	TerminalID string `json:"terminal_id"`
+	PID        int    `json:"pid"`
+	Start      uint64 `json:"start"`
 	// Display labels copied at share time.
 	Place string `json:"place"`
 	Tab   string `json:"tab,omitempty"`

@@ -364,14 +364,6 @@ func (s *Store) notifyLocked() {
 	}
 }
 
-// Changed tells subscribers to read the list again, such as when a source
-// terminal's currentness may have changed.
-func (s *Store) Changed() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.notifyLocked()
-}
-
 // SetView records that owner shows view, marking the files it lists seen,
 // and keeps marking files that arrive while it stays. A nil view clears it.
 func (s *Store) SetView(owner any, view *View) {

@@ -27,6 +27,3 @@ func OwnerOnlyDirectory(info os.FileInfo) bool { return ownerOnlyDirectory(info)
 
 // OwnedByCurrentUser reports whether the current user owns info's file.
 func OwnedByCurrentUser(info os.FileInfo) bool { return ownedByCurrentUser(info) }
-
-// LinkCount is info's hard link count, or 0 when unknown.
-func LinkCount(info os.FileInfo) uint64 { return linkCount(info) }

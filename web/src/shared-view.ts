@@ -1,7 +1,6 @@
 import type { Herdr } from "./home-model";
 import {
   filesFor,
-  filterSource,
   formatShared,
   formatSize,
   fromText,
@@ -727,11 +726,5 @@ export class SharedPage {
     const back = this.#viewerReturn ? this.#rows.get(this.#viewerReturn)?.open : undefined;
     this.#viewerReturn = undefined;
     back?.focus({ preventScroll: true });
-  }
-
-  // listedSource is the filtered terminal's source once a file names it.
-  listedSource(): string | undefined {
-    const model = this.#model;
-    return model?.route.filter ? filterSource(model.files, model.route.filter) : undefined;
   }
 }

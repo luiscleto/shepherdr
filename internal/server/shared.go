@@ -390,7 +390,7 @@ func shareTerminal(home herdr.Home, paneID string, withTab bool) (shares.Termina
 					if terminal.PaneID != paneID {
 						continue
 					}
-					found := shares.Terminal{WorkspaceID: workspace.ID, PaneID: terminal.PaneID, TerminalID: terminal.TerminalID, Place: workspace.Label}
+					found := shares.Terminal{PaneID: terminal.PaneID, TerminalID: terminal.TerminalID, Place: workspace.Label}
 					if withTab && len(workspace.Tabs) > 1 {
 						found.Tab = tab.Label
 					}

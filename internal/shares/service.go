@@ -70,13 +70,12 @@ type Reply struct {
 // Terminal is a Herdr terminal as one fresh read shows it: its process and
 // the labels the Shared files page shows.
 type Terminal struct {
-	PID         int
-	WorkspaceID string
-	PaneID      string
-	TerminalID  string
-	Place       string
-	Tab         string
-	Agent       string
+	PID        int
+	PaneID     string
+	TerminalID string
+	Place      string
+	Tab        string
+	Agent      string
 }
 
 // Lookup reads one terminal, named as the claim names it, from its Herdr.
@@ -125,7 +124,7 @@ func (h Herdrs) Attribute(ctx context.Context, peer int, claim Claim) *Source {
 			continue
 		}
 		return &Source{
-			Herdr: c.herdr, WorkspaceID: terminal.WorkspaceID, PaneID: terminal.PaneID, TerminalID: terminal.TerminalID,
+			Herdr: c.herdr, PaneID: terminal.PaneID, TerminalID: terminal.TerminalID,
 			PID: terminal.PID, Start: start, Place: terminal.Place, Tab: terminal.Tab, Agent: terminal.Agent,
 		}
 	}
