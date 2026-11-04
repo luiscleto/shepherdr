@@ -255,7 +255,8 @@ export class SharedPage {
     this.#filterBar.hidden = !filter;
     if (!filter) return;
     const document = this.#document;
-    const from = shown[0]?.from ?? model.terminalLabel;
+    // A live terminal goes by its name on Home; a file may carry an older one.
+    const from = model.terminalLabel ?? shown[0]?.from;
     const text = element(document, "p");
     text.append("From ");
     if (from) {

@@ -51,6 +51,7 @@ import {
   readSharedSort,
   rememberSharedSort,
   sharedHash,
+  terminalFrom,
   unseenCount,
   type SharedFile,
   type SharedFrom,
@@ -421,13 +422,7 @@ function sharedMarkHerdr(herdr: Herdr): boolean {
 function terminalLabel(terminal: SharedTerminal): SharedFrom | undefined {
   const entry = findTerminal(sides[terminal.herdr].home, terminal.paneID);
   if (!entry || entry.terminal.terminal_id !== terminal.terminalID) return undefined;
-  const place = entry.workspace.label;
-  const tab = terminal.herdr === "core" && entry.workspace.tabs.length > 1 ? entry.tab.label : undefined;
-  return {
-    herdr: terminal.herdr, place, source: "",
-    ...(tab ? { tab } : {}),
-    ...(entry.terminal.agent ? { agent: entry.terminal.agent.name } : {}),
-  };
+  return terminalFrom(terminal.herdr, entry);
 }
 
 // renderShared shows the shared files list wherever it appears: the Home

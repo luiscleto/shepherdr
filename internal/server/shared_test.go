@@ -244,3 +244,19 @@ func TestPageAllowsSameOriginMediaOnly(t *testing.T) {
 		t.Fatalf("policy = %q", policy)
 	}
 }
+
+func TestShareTerminalNamesATerminalOutsideEverySpaceByItsTitle(t *testing.T) {
+	terminal := func(pane, title string) herdr.Terminal {
+		return herdr.Terminal{PaneID: pane, TerminalID: "c:" + pane, Title: title}
+	}
+	home := herdr.Home{Workspaces: []herdr.Workspace{
+		{ID: "sp1", Label: "reports", Tabs: []herdr.Tab{{ID: "tb1", Label: "1", Terminals: []herdr.Terminal{terminal("t3", "reports")}}}},
+		{ID: herdr.OtherTerminalsID, Label: "Other terminals", Tabs: []herdr.Tab{{ID: herdr.OtherTerminalsID, Label: "Other terminals", Terminals: []herdr.Terminal{terminal("t4", "site"), terminal("t2", "notes")}}}},
+	}}
+	for pane, place := range map[string]string{"t3": "reports", "t4": "site", "t2": "notes"} {
+		found, ok := shareTerminal(home, pane, true)
+		if !ok || found.Place != place || found.Tab != "" {
+			t.Fatalf("%s: got %+v %v, want place %q", pane, found, ok, place)
+		}
+	}
+}

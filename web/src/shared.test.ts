@@ -13,10 +13,12 @@ import {
   parseSharedRoute,
   sharedHash,
   sortFiles,
+  terminalFrom,
   unseenCount,
   type SharedFile,
   type SharedRoute,
 } from "./shared-model.ts";
+import type { TerminalEntry } from "./home-model.ts";
 import { SharedFilesAction, SharedPage, type SharedPageModel } from "./shared-view.ts";
 
 const epoch = "0123456789abcdef0123456789abcdef";
@@ -152,6 +154,11 @@ test("a terminal's filtered list, its empty state and Ask for a file", () => {
   const { calls, host, view, window, full } = page({ canAsk: true, route });
   assert.deepEqual(texts(host, ".shared-name"), ["a.png", "b.png"]);
   assert.equal(host.querySelector(".shared-filter p")?.textContent, "From site · claude-code");
+  // While the terminal is on Home, the bar uses its name there, even when its
+  // files were shared under an older one.
+  view.update({ ...full, terminalLabel: { herdr: "core", place: "notes", source: "" } });
+  assert.equal(host.querySelector(".shared-filter p")?.textContent, "From notes");
+  assert.deepEqual(texts(host, ".shared-from"), ["site · claude-code", "site · claude-code"]);
   assert.equal(host.querySelector(".terminal-connection")?.textContent, "2 of 4 files · 400 B");
   assert.equal(host.querySelector(".terminal-home")?.textContent, "Back");
   host.querySelector<HTMLButtonElement>(".shared-page-menu .workspace-menu-trigger")?.click();
@@ -237,4 +244,16 @@ test("an address with a file waits for the list, then opens that file", () => {
   assert.equal(calls.at(-1), "navigate #shared");
   view.destroy();
   window.close();
+});
+
+test("a terminal outside every space is named by its own title, a placed one by its space", () => {
+  const entry = (workspace: string, label: string, title: string, tabs = 1) => {
+    const terminal = { actions: [], pane_id: "t4", terminal_id: "c:t4", title };
+    const tab = { current: false, id: "tb1", label: "drafts", number: 1, terminals: [terminal] };
+    return { tab, terminal, workspace: { actions: [], id: workspace, label, number: 1, tabs: Array(tabs).fill(tab) } } as unknown as TerminalEntry;
+  };
+  assert.deepEqual(terminalFrom("core", entry("other", "Other terminals", "site")), { herdr: "core", place: "site", source: "" });
+  assert.deepEqual(terminalFrom("core", entry("sp1", "reports", "reports")), { herdr: "core", place: "reports", source: "" });
+  assert.deepEqual(terminalFrom("core", entry("sp1", "reports", "writer", 2)), { herdr: "core", place: "reports", source: "", tab: "drafts" });
+  assert.deepEqual(terminalFrom("tui", entry("other", "other", "site")), { herdr: "tui", place: "other", source: "" });
 });

@@ -1,4 +1,4 @@
-import type { Herdr } from "./home-model";
+import type { Herdr, TerminalEntry } from "./home-model";
 
 // A file an agent shared with `shepherdr share`, as the Home connection
 // lists it. Names and labels are untrusted text.
@@ -215,6 +215,23 @@ export function groupByAgent(files: readonly SharedFile[]): SharedGroup[] {
 }
 
 export const herdrNames: Record<Herdr, string> = { core: "Herdr Core", tui: "Herdr TUI" };
+
+// otherTerminalsID is the server's id for Home's last group, the Herdr Core
+// terminals no space places.
+const otherTerminalsID = "other";
+
+// terminalFrom names a terminal from Home the way a file it shares will be:
+// its space, plus the tab when a Herdr Core space has several, or its own
+// title when it is outside every space.
+export function terminalFrom(herdr: Herdr, entry: TerminalEntry): SharedFrom {
+  const place = herdr === "core" && entry.workspace.id === otherTerminalsID ? entry.terminal.title : entry.workspace.label;
+  const tab = herdr === "core" && entry.workspace.tabs.length > 1 ? entry.tab.label : undefined;
+  return {
+    herdr, place, source: "",
+    ...(tab ? { tab } : {}),
+    ...(entry.terminal.agent ? { agent: entry.terminal.agent.name } : {}),
+  };
+}
 
 // placeText is where a file came from: the space and tab, or the
 // workspace.
