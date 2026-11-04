@@ -109,6 +109,7 @@ export class TerminalPage {
   #sharedAction: SharedFilesAction | undefined;
   #sharedNotice: HTMLDivElement | undefined;
   #sharedNoticeText: HTMLSpanElement | undefined;
+  #sharedShow: HTMLButtonElement | undefined;
   // The files known before this visit, once a list has arrived.
   #sharedKnown: Set<string> | undefined;
   #sharedDismissed = new Set<string>();
@@ -216,6 +217,7 @@ export class TerminalPage {
     notice.append(text, show, dismiss);
     this.#sharedNotice = notice;
     this.#sharedNoticeText = text;
+    this.#sharedShow = show;
     return notice;
   }
 
@@ -647,7 +649,11 @@ export class TerminalPage {
       this.#message.disabled = this.#readerVisible ? !availability.observerReady || state !== "ready" : !availability.send;
       this.#message.hidden = !this.#readerVisible && this.#agentStatus === undefined;
     }
-    if (this.#toggle) this.#toggle.disabled = this.#uploadState === "requesting";
+    // Leaving while files are sending would leave their result unknown.
+    const sending = this.#uploadState === "requesting";
+    if (this.#toggle) this.#toggle.disabled = sending;
+    if (this.#sharedAction) this.#sharedAction.element.disabled = sending;
+    if (this.#sharedShow) this.#sharedShow.disabled = sending;
     const control = terminalOwnershipAction(this.#ownership);
     this.#controlAction.hidden = control === undefined;
     this.#controlAction.disabled = state === "forwarding" || state === "requesting";

@@ -536,3 +536,33 @@ test("a terminal's earlier draft brings back its picked files", async t => {
   host.querySelector<HTMLButtonElement>('[aria-label="Remove chart.txt"]')!.click();
   assert.equal(page.draft(), undefined);
 });
+
+test("Shared files and Show files wait while files are sending, as the view switch does", async t => {
+  const shared = (id: string) => ({
+    id: id.repeat(32), kind: "image", name: `${id}.png`, seen: false, shared_at: 1_000, size: 10, tag: "PNG",
+    from: { herdr: "tui", place: "trial", source: "a".repeat(24), current: { pane_id: "trial:p1", terminal_id: "term-trial", workspace_id: "trial" } },
+  });
+  const { host, browser, sockets, page } = pageBrowser(t, true, undefined, "tui", { onShared() {} });
+  await tick();
+  sockets[0].frame();
+  sockets[0].message({ type: "terminal.controller", handle: "c".repeat(64) });
+  page.setShared([]);
+  page.setShared([shared("a")]);
+  host.querySelector<HTMLButtonElement>('[aria-label="Message"]')!.click();
+  const picker = host.querySelector<HTMLInputElement>(".reader-file-input")!;
+  Object.defineProperty(picker, "files", { value: [new File(["tiny"], "trial.txt")] });
+  picker.dispatchEvent(new browser.Event("change"));
+  await tick();
+  let reply!: (response: Response) => void;
+  (globalThis as Record<string, unknown>).fetch = () => new Promise<Response>(resolve => { reply = resolve; });
+  const sharedButton = host.querySelector<HTMLButtonElement>(".terminal-shared")!;
+  const show = [...host.querySelectorAll<HTMLButtonElement>(".shared-here-banner button")].find(button => button.textContent === "Show files")!;
+  const toggle = host.querySelector<HTMLButtonElement>(".terminal-view-toggle")!;
+  assert.deepEqual([sharedButton.disabled, show.disabled, toggle.disabled], [false, false, false]);
+  host.querySelector<HTMLButtonElement>(".reader-send")!.click();
+  for (let i = 0; i < 20 && !reply; i++) await tick();
+  assert.deepEqual([sharedButton.disabled, show.disabled, toggle.disabled], [true, true, true]);
+  reply(new Response(JSON.stringify({ message: "Terminal input was sent.", result: "forwarded" })));
+  for (let i = 0; i < 5 && sharedButton.disabled; i++) await tick();
+  assert.deepEqual([sharedButton.disabled, show.disabled, toggle.disabled], [false, false, false]);
+});
