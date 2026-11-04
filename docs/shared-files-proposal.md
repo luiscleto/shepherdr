@@ -1,6 +1,17 @@
 # Shared files proposal
 
-Status: **proposal awaiting the human**. Nothing here is approved. It adds a screen beyond the two that `docs/ui-direction.md` allows, so it needs an explicit amendment if accepted (decision U1).
+Status: **approved by the human on 2026-11-04**, with the changes in "Approved direction" below. Where the rest of this document disagrees with that section, that section wins.
+
+## Approved direction (2026-11-04)
+
+- **Decisions.** S1–S9 and U1–U8 are approved as recommended (U8: Markdown shows as plain text). The S8 notification is part of the work, off by default.
+- **New count, not total.** The Shared files icon's number counts files nobody has listed yet, not files kept. Showing the Shared files list marks every file in it as seen; opening, previewing or downloading isn't needed. Seen is shared by every device, like Herdr's seen: listing on one device clears the number on all of them. On a Terminal page, the icon counts that terminal's unseen files, and its filtered list marks only those seen. With no unseen files the icon shows no number. The server keeps the seen state with the index; the browser only says which list is in view.
+- **Terminal identity.** Herdr TUI reuses pane ids (and terminal ids may repeat), so a record's terminal key must never match a later, different terminal. Record the claimed id together with something that is never reused for another terminal, such as the terminal process's id plus its start time, and use that key for the filter, the badge, the notice and **Open terminal**.
+- **Separate folders.** Shared files and uploads stay in separate folders with separate flags and cleanup rules: uploads in temp, cleaned up when the space closes; shared files in `-share-dir`, kept until deleted. Agents can't write to `-share-dir`.
+- **Agent discoverability.** Two layers, provider-neutral:
+  - `shepherdr --skill` prints a short note for agents (what `shepherdr share` is, when to use it, and that `shepherdr share --help` has the details), following `hc --skill`. Settings shows the same note in a **For your agents** block with **Copy**, saying to paste it into global agent instructions such as `~/.claude/CLAUDE.md` or `~/.codex/AGENTS.md`. Shepherdr never edits those files.
+  - On a Terminal page, the Shared files header ⋮ menu (filtered to that terminal) has **Ask for a file**. It returns to the terminal and puts a ready message in the composer without sending it, e.g. "Please share it with me in Shepherdr: run `shepherdr share <file>` (see `shepherdr share --help`)."
+- **Out of scope.** Per-device sharing (files are already visible to every trusted device), a combined uploads-and-shares view, and a Claude Code skill.
 
 Base: `e39e73c`. Date: 2026-11-04. Evidence and commands are in the planning report outside the repository. Screenshot names below (for example **shot 02**) refer to the mockups delivered with it. They were built from the real `web/dist` CSS and markup against an isolated Herdr TUI 0.9.5 and herdr-core 0.1.17.
 

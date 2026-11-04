@@ -26,7 +26,7 @@ The product has two main screens:
 - **Home** shows every current workspace and terminal, with agent status and attention when an agent is present.
 - **Terminal** reads one exact current terminal and sends text, shortcuts, and, for a recognized agent, local file paths.
 
-Workspace actions use small sheets from Home. Home and Terminal both open **Settings**, which contains **Notifications** and, in protected mode, **Devices**. Do not add another main screen or placeholder controls.
+Workspace actions use small sheets from Home. Home and Terminal both open **Settings**, which contains **Notifications** and, in protected mode, **Devices**. Home and Terminal also open **Shared files**, the files agents shared with `shepherdr share` (`docs/shared-files-proposal.md`); its icon shows a count only of files nobody has listed yet. Do not add another main screen or placeholder controls.
 
 ## Access and devices
 
