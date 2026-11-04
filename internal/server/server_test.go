@@ -17,7 +17,7 @@ func TestApplicationAssetsAlwaysRevalidate(t *testing.T) {
 	application := New(fstest.MapFS{
 		"index.html": {Data: []byte("home")},
 		"app.js":     {Data: []byte("application")},
-	}, nil, herdr.NewNotFollowedProjector(), nil, false)
+	}, nil, herdr.NewNotFollowedProjector(), nil)
 	for _, target := range []string{"/", "/app.js"} {
 		request := httptest.NewRequest("GET", "http://localhost"+target, nil)
 		response := httptest.NewRecorder()
@@ -42,8 +42,8 @@ func TestValidateListenAddressAllowsOnlyLocalhost(t *testing.T) {
 }
 
 func TestServerEpochIsPresentAndProcessLocal(t *testing.T) {
-	first := New(nil, nil, herdr.NewNotFollowedProjector(), nil, false)
-	second := New(nil, nil, herdr.NewNotFollowedProjector(), nil, false)
+	first := New(nil, nil, herdr.NewNotFollowedProjector(), nil)
+	second := New(nil, nil, herdr.NewNotFollowedProjector(), nil)
 	if first.epoch == "" || second.epoch == "" {
 		t.Fatal("server epoch must be present")
 	}
@@ -55,7 +55,7 @@ func TestServerEpochIsPresentAndProcessLocal(t *testing.T) {
 // One Home message carries both Herdrs' complete states. herdr-core that is
 // not followed is a fixed "not running" state without a Home.
 func TestHomeMessageCarriesBothHerdrs(t *testing.T) {
-	data := firstHomeMessage(t, New(nil, herdr.NewProjector(nil), herdr.NewNotFollowedProjector(), nil, false))
+	data := firstHomeMessage(t, New(nil, herdr.NewProjector(nil), herdr.NewNotFollowedProjector(), nil))
 	var message map[string]json.RawMessage
 	if err := json.Unmarshal(data, &message); err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestHomeMessageSaysWhichTerminalsCanOpen(t *testing.T) {
 		{name: "Herdr TUI terminal bridge", terminal: &TerminalBridge{}, wantTUI: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			data := firstHomeMessage(t, New(nil, herdr.NewProjector(nil), herdr.NewNotFollowedProjector(), test.terminal, false))
+			data := firstHomeMessage(t, New(nil, herdr.NewProjector(nil), herdr.NewNotFollowedProjector(), test.terminal))
 			var sides struct {
 				TUI  map[string]any `json:"tui"`
 				Core map[string]any `json:"core"`
@@ -133,9 +133,10 @@ func TestSecurityHeadersConfineBrowserContent(t *testing.T) {
 	response := httptest.NewRecorder()
 	securityHeaders(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(204)
-	}), false).ServeHTTP(response, request)
+	})).ServeHTTP(response, request)
 	policy := response.Header().Get("Content-Security-Policy")
-	if !strings.Contains(policy, "object-src 'none'") || !strings.Contains(policy, "connect-src 'self'") || !strings.Contains(policy, "img-src 'self' data: blob:") {
+	if !strings.Contains(policy, "script-src 'self';") || strings.Contains(policy, "unsafe-eval") ||
+		!strings.Contains(policy, "object-src 'none'") || !strings.Contains(policy, "connect-src 'self'") || !strings.Contains(policy, "img-src 'self' data: blob:") {
 		t.Fatalf("unexpected content security policy %q", policy)
 	}
 	if got := response.Header().Get("Cross-Origin-Opener-Policy"); got != "same-origin" {
@@ -153,7 +154,7 @@ func TestSecurityHeadersConfineBrowserContent(t *testing.T) {
 }
 
 func TestProductionTerminalRequiresCurrentHerdrTarget(t *testing.T) {
-	application := New(nil, nil, herdr.NewNotFollowedProjector(), &TerminalBridge{}, false)
+	application := New(nil, nil, herdr.NewNotFollowedProjector(), &TerminalBridge{})
 	request := httptest.NewRequest("GET", "http://localhost/api/terminal?herdr=tui&pane=w1:p1&terminal=term-1&mode=observe&cols=80&rows=24", nil)
 	response := httptest.NewRecorder()
 	signInOffHandler(application).ServeHTTP(response, request)

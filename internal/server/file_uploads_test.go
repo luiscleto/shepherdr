@@ -137,7 +137,7 @@ func TestTrialRetainedUploadStagesAndRollsBackOrRetainsUnknown(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(manager.Close)
-			application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
+			application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge)
 			configureTestSignInOff(application)
 			application.SetFileUploads(manager, uploads.Limit{Bytes: 32})
 			application.fileUploadState = bridge.targets
@@ -309,7 +309,7 @@ func TestTerminalFileRouteStagesOpaqueBytesAndSendsOneServerDerivedBatch(t *test
 		return terminalHelperCommand(ctx, append(arguments, "--record="+record)...)
 	}
 	manager := testUploadManager(t)
-	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
+	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge)
 	configureTestSignInOff(application)
 	application.SetFileUploads(manager, uploads.Limit{Bytes: 32})
 	application.fileUploadState = source
@@ -399,7 +399,7 @@ func TestTerminalFileRouteRevalidatesAgentAfterControlAndRollsBack(t *testing.T)
 		t.Fatal(err)
 	}
 	t.Cleanup(manager.Close)
-	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
+	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge)
 	configureTestSignInOff(application)
 	application.SetFileUploads(manager, uploads.Limit{Bytes: 32})
 	application.fileUploadState = source
@@ -500,7 +500,7 @@ func TestTerminalFileRouteRequiresRecognizedAgentAndExactTypeInSignInOff(t *test
 	source.publish(state)
 	bridge := testTerminalBridge(source)
 	defer bridge.Close()
-	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
+	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge)
 	configureTestSignInOff(application)
 	application.SetFileUploads(testUploadManager(t), uploads.Limit{Bytes: 32})
 	application.fileUploadState = source
@@ -667,7 +667,7 @@ func fileSendApplication(t *testing.T) *Server {
 	source := newFakeTerminalStateSource(recognizedAgentState("workspace-1", "pane-1", "term-send"))
 	bridge := testTerminalBridge(source)
 	t.Cleanup(bridge.Close)
-	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
+	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge)
 	configureTestSignInOff(application)
 	application.SetFileUploads(testUploadManager(t), uploads.Limit{Bytes: 32})
 	application.fileUploadState = source
@@ -749,7 +749,7 @@ func TestFileSendBodyThatDoesNotMatchItsListIsRefusedAndRemoved(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(manager.Close)
-			application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, false)
+			application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge)
 			configureTestSignInOff(application)
 			application.SetFileUploads(manager, uploads.Limit{Bytes: 32})
 			application.fileUploadState = source

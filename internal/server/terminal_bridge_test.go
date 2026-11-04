@@ -339,7 +339,7 @@ func TestProductionObserverClosesBeforeReplacementOutput(t *testing.T) {
 	source := newFakeTerminalStateSource(liveTerminalState("pane-1", "term-1", 1))
 	bridge := testTerminalBridge(source)
 	defer bridge.Close()
-	server := signInOffServer(t, New(fstest.MapFS{}, nil, herdr.NewNotFollowedProjector(), bridge, false))
+	server := signInOffServer(t, New(fstest.MapFS{}, nil, herdr.NewNotFollowedProjector(), bridge))
 
 	endpoint, _ := url.Parse(server.URL)
 	endpoint.Scheme = "ws"
@@ -428,19 +428,4 @@ func waitForTerminalChildren(t *testing.T, bridge *TerminalBridge, want int) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("terminal child count did not become %d", want)
-}
-
-func TestTerminalLabRoutesStayOffWithoutFlag(t *testing.T) {
-	assets := fstest.MapFS{
-		"index.html":        {Data: []byte("home")},
-		"terminal-lab.html": {Data: []byte("lab")},
-	}
-	application := signInOffHandler(New(assets, nil, herdr.NewNotFollowedProjector(), &TerminalBridge{}, false))
-	for _, path := range []string{"/terminal-lab", "/terminal-lab.js", "/api/terminal-lab", "/api/terminal-lab/read"} {
-		response := httptest.NewRecorder()
-		application.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost"+path, nil))
-		if response.Code != http.StatusNotFound {
-			t.Errorf("%s returned %d, want 404", path, response.Code)
-		}
-	}
 }

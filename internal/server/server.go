@@ -27,28 +27,27 @@ import (
 const homeHeartbeatInterval = 2 * time.Second
 
 type Server struct {
-	access             *access.Manager
-	assets             fs.FS
-	epoch              string
-	projector          *herdr.Projector
-	coreProjector      *herdr.Projector
-	workspaceActions   *workspaceActionCoordinator
-	coreActions        *coreActionCoordinator
-	terminal           *TerminalBridge
-	coreTerminal       *CoreTerminalBridge
-	fileUploads        *uploads.Manager
-	coreFileUploads    *uploads.Manager
-	fileUploadLimit    uploads.Limit
-	fileUploadState    TerminalStateSource
-	notifications      *notifications.Manager
-	shares             *shares.Store
-	origin             access.Origin
-	requestBodyTime    time.Duration
-	uploadMinRate      int64
-	signInOff          bool
-	signInOffOrigins   map[string]string
-	terminalLabEnabled bool
-	upgrader           websocket.Upgrader
+	access           *access.Manager
+	assets           fs.FS
+	epoch            string
+	projector        *herdr.Projector
+	coreProjector    *herdr.Projector
+	workspaceActions *workspaceActionCoordinator
+	coreActions      *coreActionCoordinator
+	terminal         *TerminalBridge
+	coreTerminal     *CoreTerminalBridge
+	fileUploads      *uploads.Manager
+	coreFileUploads  *uploads.Manager
+	fileUploadLimit  uploads.Limit
+	fileUploadState  TerminalStateSource
+	notifications    *notifications.Manager
+	shares           *shares.Store
+	origin           access.Origin
+	requestBodyTime  time.Duration
+	uploadMinRate    int64
+	signInOff        bool
+	signInOffOrigins map[string]string
+	upgrader         websocket.Upgrader
 }
 
 func (s *Server) SetNotifications(manager *notifications.Manager) {
@@ -83,16 +82,15 @@ func (s *Server) SetCoreAppActions(app appActionClient) {
 // terminals use terminal and whose actions use actionClients; coreProjector
 // follows herdr-core, or is herdr.NewNotFollowedProjector when herdr-core is
 // not followed. Herdr Core terminals use SetCoreTerminal.
-func New(assets fs.FS, projector, coreProjector *herdr.Projector, terminal *TerminalBridge, terminalLabEnabled bool, actionClients ...*herdr.Client) *Server {
+func New(assets fs.FS, projector, coreProjector *herdr.Projector, terminal *TerminalBridge, actionClients ...*herdr.Client) *Server {
 	server := &Server{
-		assets:             assets,
-		epoch:              newServerEpoch(),
-		projector:          projector,
-		coreProjector:      coreProjector,
-		requestBodyTime:    DefaultRequestBodyTime,
-		uploadMinRate:      DefaultUploadMinRate,
-		terminal:           terminal,
-		terminalLabEnabled: terminalLabEnabled,
+		assets:          assets,
+		epoch:           newServerEpoch(),
+		projector:       projector,
+		coreProjector:   coreProjector,
+		requestBodyTime: DefaultRequestBodyTime,
+		uploadMinRate:   DefaultUploadMinRate,
+		terminal:        terminal,
 		upgrader: websocket.Upgrader{
 			HandshakeTimeout: 5 * time.Second,
 		},
@@ -144,17 +142,13 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("POST /api/notifications/settings", s.notificationSettingsSave)
 		mux.HandleFunc("DELETE /api/notifications/settings", s.notificationSettingsRemove)
 	}
-	if s.terminalLabEnabled && s.terminal != nil {
-		mux.HandleFunc("GET /api/terminal-lab", s.terminalLabSocket)
-		mux.HandleFunc("GET /api/terminal-lab/read", s.terminalLabRead)
-	}
 	mux.HandleFunc("GET /healthz", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		writer.WriteHeader(http.StatusOK)
 		_, _ = writer.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /", s.asset)
-	return limitBodyTime(securityHeaders(s.accessBoundary(mux), s.terminalLabEnabled), s.requestBodyTime)
+	return limitBodyTime(securityHeaders(s.accessBoundary(mux)), s.requestBodyTime)
 }
 
 // actionSide is one Herdr's actions. Each Herdr runs one action at a time,
@@ -224,10 +218,6 @@ func (s *Server) terminalSocket(writer http.ResponseWriter, request *http.Reques
 	s.boundTerminalSocket(writer, request, s.terminal.productionSocket)
 }
 
-func (s *Server) terminalLabSocket(writer http.ResponseWriter, request *http.Request) {
-	s.boundTerminalSocket(writer, request, s.terminal.socket)
-}
-
 func (s *Server) boundTerminalSocket(writer http.ResponseWriter, request *http.Request, serve http.HandlerFunc) {
 	request, lease, ok := s.bindAccessRequest(request)
 	if !ok {
@@ -251,10 +241,6 @@ func (s *Server) terminalRead(writer http.ResponseWriter, request *http.Request)
 		return
 	}
 	s.boundTerminalRead(writer, request, s.terminal.productionRead)
-}
-
-func (s *Server) terminalLabRead(writer http.ResponseWriter, request *http.Request) {
-	s.boundTerminalRead(writer, request, s.terminal.read)
 }
 
 func (s *Server) boundTerminalRead(writer http.ResponseWriter, request *http.Request, serve http.HandlerFunc) {
@@ -504,15 +490,8 @@ func (s *Server) asset(writer http.ResponseWriter, request *http.Request) {
 	if name == "." || name == "" {
 		name = "index.html"
 	}
-	if name == "terminal-lab" {
-		name = "terminal-lab.html"
-	}
-	if isTerminalLabAsset(name) && !s.terminalLabEnabled {
-		http.NotFound(writer, request)
-		return
-	}
 	data, err := fs.ReadFile(s.assets, name)
-	if err != nil && !strings.HasPrefix(name, "api/") && !isTerminalLabAsset(name) {
+	if err != nil && !strings.HasPrefix(name, "api/") {
 		name = "index.html"
 		data, err = fs.ReadFile(s.assets, name)
 	}
@@ -527,16 +506,8 @@ func (s *Server) asset(writer http.ResponseWriter, request *http.Request) {
 	if contentType != "" {
 		writer.Header().Set("Content-Type", contentType)
 	}
-	if isTerminalLabAsset(name) {
-		writer.Header().Set("Cache-Control", "no-store")
-	} else {
-		writer.Header().Set("Cache-Control", "no-cache")
-	}
+	writer.Header().Set("Cache-Control", "no-cache")
 	_, _ = writer.Write(data)
-}
-
-func isTerminalLabAsset(name string) bool {
-	return name == "terminal-lab.html" || name == "terminal-lab.js" || name == "terminal-lab.css" || name == "ghostty-vt.wasm"
 }
 
 // browserPermissions turns off powerful features Shepherdr never uses. It
@@ -572,17 +543,12 @@ func limitBodyTime(next http.Handler, requestBodyTime time.Duration) http.Handle
 	})
 }
 
-func securityHeaders(next http.Handler, terminalLabEnabled bool) http.Handler {
+func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		// The terminal renderers apply validated color and geometry values through
 		// element styles. Terminal content is always inserted as text, never HTML.
 		styleSource := "style-src 'self' 'unsafe-inline'"
-		scriptSource := "script-src 'self'"
-		if terminalLabEnabled && request.URL.Path == "/terminal-lab" {
-			// One development-only candidate uses a WebAssembly terminal core.
-			scriptSource = "script-src 'self' 'wasm-unsafe-eval'"
-		}
-		writer.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; "+scriptSource+"; "+styleSource+"; img-src 'self' data: blob:; media-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+		writer.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; script-src 'self'; "+styleSource+"; img-src 'self' data: blob:; media-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 		writer.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 		writer.Header().Set("Permissions-Policy", browserPermissions)
 		writer.Header().Set("Referrer-Policy", "no-referrer")

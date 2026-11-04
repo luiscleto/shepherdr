@@ -6,13 +6,10 @@ import { build } from "esbuild";
 await rm("dist", { force: true, recursive: true });
 await mkdir("dist", { recursive: true });
 await build({ bundle: true, entryPoints: ["src/main.ts"], loader: { ".woff2": "file" }, minify: true, outfile: "dist/app.js" });
-await build({ bundle: true, entryPoints: ["src/terminal-lab.ts"], minify: true, outfile: "dist/terminal-lab.js" });
-await build({ bundle: true, entryPoints: ["src/terminal-lab.css"], loader: { ".woff2": "file" }, minify: true, outfile: "dist/terminal-lab.css" });
 
 for (const name of [
   "index.html",
   "IBM-Plex-Mono-LICENSE.txt",
-  "terminal-lab.html",
   "manifest.webmanifest",
   "service-worker.js",
   "icon.svg",
@@ -22,7 +19,6 @@ for (const name of [
 ]) {
   await copyFile(`src/${name}`, `dist/${name}`);
 }
-await copyFile("node_modules/@wterm/ghostty/wasm/ghostty-vt.wasm", "dist/ghostty-vt.wasm");
 
 const files = (await readdir("dist", { withFileTypes: true }))
   .filter((entry) => entry.isFile())

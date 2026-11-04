@@ -20,7 +20,7 @@ func TestNotificationRoutesRequireStrictSameOriginJSONAndExposeNoSecrets(t *test
 		t.Fatal(err)
 	}
 	manager := notifications.NewManager(store, nil)
-	application := New(nil, nil, herdr.NewNotFollowedProjector(), nil, false)
+	application := New(nil, nil, herdr.NewNotFollowedProjector(), nil)
 	application.SetNotifications(manager)
 	handler := signInOffHandler(application)
 
@@ -78,7 +78,7 @@ func TestNotificationSettingsReadDefaultsAndRemoveOnlyExactBrowser(t *testing.T)
 		t.Fatal(err)
 	}
 	manager := notifications.NewManager(store, nil)
-	application := New(nil, nil, herdr.NewNotFollowedProjector(), nil, false)
+	application := New(nil, nil, herdr.NewNotFollowedProjector(), nil)
 	application.SetNotifications(manager)
 	handler := signInOffHandler(application)
 
@@ -112,7 +112,7 @@ func TestNotificationSettingsReadDefaultsAndRemoveOnlyExactBrowser(t *testing.T)
 func TestWebManifestUsesItsStandardsMediaType(t *testing.T) {
 	application := New(fstest.MapFS{
 		"manifest.webmanifest": {Data: []byte(`{"name":"Shepherdr"}`)},
-	}, nil, herdr.NewNotFollowedProjector(), nil, false)
+	}, nil, herdr.NewNotFollowedProjector(), nil)
 	request := httptest.NewRequest(http.MethodGet, "http://localhost/manifest.webmanifest", nil)
 	response := httptest.NewRecorder()
 	signInOffHandler(application).ServeHTTP(response, request)

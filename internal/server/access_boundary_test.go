@@ -59,9 +59,9 @@ func TestProtectedRouteInventoryIsDenyByDefault(t *testing.T) {
 		{http.MethodHead, "/app.js", routePublic},
 		{http.MethodGet, "/api/home", routeWebSocket},
 		{http.MethodGet, "/api/terminal", routeWebSocket},
-		{http.MethodGet, "/api/terminal-lab", routeWebSocket},
+		{http.MethodGet, "/api/terminal-lab", routeUnknown},
 		{http.MethodGet, "/api/terminal/read", routeProtected},
-		{http.MethodGet, "/api/terminal-lab/read", routeProtected},
+		{http.MethodGet, "/api/terminal-lab/read", routeUnknown},
 		{http.MethodGet, "/api/devices", routeProtected},
 		{http.MethodPost, "/api/auth/sign-in/begin", routePublic},
 		{http.MethodPost, "/api/auth/sign-in/finish", routePublic},
@@ -99,7 +99,7 @@ func TestSignInOffBoundaryAcceptsOnlyLoopbackAndTheNamedOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), nil, false)
+	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), nil)
 	application.ConfigureSignInOff("9390", &named)
 	handler := application.Handler()
 	serve := func(method, host, origin string, upgrade bool) string {
@@ -166,7 +166,7 @@ func TestSignInOffBoundaryAcceptsOnlyLoopbackAndTheNamedOrigin(t *testing.T) {
 		t.Fatalf("statuses = %s\nwant       %s", got, want)
 	}
 
-	unconfigured := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), nil, false)
+	unconfigured := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), nil)
 	response := httptest.NewRecorder()
 	unconfigured.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8787/healthz", nil))
 	if response.Code != http.StatusMisdirectedRequest {
@@ -296,51 +296,25 @@ func TestProtectedTerminalReadInvalidationCancelsAndCollectsChildBeforeSuccess(t
 	}
 }
 
-func TestProtectedTerminalLabReadInvalidationCancelsAndCollectsChildBeforeCommit(t *testing.T) {
-	bridge := testTerminalBridge(nil)
-	defer bridge.Close()
-	testServer := newProtectedTestServerWithOptions(t, bridge, protectedTestServerOptions{terminalLab: true, credentialCount: 1})
-	defer testServer.manager.Close()
-	defer testServer.store.Close()
-	request := httptest.NewRequest(http.MethodGet, "https://shepherdr.private/api/terminal-lab/read?pane=pane-block&lines=20&source=recent-unwrapped", nil)
-	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: testServer.tokens[0]})
-	response := httptest.NewRecorder()
-	finished := make(chan struct{})
-	go func() {
-		testServer.application.Handler().ServeHTTP(response, request)
-		close(finished)
-	}()
-	waitForTerminalChildren(t, bridge, 1)
-	signOutTestSession(t, testServer.manager, testServer.tokens[0])
-	select {
-	case <-finished:
-	case <-time.After(2 * time.Second):
-		t.Fatal("protected Terminal Lab read did not finish after invalidation")
-	}
-	waitForTerminalChildren(t, bridge, 0)
-	if response.Code != http.StatusUnauthorized || strings.Contains(response.Body.String(), "replacement output must not escape") {
-		t.Fatalf("invalidated Lab read status=%d body=%q", response.Code, response.Body.String())
-	}
-}
-
-func TestProtectedTerminalLabSocketsCloseAndCollectChildrenForEveryInvalidation(t *testing.T) {
+func TestProtectedTerminalSocketsCloseAndCollectChildrenForEveryInvalidation(t *testing.T) {
 	for _, name := range []string{"sign-out", "revoke", "reset", "expiry"} {
 		t.Run(name, func(t *testing.T) {
 			clock := &controlledAccessClock{now: time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)}
-			bridge := testTerminalBridge(nil)
+			source := newFakeTerminalStateSource(liveTerminalState("pane-1", "term-1", 1))
+			bridge := testTerminalBridge(source)
 			defer bridge.Close()
 			testServer := newProtectedTestServerWithOptions(t, bridge, protectedTestServerOptions{
-				terminalLab: true, credentialCount: 2, lifetime: "1d", clock: clock,
+				credentialCount: 2, lifetime: "1d", clock: clock,
 			})
 			defer testServer.manager.Close()
 			defer testServer.store.Close()
 			httpServer := httptest.NewServer(testServer.application.Handler())
 			defer httpServer.Close()
-			connection := dialProtectedWebSocket(t, httpServer.URL, "/api/terminal-lab?pane=pane-1&mode=observe&cols=80&rows=24", testServer.tokens[0])
+			connection := dialProtectedWebSocket(t, httpServer.URL, "/api/terminal?herdr=tui&pane=pane-1&terminal=term-1&mode=observe&cols=80&rows=24", testServer.tokens[0])
 			defer connection.Close()
 			_ = connection.SetReadDeadline(time.Now().Add(time.Second))
 			if _, _, err := connection.ReadMessage(); err != nil {
-				t.Fatalf("read initial Terminal Lab frame: %v", err)
+				t.Fatalf("read initial Terminal frame: %v", err)
 			}
 			waitForTerminalChildren(t, bridge, 1)
 			switch name {
@@ -364,7 +338,7 @@ func TestProtectedTerminalLabSocketsCloseAndCollectChildrenForEveryInvalidation(
 			waitForTerminalChildren(t, bridge, 0)
 			_ = connection.SetReadDeadline(time.Now().Add(time.Second))
 			if _, _, err := connection.ReadMessage(); err == nil {
-				t.Fatalf("Terminal Lab socket remained open after %s", name)
+				t.Fatalf("Terminal socket remained open after %s", name)
 			}
 		})
 	}
@@ -574,7 +548,6 @@ type protectedTestServerOptions struct {
 	clock           access.Clock
 	credentialCount int
 	lifetime        string
-	terminalLab     bool
 }
 
 type protectedTestServer struct {
@@ -672,7 +645,7 @@ func newProtectedTestServerWithOptions(t *testing.T, bridge *TerminalBridge, opt
 		opened.Store.Close()
 		t.Fatal(err)
 	}
-	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge, options.terminalLab)
+	application := New(fstest.MapFS{"index.html": {Data: []byte("home")}}, nil, herdr.NewNotFollowedProjector(), bridge)
 	application.ConfigureProtectedAccess(manager)
 	return protectedTestServer{application: application, manager: manager, store: opened.Store, tokens: tokens, trustIDs: trustIDs}
 }

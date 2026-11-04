@@ -58,7 +58,6 @@ func run() error {
 	socketPath := flag.String("herdr-socket", defaultSocket, "Unix socket for the Herdr TUI")
 	var herdrCoreSocket optionalStringFlag
 	flag.Var(&herdrCoreSocket, "herdr-core-socket", "Unix socket for herdr-core (default $XDG_RUNTIME_DIR/herdr-core/default.sock)")
-	terminalLabEnabled := flag.Bool("terminal-lab", false, "enable the development-only terminal comparison lab")
 	noSignIn := flag.Bool("no-sign-in", false, "run without passkey protection for this start")
 	var noSignInOrigin optionalStringFlag
 	flag.Var(&noSignInOrigin, "no-sign-in-origin", "with -no-sign-in, one private HTTPS origin accepted besides loopback, for this start")
@@ -108,7 +107,7 @@ func run() error {
 			return fmt.Errorf("unknown command %q", flag.Args()[0])
 		}
 		if *noSignIn || noSignInOrigin.set || publicOrigin.set || sessionLifetime.set || vapidContact.set || *resetNotifications ||
-			flagWasSet("listen") || flagWasSet("herdr-socket") || herdrCoreSocket.set || flagWasSet("terminal-lab") ||
+			flagWasSet("listen") || flagWasSet("herdr-socket") || herdrCoreSocket.set ||
 			flagWasSet("upload-parent") || flagWasSet("upload-limit") || flagWasSet("upload-min-rate") ||
 			flagWasSet("request-body-time") || flagWasSet("herdr-reply-limit") || flagWasSet("log-level") ||
 			shareDirectory.set || flagWasSet("share-limit") || flagWasSet("share-total") || shareSocket.set {
@@ -314,7 +313,7 @@ func run() error {
 		defer terminal.Close()
 	}
 	observeHerdrs(tuiProjector, coreProjector, notificationManager, uploadManager, coreUploadManager)
-	application := server.New(assets, tuiProjector, coreProjector, terminal, *terminalLabEnabled, actionClient)
+	application := server.New(assets, tuiProjector, coreProjector, terminal, actionClient)
 	application.SetFileUploads(uploadManager, uploadLimit)
 	application.SetBodyLimits(requestBodyTime, uploadMinRate)
 	if coreTerminal != nil {
@@ -400,7 +399,7 @@ func run() error {
 	} else if signInOffOrigin != nil {
 		address = signInOffOrigin.Value
 	}
-	logger.Info("Shepherdr is ready", "address", address, "local_address", "http://"+listener.Addr().String(), "herdr_socket", *socketPath, "herdr_core_socket", coreSocketPath, "terminal_lab", *terminalLabEnabled, "sign_in_off", *noSignIn, "upload_parent", *uploadParent, "upload_limit", *uploadLimitText, "upload_min_rate", *uploadMinRateText, "request_body_time", requestBodyTime, "herdr_reply_limit", *herdrReplyLimitText, "share_dir", sharePath, "share_limit", *shareLimitText, "share_total", *shareTotalText, "share_command", shareCommand)
+	logger.Info("Shepherdr is ready", "address", address, "local_address", "http://"+listener.Addr().String(), "herdr_socket", *socketPath, "herdr_core_socket", coreSocketPath, "sign_in_off", *noSignIn, "upload_parent", *uploadParent, "upload_limit", *uploadLimitText, "upload_min_rate", *uploadMinRateText, "request_body_time", requestBodyTime, "herdr_reply_limit", *herdrReplyLimitText, "share_dir", sharePath, "share_limit", *shareLimitText, "share_total", *shareTotalText, "share_command", shareCommand)
 
 	select {
 	case <-ctx.Done():

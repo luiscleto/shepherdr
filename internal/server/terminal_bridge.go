@@ -128,57 +128,6 @@ func (bridge *TerminalBridge) productionRead(writer http.ResponseWriter, request
 	}
 }
 
-func (bridge *TerminalBridge) read(writer http.ResponseWriter, request *http.Request) {
-	settings, err := parseTerminalReadSettings(request)
-	if err != nil {
-		http.Error(writer, err.Error(), http.StatusBadRequest)
-		return
-	}
-	ansi, err := bridge.output(request.Context(), nil, terminalReadArguments(settings)...)
-	if err != nil {
-		bridge.logger.Info("terminal lab reader failed", "pane", settings.pane, "error", err)
-		http.Error(writer, "Could not read this Herdr terminal", http.StatusBadGateway)
-		return
-	}
-	layout, err := bridge.output(request.Context(), nil, "pane", "layout", "--pane="+settings.pane)
-	if err != nil {
-		http.Error(writer, "Could not read this Herdr terminal layout", http.StatusBadGateway)
-		return
-	}
-	var envelope struct {
-		Result struct {
-			Layout struct {
-				Panes []struct {
-					PaneID string `json:"pane_id"`
-					Rect   struct {
-						Height int `json:"height"`
-						Width  int `json:"width"`
-					} `json:"rect"`
-				} `json:"panes"`
-			} `json:"layout"`
-		} `json:"result"`
-	}
-	if err := json.Unmarshal(layout, &envelope); err != nil {
-		http.Error(writer, "Herdr returned an invalid terminal layout", http.StatusBadGateway)
-		return
-	}
-	response := terminalReadResponse{ANSI: string(ansi)}
-	for _, candidate := range envelope.Result.Layout.Panes {
-		if candidate.PaneID == settings.pane {
-			response.Cols = candidate.Rect.Width
-			response.Rows = candidate.Rect.Height
-			break
-		}
-	}
-	if response.Cols < 2 || response.Rows < 1 {
-		http.Error(writer, "Herdr did not return this terminal's dimensions", http.StatusBadGateway)
-		return
-	}
-	writer.Header().Set("Cache-Control", "no-store")
-	writer.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(writer).Encode(response)
-}
-
 func (bridge *TerminalBridge) commandContext(requestContext context.Context, fence <-chan struct{}) (context.Context, func()) {
 	ctx, cancel := context.WithCancel(bridge.context)
 	stopRequest := context.AfterFunc(requestContext, cancel)
@@ -397,15 +346,6 @@ func (bridge *TerminalBridge) productionSocket(writer http.ResponseWriter, reque
 	bridge.serveSocket(writer, request, settings, terminal, lease)
 }
 
-func (bridge *TerminalBridge) socket(writer http.ResponseWriter, request *http.Request) {
-	settings, err := parseTerminalBridgeSettings(request)
-	if err != nil {
-		http.Error(writer, err.Error(), http.StatusBadRequest)
-		return
-	}
-	bridge.serveSocket(writer, request, settings, settings.pane, nil)
-}
-
 func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *http.Request, settings terminalBridgeSettings, target string, lease *terminalTargetLease) {
 	connection, err := bridge.upgrader.Upgrade(writer, request, nil)
 	if err != nil {
@@ -418,10 +358,7 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 		return connection.SetReadDeadline(time.Now().Add(terminalBridgeLivenessTimeout))
 	})
 
-	var fence <-chan struct{}
-	if lease != nil {
-		fence = lease.done
-	}
+	fence := lease.done
 	session, status, err := bridge.startTerminalSession(request.Context(), fence, settings, target)
 	if err != nil {
 		_ = writeTerminalStatus(connection, status)
@@ -512,7 +449,7 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 		select {
 		case event := <-session.events:
 			if event.line != nil {
-				if lease != nil && !lease.Valid() {
+				if !lease.Valid() {
 					_ = writeTerminalStatus(connection, "This terminal was replaced")
 					return
 				}
@@ -532,7 +469,7 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 					session.controlled = true
 					session.writeMutex.Unlock()
 				}
-				if controller == nil && lease != nil && settings.mode != "observe" {
+				if controller == nil && settings.mode != "observe" {
 					controller, err = bridge.registerController(request, session, lease)
 					if err != nil {
 						return
@@ -580,7 +517,7 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 				_ = writeTerminalStatus(connection, "An observing terminal cannot send input")
 				continue
 			}
-			if lease != nil && !lease.Valid() {
+			if !lease.Valid() {
 				_ = writeTerminalStatus(connection, "This terminal was replaced")
 				return
 			}
@@ -593,7 +530,7 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 			if outcome != terminalBatchForwarded {
 				if requestAuthorityValid(request) {
 					message := "Herdr input stream closed"
-					if lease != nil && !lease.Valid() {
+					if !lease.Valid() {
 						message = "This terminal was replaced"
 					}
 					_ = writeTerminalStatus(connection, message)
@@ -614,7 +551,7 @@ func (bridge *TerminalBridge) serveSocket(writer http.ResponseWriter, request *h
 				return
 			}
 		case <-heartbeat.C:
-			if lease != nil && !lease.Valid() {
+			if !lease.Valid() {
 				_ = writeTerminalStatus(connection, "This terminal was replaced")
 				return
 			}

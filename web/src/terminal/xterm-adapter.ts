@@ -6,15 +6,12 @@ import {
   initialTerminalWheelState,
   terminalWheelRows,
   touchScrollsArea,
-  type TerminalAdapter,
   type TerminalAdapterEvents,
   type TerminalDimensions,
   type TerminalWheelState,
 } from "./adapter";
 
-export class XTermAdapter implements TerminalAdapter {
-  readonly kind = "xterm" as const;
-
+export class XTermAdapter {
   #fit: FitAddon | undefined;
   #outputQueue: Array<{ data: Uint8Array; full: boolean }> = [];
   #resizeObserver: ResizeObserver | undefined;

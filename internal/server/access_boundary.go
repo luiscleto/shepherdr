@@ -158,12 +158,12 @@ func classifyProtectedRoute(path, method string) protectedRoute {
 		switch path {
 		case "/healthz":
 			return routePublic
-		case "/api/home", "/api/terminal", "/api/terminal-lab":
+		case "/api/home", "/api/terminal":
 			if method == http.MethodGet {
 				return routeWebSocket
 			}
 			return routeUnknown
-		case "/api/terminal/read", "/api/terminal-lab/read", "/api/devices":
+		case "/api/terminal/read", "/api/devices":
 			return routeProtected
 		}
 		if id, found := strings.CutPrefix(path, "/api/shared/"); found && shares.ValidID(id) {

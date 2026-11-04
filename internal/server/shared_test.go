@@ -73,7 +73,7 @@ func TestSharedFilesAreServedWithFixedConfiningHeaders(t *testing.T) {
 		"clip.mp4":         "0123456789",
 		"naïve report.pdf": "%PDF-1.4",
 	})
-	application := New(nil, nil, herdr.NewNotFollowedProjector(), nil, false)
+	application := New(nil, nil, herdr.NewNotFollowedProjector(), nil)
 	application.SetShares(store)
 	server := signInOffServer(t, application)
 	get := func(method, name, query string, header http.Header) *http.Response {
@@ -169,7 +169,7 @@ func requireFixedSharedHeaders(t *testing.T, name string, response *http.Respons
 
 func TestSharedDeleteRemovesExactlyThoseFilesAndUpdatesHome(t *testing.T) {
 	store, ids := sharedTestStore(t, map[string]string{"a.txt": "a", "b.txt": "b"})
-	application := New(nil, herdr.NewProjector(nil), herdr.NewNotFollowedProjector(), nil, false)
+	application := New(nil, herdr.NewProjector(nil), herdr.NewNotFollowedProjector(), nil)
 	application.SetShares(store)
 	server := signInOffServer(t, application)
 	connection := signInOffDial(t, server.URL, "/api/home")
@@ -233,7 +233,7 @@ func TestSharedDeleteRemovesExactlyThoseFilesAndUpdatesHome(t *testing.T) {
 }
 
 func TestPageAllowsSameOriginMediaOnly(t *testing.T) {
-	application := New(nil, nil, herdr.NewNotFollowedProjector(), nil, false)
+	application := New(nil, nil, herdr.NewNotFollowedProjector(), nil)
 	server := signInOffServer(t, application)
 	response, err := http.Get(server.URL + "/healthz")
 	if err != nil {
