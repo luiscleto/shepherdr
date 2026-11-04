@@ -419,18 +419,19 @@ func TestAKilledShareLeavesNoFileAndNoEntry(t *testing.T) {
 	connection.Write(make([]byte, 400))
 	time.Sleep(50 * time.Millisecond)
 	connection.Close()
+	// The aborted share removes its bytes, then gives back its room.
+	var next *Incoming
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if len(entries(t, filepath.Join(server.store.dir, incomingName))) == 0 {
-			break
-		}
+	for time.Now().Before(deadline) && next == nil {
+		next, err = server.store.Begin("next", 1<<20)
 		time.Sleep(10 * time.Millisecond)
 	}
+	if next == nil {
+		t.Fatalf("killed share kept its reservation: %v", err)
+	}
+	next.Abort()
 	if got := entries(t, filepath.Join(server.store.dir, incomingName)); len(got) != 0 || len(server.store.List()) != 0 {
 		t.Fatalf("left %v and %d entries", got, len(server.store.List()))
-	}
-	if _, err := server.store.Begin("next", 1<<20); err != nil {
-		t.Fatalf("killed share kept its reservation: %v", err)
 	}
 }
 
