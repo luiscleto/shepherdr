@@ -213,7 +213,8 @@ func (m *Manager) gate(workspaceID string) *workspaceGate {
 //
 // If the workspace closes or the manager closes before forwarding, the send
 // stops: interrupt, when given, is called once from another goroutine and
-// must make waiting reads of the files' data fail at once.
+// must make waiting reads of the files' data fail at once. It never runs
+// after StageAndForward returns, so it may use the request's connection.
 func (m *Manager) StageAndForward(
 	ctx context.Context,
 	workspaceID, workspaceLabel string,
@@ -235,7 +236,16 @@ func (m *Manager) StageAndForward(
 	gate.setup.Unlock()
 	defer context.AfterFunc(open, func() { cancel(context.Cause(open)) })()
 	if interrupt != nil {
-		defer context.AfterFunc(ctx, interrupt)()
+		interrupted := make(chan struct{})
+		stopInterrupt := context.AfterFunc(ctx, func() {
+			defer close(interrupted)
+			interrupt()
+		})
+		defer func() {
+			if !stopInterrupt() {
+				<-interrupted
+			}
+		}()
 	}
 	if ctx.Err() != nil {
 		return NotSent, context.Cause(ctx)

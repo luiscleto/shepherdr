@@ -611,3 +611,63 @@ func TestClosingWorkspaceStopsAStreamingSendAndRemovesItsFolder(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// trickle returns one byte at a time, slowly, and never ends.
+type trickle struct{}
+
+func (trickle) Read(buffer []byte) (int, error) {
+	time.Sleep(time.Millisecond)
+	buffer[0] = 'x'
+	return 1, nil
+}
+
+// A file send's interrupt sets a read deadline through the request's
+// ResponseWriter, which net/http forbids once the handler has returned, so a
+// stopped send must not end while its interrupt is still running.
+func TestStoppedSendEndsOnlyAfterItsInterruptFinishes(t *testing.T) {
+	manager, _ := openTestManager(t)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	ended := make(chan error, 1)
+	go func() {
+		_, err := manager.StageAndForward(context.Background(), "workspace-1", "One", []File{{Data: trickle{}, Name: "slow.bin", Size: 1 << 30}},
+			func() {
+				close(started)
+				<-release
+			},
+			func() error { return nil }, func([]string, func() error) (ForwardResult, error) {
+				t.Error("a stopped send was forwarded")
+				return Forwarded, nil
+			})
+		ended <- err
+	}()
+	directory := waitForFile(t, manager.rootPath, "slow.bin")
+	closed := make(chan struct{})
+	go func() {
+		manager.Close()
+		close(closed)
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("closing did not interrupt the send")
+	}
+	select {
+	case <-ended:
+		t.Fatal("the send ended while its interrupt was still running")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case err := <-ended:
+		if !errors.Is(err, errStopping) {
+			t.Fatalf("stopped send error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the send did not end after its interrupt finished")
+	}
+	<-closed
+	if _, err := os.Stat(filepath.Join(directory, "slow.bin")); !os.IsNotExist(err) {
+		t.Fatalf("the stopped send's partial file remains: %v", err)
+	}
+}
