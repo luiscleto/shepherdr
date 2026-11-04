@@ -18,7 +18,7 @@ import (
 const (
 	coreGeneration              = 1
 	minimumSupportedCoreVersion = "0.1.15"
-	maximumSupportedCoreVersion = "0.1.17"
+	maximumSupportedCoreVersion = "0.1.18"
 	// Core sends a heartbeat every 15 s on an event connection. Three missed
 	// heartbeats mean the connection is gone even if the socket stays open.
 	coreEventSilence = 45 * time.Second

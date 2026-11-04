@@ -10,6 +10,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - An optional **File shared** notification, off by default, opens the files that terminal shared.
 - `shepherdr --skill` and **Settings → For your agents** give a short note to paste into your agents' instructions so they know about `shepherdr share`.
 
+### Compatibility
+
+- Support Herdr Core 0.1.18 and the Herdr app 0.1.13.
+
 ## [0.6.1] - 2026-11-03
 
 ### Added
