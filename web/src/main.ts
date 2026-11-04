@@ -97,8 +97,9 @@ let sharedPage: SharedPage | undefined;
 let sentSharedView = "";
 // askingTerminal gets Ask for a file's message in its composer when it opens.
 let askingTerminal: SharedTerminal | undefined;
-// drafts keeps Reader's unsent message for each terminal whose page gave way
-// to Shared files, until that terminal opens again or Home shows.
+// drafts keeps Reader's unsent message and pending files for each terminal
+// whose page gave way to Shared files, until that terminal opens again or
+// Home shows.
 const drafts = new Map<string, ReaderDraft>();
 
 function draftKey(terminal: SharedTerminal): string {

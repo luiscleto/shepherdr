@@ -48,8 +48,10 @@ export function readerMessageAction(run: () => void): HTMLButtonElement {
   return button;
 }
 
-// ReaderDraft is the composer's unsent text and whether it was open.
+// ReaderDraft is the composer's unsent text, its pending files and whether
+// it was open.
 export interface ReaderDraft {
+  files: File[];
   open: boolean;
   text: string;
 }
@@ -458,19 +460,20 @@ export class ReaderView {
   }
 
   draft(): ReaderDraft {
-    return { open: !(this.#insertOnly ? this.#composerWasHidden : this.#composer.hidden), text: this.#input.value };
+    return { files: this.pendingFiles(), open: !(this.#insertOnly ? this.#composerWasHidden : this.#composer.hidden), text: this.#input.value };
   }
 
   // restoreDraft puts back a draft from an earlier visit to this terminal,
   // without taking focus.
   restoreDraft(draft: ReaderDraft): void {
     this.#input.value = draft.text;
+    for (const file of draft.files) this.#addPendingFile(file);
     if (draft.open && this.#collapsibleComposer) {
       this.#composer.hidden = false;
       this.#input.disabled = false;
       this.#events.onLayout?.();
     }
-    this.#syncSubmit();
+    this.#renderPendingFiles();
   }
 
   hasPendingFiles(): boolean {

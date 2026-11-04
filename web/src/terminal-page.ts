@@ -186,11 +186,11 @@ export class TerminalPage {
     if (options.message) this.#fillMessage(options.message);
   }
 
-  // draft is Reader's unsent message, for this terminal's next page. A
-  // desktop page has no composer of its own.
+  // draft is Reader's unsent message and pending files, for this terminal's
+  // next page. A desktop page has no composer of its own.
   draft(): ReaderDraft | undefined {
     const draft = this.#reader?.draft();
-    return draft?.text ? draft : undefined;
+    return draft?.text || draft?.files.length ? draft : undefined;
   }
 
   #sharedTerminal(): SharedTerminal {

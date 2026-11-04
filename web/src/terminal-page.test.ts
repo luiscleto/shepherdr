@@ -504,22 +504,35 @@ test("the Shared from here notice counts files from the first list as already he
 });
 
 test("a terminal's earlier draft comes back as it was, without opening a closed composer", async t => {
-  const { host, page } = pageBrowser(t, true, undefined, "tui", { draft: { open: false, text: "half a thought" } });
+  const { host, page } = pageBrowser(t, true, undefined, "tui", { draft: { files: [], open: false, text: "half a thought" } });
   await tick();
   assert.equal(host.querySelector<HTMLTextAreaElement>("textarea")!.value, "half a thought");
   assert.equal(host.querySelector<HTMLElement>(".reader-composer")!.hidden, true);
-  assert.deepEqual(page.draft(), { open: false, text: "half a thought" });
+  assert.deepEqual(page.draft(), { files: [], open: false, text: "half a thought" });
 });
 
 test("a ready message goes after the terminal's earlier draft", async t => {
   const { host, page } = pageBrowser(t, true, undefined, "tui", {
-    draft: { open: true, text: "Make the pricing chart." },
+    draft: { files: [], open: true, text: "Make the pricing chart." },
     message: "Please share it.",
   });
   await tick();
   assert.equal(host.querySelector<HTMLTextAreaElement>("textarea")!.value, "Make the pricing chart. Please share it.");
   assert.equal(host.querySelector<HTMLElement>(".reader-composer")!.hidden, false);
-  assert.deepEqual(page.draft(), { open: true, text: "Make the pricing chart. Please share it." });
+  assert.deepEqual(page.draft(), { files: [], open: true, text: "Make the pricing chart. Please share it." });
   host.querySelector<HTMLTextAreaElement>("textarea")!.value = "";
+  assert.equal(page.draft(), undefined);
+});
+
+test("a terminal's earlier draft brings back its picked files", async t => {
+  const chart = new File(["chart bytes"], "chart.txt");
+  const { host, page } = pageBrowser(t, true, undefined, "tui", { draft: { files: [chart], open: true, text: "Compare these." } });
+  await tick();
+  assert.equal(host.querySelectorAll('[aria-label="Remove chart.txt"]').length, 1);
+  assert.equal(host.querySelector(".reader-composer [aria-label^=Send]")?.getAttribute("aria-label"), "Send text and files");
+  assert.equal(page.draft()?.files[0] === chart, true);
+  host.querySelector<HTMLTextAreaElement>("textarea")!.value = "";
+  assert.equal(page.draft()?.files.length, 1);
+  host.querySelector<HTMLButtonElement>('[aria-label="Remove chart.txt"]')!.click();
   assert.equal(page.draft(), undefined);
 });
