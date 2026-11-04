@@ -163,6 +163,14 @@ test("a terminal's filtered list, its empty state and Ask for a file", () => {
   assert.equal(host.querySelectorAll(".shared-item").length, 0);
   assert.equal(host.querySelector(".shared-empty h2")?.textContent, "Nothing shared from site");
   assert.equal(host.querySelector(".shared-filter button")?.textContent, "Show all 2");
+  // The empty state asks for a file too, exactly as the menu does.
+  assert.deepEqual(texts(host, ".shared-empty button"), ["Ask for a file"]);
+  calls.length = 0;
+  host.querySelector<HTMLButtonElement>(".shared-empty button")?.click();
+  assert.deepEqual(calls, ["ask"]);
+  // Without a current terminal there is no one to ask.
+  view.update({ ...full, canAsk: false, files: full.files.slice(2) });
+  assert.deepEqual(texts(host, ".shared-empty button"), []);
   host.querySelector<HTMLButtonElement>(".shared-filter button")?.click();
   assert.deepEqual(parseSharedRoute(calls.at(-1)!.slice("navigate ".length)), { back: terminal });
   view.destroy();
@@ -187,6 +195,7 @@ test("the empty page says how to share, and the tray button shows only a nonzero
   const { host, view, window } = page({ files: [] });
   assert.equal(host.querySelector(".shared-empty h2")?.textContent, "Nothing shared yet");
   assert.equal(host.querySelector(".shared-empty code")?.textContent, "shepherdr share <file>");
+  assert.equal(host.querySelectorAll(".shared-empty button").length, 0);
   assert.equal(host.querySelector<HTMLElement>(".shared-page-menu")?.hidden, true);
   const action = new SharedFilesAction(window.document as unknown as Document, () => undefined, "home-shared");
   assert.equal(action.element.getAttribute("aria-label"), "Shared files");

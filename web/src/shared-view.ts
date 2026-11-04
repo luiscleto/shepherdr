@@ -298,6 +298,7 @@ export class SharedPage {
     this.#empty.replaceChildren(
       element(document, "h2", undefined, from ? `Nothing shared from ${placeText(from)}` : "Nothing shared from this terminal"),
       ...(model.files.length > 0 ? [where] : []),
+      ...(model.canAsk ? [button(document, "Ask for a file", () => this.#actions.askForFile())] : []),
     );
   }
 
