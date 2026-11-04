@@ -260,3 +260,15 @@ func TestShareTerminalNamesATerminalOutsideEverySpaceByItsTitle(t *testing.T) {
 		}
 	}
 }
+
+func TestShareTerminalNamesAHerdrTUIWorkspaceByItsLabelWhateverItsID(t *testing.T) {
+	// A Herdr TUI workspace id is opaque, so one may read "other"; the
+	// client names it by its label too.
+	home := herdr.Home{Workspaces: []herdr.Workspace{
+		{ID: herdr.OtherTerminalsID, Label: "site", Tabs: []herdr.Tab{{ID: "1", Label: "1", Terminals: []herdr.Terminal{{PaneID: "p1", TerminalID: "term-1", Title: "claude"}}}}},
+	}}
+	found, ok := shareTerminal(home, "p1", false)
+	if !ok || found.Place != "site" {
+		t.Fatalf("got %+v %v, want place site", found, ok)
+	}
+}
