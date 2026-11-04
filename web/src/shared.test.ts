@@ -15,6 +15,7 @@ import {
   sortFiles,
   terminalFrom,
   unseenCount,
+  withLiveNames,
   type SharedFile,
   type SharedRoute,
 } from "./shared-model.ts";
@@ -256,4 +257,28 @@ test("a terminal outside every space is named by its own title, a placed one by 
   assert.deepEqual(terminalFrom("core", entry("sp1", "reports", "reports")), { herdr: "core", place: "reports", source: "" });
   assert.deepEqual(terminalFrom("core", entry("sp1", "reports", "writer", 2)), { herdr: "core", place: "reports", source: "", tab: "drafts" });
   assert.deepEqual(terminalFrom("tui", entry("other", "other", "site")), { herdr: "tui", place: "other", source: "" });
+});
+
+test("a file from a current terminal takes its live name; a gone terminal's file keeps the recorded one", () => {
+  const helper = { pane_id: "t11", terminal_id: "core:t11", workspace_id: "other" };
+  const shared = [
+    file("a", { from: { herdr: "core", place: "claude-code 2", source: site, agent: "claude-code", current: helper } }),
+    file("b", { from: { herdr: "core", place: "reports", tab: "drafts", source: review, agent: "codex", current: { ...helper, pane_id: "t9" } } }),
+    file("c", { from: { herdr: "core", place: "claude-code 1", source: review, agent: "claude-code" } }),
+    file("d"),
+  ];
+  const live = (herdr: string, target: { pane_id: string }) => target.pane_id === "t11"
+    ? { herdr: "core" as const, place: "claude-code", source: "", agent: "claude-code" }
+    : target.pane_id === "t9" ? { herdr: "core" as const, place: "reports", source: "" } : undefined;
+  const named = withLiveNames(shared, live);
+  // The current terminal's live name, shown once when it is the agent's too.
+  assert.equal(fromText(named[0].from, false), "claude-code");
+  assert.equal(named[0].from?.source, site);
+  assert.deepEqual(named[0].from?.current, helper);
+  // A live place drops a recorded tab and agent it no longer has.
+  assert.equal(fromText(named[1].from, false), "reports");
+  // A gone terminal keeps its recorded name; outside Herdr stays so.
+  assert.equal(fromText(named[2].from, false), "claude-code 1 · claude-code");
+  assert.equal(fromText(named[3].from, false), "Outside Herdr");
+  assert.equal(named[3], shared[3]);
 });

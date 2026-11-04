@@ -1,5 +1,6 @@
 import type { Herdr } from "./home-model";
 import {
+  agentText,
   filesFor,
   formatShared,
   formatSize,
@@ -261,7 +262,8 @@ export class SharedPage {
     text.append("From ");
     if (from) {
       text.append(element(document, "strong", undefined, placeText(from)));
-      if (from.agent) text.append(" ", element(document, "span", "quiet-inline", `· ${from.agent}`));
+      const agent = agentText(from);
+      if (agent) text.append(" ", element(document, "span", "quiet-inline", `· ${agent}`));
     } else {
       text.append("this terminal");
     }
@@ -326,7 +328,7 @@ export class SharedPage {
         const heading = element(document, "h2", "shared-group-heading");
         if (group.from) {
           heading.append(element(document, "strong", undefined, placeText(group.from)));
-          const rest = [group.from.agent, model.markHerdr(group.from.herdr) ? (group.from.herdr === "core" ? "Herdr Core" : "Herdr TUI") : undefined]
+          const rest = [agentText(group.from), model.markHerdr(group.from.herdr) ? (group.from.herdr === "core" ? "Herdr Core" : "Herdr TUI") : undefined]
             .filter((part): part is string => Boolean(part));
           heading.append(` · ${[...rest, String(group.files.length)].join(" · ")}`);
         } else {

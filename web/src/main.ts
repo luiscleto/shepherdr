@@ -53,6 +53,7 @@ import {
   sharedHash,
   terminalFrom,
   unseenCount,
+  withLiveNames,
   type SharedFile,
   type SharedFrom,
   type SharedRoute,
@@ -436,7 +437,8 @@ function renderShared(): void {
     const label = terminal ? terminalLabel(terminal) : undefined;
     sharedPage.update({
       canAsk: terminal !== undefined && label !== undefined && liveActionsAvailable(terminal.herdr),
-      files: sharedFiles,
+      files: sharedFiles && withLiveNames(sharedFiles, (herdr, target) =>
+        terminalLabel({ herdr, paneID: target.pane_id, terminalID: target.terminal_id })),
       markHerdr: sharedMarkHerdr,
       route,
       sort: sharedSort,

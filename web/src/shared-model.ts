@@ -233,10 +233,34 @@ export function terminalFrom(herdr: Herdr, entry: TerminalEntry): SharedFrom {
   };
 }
 
+// withLiveNames names each file whose terminal is still current as that
+// terminal is named on Home now. A file keeps the name it was shared with
+// once its terminal is gone.
+export function withLiveNames(files: readonly SharedFile[], live: (herdr: Herdr, target: SharedTarget) => SharedFrom | undefined): SharedFile[] {
+  return files.map((file) => {
+    const from = file.from;
+    const name = from?.current ? live(from.herdr, from.current) : undefined;
+    if (!from?.current || !name) return file;
+    return {
+      ...file,
+      from: {
+        current: from.current, herdr: from.herdr, place: name.place, source: from.source,
+        ...(name.tab ? { tab: name.tab } : {}), ...(name.agent ? { agent: name.agent } : {}),
+      },
+    };
+  });
+}
+
 // placeText is where a file came from: the space and tab, or the
 // workspace.
 export function placeText(from: SharedFrom): string {
   return from.tab ? `${from.place} / ${from.tab}` : from.place;
+}
+
+// agentText is the agent beside the place, unless the place already says it,
+// as an agent terminal outside every space does.
+export function agentText(from: SharedFrom): string | undefined {
+  return from.agent && from.agent !== placeText(from) ? from.agent : undefined;
 }
 
 // fromText is a file's From line. markHerdr names its Herdr when both are
@@ -244,7 +268,8 @@ export function placeText(from: SharedFrom): string {
 export function fromText(from: SharedFrom | undefined, markHerdr: boolean): string {
   if (!from) return "Outside Herdr";
   const parts = [placeText(from)];
-  if (from.agent) parts.push(from.agent);
+  const agent = agentText(from);
+  if (agent) parts.push(agent);
   if (markHerdr) parts.push(herdrNames[from.herdr]);
   return parts.join(" · ");
 }
