@@ -48,6 +48,12 @@ export function readerMessageAction(run: () => void): HTMLButtonElement {
   return button;
 }
 
+// ReaderDraft is the composer's unsent text and whether it was open.
+export interface ReaderDraft {
+  open: boolean;
+  text: string;
+}
+
 export class ReaderView {
   #visible = true;
   #insertOnly = false;
@@ -451,6 +457,22 @@ export class ReaderView {
     return this.#input.value;
   }
 
+  draft(): ReaderDraft {
+    return { open: !(this.#insertOnly ? this.#composerWasHidden : this.#composer.hidden), text: this.#input.value };
+  }
+
+  // restoreDraft puts back a draft from an earlier visit to this terminal,
+  // without taking focus.
+  restoreDraft(draft: ReaderDraft): void {
+    this.#input.value = draft.text;
+    if (draft.open && this.#collapsibleComposer) {
+      this.#composer.hidden = false;
+      this.#input.disabled = false;
+      this.#events.onLayout?.();
+    }
+    this.#syncSubmit();
+  }
+
   hasPendingFiles(): boolean {
     return this.#pendingFiles.length > 0;
   }
@@ -614,6 +636,16 @@ export class ReaderView {
 
   focus(): void {
     if (!this.#input.disabled) this.#input.focus();
+  }
+
+  // appendText adds text after the composer's text, leaving the caret at
+  // the end.
+  appendText(text: string): void {
+    const current = this.#input.value;
+    this.#input.value = current === "" || /\s$/.test(current) ? current + text : `${current} ${text}`;
+    this.#input.setSelectionRange(this.#input.value.length, this.#input.value.length);
+    if (!this.#input.disabled) this.#input.focus();
+    this.#syncSubmit();
   }
 
   paste(text: string): boolean {

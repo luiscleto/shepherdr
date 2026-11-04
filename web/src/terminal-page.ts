@@ -9,7 +9,7 @@ import { sendTerminalFiles, uploadStateAfterLastFileRemoved } from "./terminal/f
 import { terminalOwnershipAction, type TerminalOwnership } from "./terminal/ownership";
 import { readerActionAvailability, type ReaderInputState } from "./terminal/reader-availability";
 import { ReaderInputQueue } from "./terminal/reader-input";
-import { ReaderView, readerMessageAction, setIconButton } from "./terminal/reader-view";
+import { ReaderView, readerMessageAction, setIconButton, type ReaderDraft } from "./terminal/reader-view";
 import { TerminalSession, type SessionMode } from "./terminal/session";
 import { readTerminalView, saveTerminalView } from "./terminal/view-preference";
 import { XTermAdapter } from "./terminal/xterm-adapter";
@@ -33,7 +33,10 @@ interface TerminalPageOptions {
   // arrived: files already here bring no notice. Without it, the first list
   // the page is given counts as already here.
   shared?: readonly SharedFile[];
-  // message goes into the composer, unsent, once the page can take it.
+  // draft is Reader's unsent message from this terminal's previous page.
+  draft?: ReaderDraft;
+  // message goes into the composer, unsent, once the page can take it,
+  // after any draft.
   message?: string;
 }
 
@@ -179,7 +182,15 @@ export class TerminalPage {
     document.addEventListener("visibilitychange", this.#visibilityChanged);
     void this.#mountTerminal();
     if (options.shared) this.setShared(options.shared);
+    if (options.draft) this.#reader?.restoreDraft(options.draft);
     if (options.message) this.#fillMessage(options.message);
+  }
+
+  // draft is Reader's unsent message, for this terminal's next page. A
+  // desktop page has no composer of its own.
+  draft(): ReaderDraft | undefined {
+    const draft = this.#reader?.draft();
+    return draft?.text ? draft : undefined;
   }
 
   #sharedTerminal(): SharedTerminal {
@@ -230,14 +241,14 @@ export class TerminalPage {
   }
 
   // fillMessage puts text in the composer without sending it. On a phone
-  // that is Reader's Message; on a desktop, whose terminal takes typing
+  // that is Reader's Message, after any text already there; on a desktop, whose terminal takes typing
   // directly, it is pasted at the cursor once this page controls the
   // terminal, without Enter.
   #fillMessage(text: string): void {
     if (this.#mobile && this.#reader) {
       if (!this.#readerVisible) this.#switchView();
       this.#reader.showComposer();
-      this.#reader.paste(text);
+      this.#reader.appendText(text);
       return;
     }
     this.#pendingMessage = text;

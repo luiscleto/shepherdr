@@ -502,3 +502,24 @@ test("the Shared from here notice counts files from the first list as already he
   assert.equal(notice.hidden, false);
   assert.equal(notice.querySelector("span")?.textContent, "Shared from here: c.png");
 });
+
+test("a terminal's earlier draft comes back as it was, without opening a closed composer", async t => {
+  const { host, page } = pageBrowser(t, true, undefined, "tui", { draft: { open: false, text: "half a thought" } });
+  await tick();
+  assert.equal(host.querySelector<HTMLTextAreaElement>("textarea")!.value, "half a thought");
+  assert.equal(host.querySelector<HTMLElement>(".reader-composer")!.hidden, true);
+  assert.deepEqual(page.draft(), { open: false, text: "half a thought" });
+});
+
+test("a ready message goes after the terminal's earlier draft", async t => {
+  const { host, page } = pageBrowser(t, true, undefined, "tui", {
+    draft: { open: true, text: "Make the pricing chart." },
+    message: "Please share it.",
+  });
+  await tick();
+  assert.equal(host.querySelector<HTMLTextAreaElement>("textarea")!.value, "Make the pricing chart. Please share it.");
+  assert.equal(host.querySelector<HTMLElement>(".reader-composer")!.hidden, false);
+  assert.deepEqual(page.draft(), { open: true, text: "Make the pricing chart. Please share it." });
+  host.querySelector<HTMLTextAreaElement>("textarea")!.value = "";
+  assert.equal(page.draft(), undefined);
+});

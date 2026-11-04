@@ -38,6 +38,7 @@ import {
 } from "./home-model";
 import { parseCompleteHomeState } from "./home-parser";
 import { closeTerminalWhileCached, TerminalPage } from "./terminal-page";
+import type { ReaderDraft } from "./terminal/reader-view";
 import { parseTerminalRoute, returningToHome, terminalHash, terminalRouteOutcome, type TerminalRoute } from "./terminal-route";
 import { WorkspaceActionsClient } from "./workspace-actions";
 import { TerminalActionsClient, type TerminalActionTarget } from "./terminal-actions";
@@ -96,6 +97,13 @@ let sharedPage: SharedPage | undefined;
 let sentSharedView = "";
 // askingTerminal gets Ask for a file's message in its composer when it opens.
 let askingTerminal: SharedTerminal | undefined;
+// drafts keeps Reader's unsent message for each terminal whose page gave way
+// to Shared files, until that terminal opens again or Home shows.
+const drafts = new Map<string, ReaderDraft>();
+
+function draftKey(terminal: SharedTerminal): string {
+  return `${terminal.herdr} ${terminal.paneID} ${terminal.terminalID}`;
+}
 // shownHerdr stays undefined until both Herdrs are settled (Loading terminals).
 let shownHerdr: Herdr | undefined;
 let rememberedHerdr = readRememberedHerdr(() => window.localStorage);
@@ -443,6 +451,8 @@ function renderShared(): void {
 }
 
 function renderSharedPage(): void {
+  const draft = terminalPage?.draft();
+  if (terminalPage && draft) drafts.set(draftKey(terminalPage), draft);
   terminalPage?.destroy();
   terminalPage = undefined;
   document.body.classList.remove("terminal-active");
@@ -551,6 +561,7 @@ function render(): void {
 function renderHome(): void {
   terminalPage?.destroy();
   terminalPage = undefined;
+  drafts.clear();
   const state = shownState();
   const automaticPlace = automaticAllTerminalsPlace(homeMode, viewCount(homeMode, state.home), {
     focusPane: allTerminalsFocusPane,
@@ -788,6 +799,8 @@ function renderTerminal(route: TerminalRoute): void {
   const asking = askingTerminal !== undefined && askingTerminal.herdr === herdr && askingTerminal.paneID === paneID &&
     askingTerminal.terminalID === exact.terminalID;
   askingTerminal = undefined;
+  const draft = drafts.get(draftKey(exact));
+  drafts.delete(draftKey(exact));
   terminalPage = new TerminalPage(app, {
     agentStatus: entry.terminal.agent?.status,
     herdr,
@@ -800,6 +813,7 @@ function renderTerminal(route: TerminalRoute): void {
     onNotifications: () => notifications.openSettings(),
     onShared: () => openSharedFiles(exact),
     ...(sharedFiles ? { shared: sharedFiles } : {}),
+    ...(draft ? { draft } : {}),
     ...(asking ? { message: askForFileMessage } : {}),
   });
   syncSharedView();
