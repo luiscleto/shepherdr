@@ -204,7 +204,7 @@ There is no retry.
 
 **Gate.**
 - At start: `--version` and `commands`.
-- Validated: 0.1.10 through 0.1.12. Newer versions run best effort with a warning, like core.
+- Validated: 0.1.10 through 0.1.13. Newer versions run best effort with a warning, like core.
 - Required commands and arguments:
   - `space.new {name, folder}`;
   - `pane.split {direction, pane}`;
@@ -348,7 +348,7 @@ New section 4b, "App window actions" (wave 3b only):
 ## 4b. App window actions (wave 3b)
 
 - Shepherdr runs `herdr-app` from `PATH` only as `--version`, `commands`, `status` and `do <command> <one JSON object>`, with no shell. It never runs bare `herdr-app`, which opens the window. If `herdr-app` is missing, or Shepherdr follows a non-default core socket, app actions are off and this is logged once.
-- Gate: herdr-app 0.1.10 through 0.1.12 validated; newer runs best effort with a warning. `commands` must list `space.new {name, folder}`, `pane.split {direction, pane}` and `space.rename {id, name}`.
+- Gate: herdr-app 0.1.10 through 0.1.13 validated; newer runs best effort with a warning. `commands` must list `space.new {name, folder}`, `pane.split {direction, pane}` and `space.rename {id, name}`.
 - Window open = `herdr-app status` exits 0 within 2 s. It is checked every 5 s and before each app action. A change publishes one complete Home.
 - Results: exit 0 = succeeded; "the window did not answer", "the window hung up", or a timeout = unknown; "no Herdr window" = not sent ("The Herdr app window is closed. Open it on the computer, then try again."); other errors = refused, with the app's message. There is no retry. Afterwards, one complete core read.
 - New space shows the new space in the app window. New terminal focuses the new pane when its tab is shown there.
