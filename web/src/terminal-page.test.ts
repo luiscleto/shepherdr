@@ -15,6 +15,11 @@ const bundle = await build({
 const { closeTerminalWhileCached, TerminalPage, XTermAdapter } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString("base64")}`);
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+// Node's own async work, such as reading a file or a reply's body, can take
+// many turns on a slow machine, so wait for the real condition, within a bound.
+const until = async (ready: () => boolean, ms = 10_000) => {
+  for (const deadline = Date.now() + ms; !ready() && Date.now() < deadline;) await tick();
+};
 
 test("logical keys leave the Reader draft alone and require deliberate recovery without reconnecting", async t => {
   const { host, browser, sockets } = pageBrowser(t, true);
@@ -561,11 +566,11 @@ test("Shared files and Show files wait while files are sending, as the view swit
   assert.deepEqual([sharedButton.disabled, show.disabled, toggle.disabled], [false, false, false]);
   assert.equal(page.draft()?.files.length, 1);
   host.querySelector<HTMLButtonElement>(".reader-send")!.click();
-  for (let i = 0; i < 20 && !reply; i++) await tick();
+  await until(() => Boolean(reply));
   assert.deepEqual([sharedButton.disabled, show.disabled, toggle.disabled], [true, true, true]);
   // Browser Back can still leave for Shared files; the send's result is not known yet.
   assert.equal(page.draft(), undefined);
   reply(new Response(JSON.stringify({ message: "Terminal input was sent.", result: "forwarded" })));
-  for (let i = 0; i < 5 && sharedButton.disabled; i++) await tick();
+  await until(() => !sharedButton.disabled && !show.disabled && !toggle.disabled);
   assert.deepEqual([sharedButton.disabled, show.disabled, toggle.disabled], [false, false, false]);
 });
