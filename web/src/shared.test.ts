@@ -84,6 +84,9 @@ test("shared routes round-trip and ignore anything malformed", () => {
     {},
     { file: "a".repeat(32) },
     { back: terminal, filter: { herdr: "core", terminal } },
+    // Show all from a terminal's list keeps Back to it.
+    { back: terminal },
+    { back: terminal, file: "a".repeat(32) },
     { filter: { herdr: "tui", source: site } },
   ];
   for (const route of routes) assert.deepEqual(parseSharedRoute(sharedHash(route)), route);
@@ -160,6 +163,8 @@ test("a terminal's filtered list, its empty state and Ask for a file", () => {
   assert.equal(host.querySelectorAll(".shared-item").length, 0);
   assert.equal(host.querySelector(".shared-empty h2")?.textContent, "Nothing shared from site");
   assert.equal(host.querySelector(".shared-filter button")?.textContent, "Show all 2");
+  host.querySelector<HTMLButtonElement>(".shared-filter button")?.click();
+  assert.deepEqual(parseSharedRoute(calls.at(-1)!.slice("navigate ".length)), { back: terminal });
   view.destroy();
   window.close();
 });

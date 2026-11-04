@@ -270,7 +270,8 @@ export function formatShared(at: number, now: Date): string {
 }
 
 // SharedRoute is the Shared files page's place in the address: an open
-// file, a filter, and the terminal Back returns to.
+// file, a filter, and the terminal Back returns to. A terminal's list shown
+// whole keeps its terminal for Back, marked "all".
 export interface SharedRoute {
   back?: SharedTerminal;
   file?: string;
@@ -286,13 +287,14 @@ export function parseSharedRoute(hash: string): SharedRoute | undefined {
   const paneID = parameters.get("terminal");
   const terminalID = parameters.get("terminal_id");
   const source = parameters.get("source");
+  const all = parameters.get("all") === "1";
   const route: SharedRoute = {};
   if (idPattern.test(file)) route.file = file;
   if (herdr) {
     const terminal: SharedTerminal | undefined = paneID && terminalID ? { herdr, paneID, terminalID } : undefined;
     const knownSource = source && sourcePattern.test(source) ? source : undefined;
     if (terminal) route.back = terminal;
-    if (terminal || knownSource) {
+    if (!all && (terminal || knownSource)) {
       route.filter = { herdr, ...(knownSource ? { source: knownSource } : {}), ...(terminal ? { terminal } : {}) };
     }
   }
@@ -310,6 +312,11 @@ export function sharedHash(route: SharedRoute): string {
       parameters.set("terminal_id", filter.terminal.terminalID);
     }
     if (filter.source) parameters.set("source", filter.source);
+  } else if (route.back) {
+    parameters.set("herdr", route.back.herdr);
+    parameters.set("terminal", route.back.paneID);
+    parameters.set("terminal_id", route.back.terminalID);
+    parameters.set("all", "1");
   }
   return `#${parameters.toString().replace(/^shared=&/, "shared&").replace(/^shared=$/, "shared")}`;
 }
