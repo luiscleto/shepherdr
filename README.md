@@ -170,7 +170,7 @@ While an agent is in a terminal, you can attach photos and files. Shepherdr save
 
 After the workspace is closed, Shepherdr deletes that folder. Cleanup is best effort.
 
-Agents share files back with `shepherdr share FILE...`; Shepherdr keeps a copy in `-share-dir` until someone deletes it in **Shared files**. Keep `shepherdr` on `PATH` for agents, for example in `~/.local/bin`. Paste this into your agents' global instructions, such as `~/.claude/CLAUDE.md` (the full note is in **Settings → For your agents** and `shepherdr --skill`):
+Agents share files back with `shepherdr share FILE...`; Shepherdr keeps a copy in `-share-dir` until someone deletes it in **Shared files**. Keep `shepherdr` on `PATH` for agents, for example in `~/.local/bin`. An agent in a sandbox that blocks local sockets must run `shepherdr share` outside it. Paste this into your agents' global instructions, such as `~/.claude/CLAUDE.md` (the full note is in **Settings → For your agents** and `shepherdr --skill`):
 
 ```text
 When I ask to see a file you made, share it with me in Shepherdr:

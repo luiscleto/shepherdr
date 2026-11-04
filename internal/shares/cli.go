@@ -46,6 +46,8 @@ asked to see: Shepherdr keeps each copy until they delete it.
 Share regular files, not folders; share a zip for several. Shepherdr refuses a
 file larger than its limit for one file, or one that would pass its total.
 
+In a sandbox that blocks local sockets, run shepherdr share outside it.
+
 Options:
   -socket PATH   Shepherdr's share socket
                  (default $XDG_RUNTIME_DIR/shepherdr/share.sock)
