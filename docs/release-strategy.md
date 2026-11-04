@@ -27,7 +27,7 @@ Replace the SHA placeholder with the exact approved integrated commit. The workf
 
 ## Browser assets and installation
 
-The Go executable embeds `web/dist`, which is about 1.4 MiB and contains the built application, terminal bundle, WASM, and static assets. Production builds must run `npm ci` and the web build before `go build`. GitHub's generated source archives and `go install` cannot run npm as part of the Go module build.
+The Go executable embeds `web/dist`, which is about 0.75 MiB and contains the built application, terminal bundle, and static assets; the terminal lab's WASM was removed with the lab on 2026-11-04 by human decision. Production builds must run `npm ci` and the web build before `go build`. GitHub's generated source archives and `go install` cannot run npm as part of the Go module build.
 
 To make `go install` an optional convenience, the deterministic `web/dist` output is tracked in ordinary source and release tags, marked as generated, and verified by CI against a clean rebuild. This is a narrow exception to `AGENTS.md`; it does not permit other generated output. Release-only asset commits and a separate asset module are unnecessary. With the repository module corrected to its canonical identity, installation is:
 

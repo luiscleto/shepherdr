@@ -4,6 +4,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Removed
+
+- The developer-only terminal lab and its `-terminal-lab` flag.
+
 ## [0.7.0] - 2026-11-04
 
 ### Added

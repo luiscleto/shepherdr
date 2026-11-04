@@ -53,7 +53,7 @@ One workspace-scoped gate coordinates file send with workspace cleanup. Files re
 
 `-upload-parent` defaults to the platform temporary directory. `-upload-limit` defaults to `1GiB` of file bytes per send; files stream to disk, and `none` removes the file-byte and request-line bounds and accepts the corresponding disk and transfer risk and an unbounded request line in memory. Shepherdr and Herdr agents run as the same operating-system account.
 
-The renderer comparison lab remains development-only behind its explicit flag. Shepherdr has no durable terminal store and does not parse terminal output into Home, agent state, access, or application actions.
+The development-only renderer comparison lab and its flag were removed on 2026-11-04 by human decision. Shepherdr has no durable terminal store and does not parse terminal output into Home, agent state, access, or application actions.
 
 ## Earlier accepted real-phone gates
 
