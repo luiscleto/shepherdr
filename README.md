@@ -24,6 +24,7 @@
 - **never hunt for the stuck one** — every terminal is marked working, blocked, idle, done, or unknown. when an agent needs you, shepherdr says so.
 - **open the exact terminal** — read it, send text or shortcuts, and attach files while an agent is there. shepherdr never substitutes another pane.
 - **herdr tui or the herdr app** — works with both. when both run, a switch on home picks one. with the app, spaces are the rows and their tabs nest underneath.
+- **files from your agents** — an agent runs `shepherdr share` and the file shows up on your phone to preview, download, or delete. a number marks what's new.
 - **workspaces from the phone** — create a workspace, add a worktree, close what's done, delete a clean checkout. herdr still does the work.
 - **notifications that mean something** — blocked, done, or a trusted sign-in change. tap through to that terminal, or home if it's gone.
 - **passkeys, not accounts** — trust this phone once. later visits are sign in with a passkey. no email, no password. a new browser cannot trust itself.
@@ -151,7 +152,7 @@ An HTTPS website is also accepted.
 
 | On by default | Off by default |
 | --- | --- |
-| `blocked`, `error` (Herdr app), `done`, trusted sign-in added/removed | `working`, `idle`, `unknown`, workspace opened/closed |
+| `blocked`, `error` (Herdr app), `done`, trusted sign-in added/removed | `working`, `idle`, `unknown`, workspace opened/closed, file shared |
 
 iPhone or iPad: add Shepherdr to the Home Screen and open it there before enabling. Android Chrome does not need that.
 
@@ -169,6 +170,14 @@ While an agent is in a terminal, you can attach photos and files. Shepherdr save
 
 After the workspace is closed, Shepherdr deletes that folder. Cleanup is best effort.
 
+Agents share files back with `shepherdr share FILE...`; Shepherdr keeps a copy in `-share-dir` until someone deletes it in **Shared files**. Keep `shepherdr` on `PATH` for agents, for example in `~/.local/bin`. Paste this into your agents' global instructions, such as `~/.claude/CLAUDE.md` (the full note is in **Settings → For your agents** and `shepherdr --skill`):
+
+```text
+When I ask to see a file you made, share it with me in Shepherdr:
+run `shepherdr share FILE...` (details: `shepherdr share --help`).
+Share only what I asked to see.
+```
+
 ## Flags
 
 | Flag | Default | Notes |
@@ -183,5 +192,9 @@ After the workspace is closed, Shepherdr deletes that folder. Cleanup is best ef
 | `-upload-min-rate` | `8KiB` | Per second, after a send's first 30 seconds. Bytes, `KiB`/`MiB`/`GiB`, or `none`. |
 | `-request-body-time` | `30s` | For every other request body. At least `1s`. |
 | `-herdr-reply-limit` | `64MiB` | Largest reply read from Herdr. At least `1MiB`. |
+| `-share-dir` | `$XDG_DATA_HOME/shepherdr/shared` | Shared files, kept until deleted. Else `~/.local/share/shepherdr/shared`; on macOS without `XDG_DATA_HOME`, the user config folder. |
+| `-share-limit` | `1GiB` | Largest shared file. Bytes, `KiB`/`MiB`/`GiB`, or `none`. |
+| `-share-total` | `10GiB` | Most kept in all; new shares are refused past it. Bytes, `KiB`/`MiB`/`GiB`, or `none`. |
+| `-share-socket` | `$XDG_RUNTIME_DIR/shepherdr/share.sock` | Owner-only socket `shepherdr share` uses (`share -socket` to match). Without `XDG_RUNTIME_DIR`, beside Shepherdr's state. |
 
 Apache License 2.0.

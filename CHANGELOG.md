@@ -4,6 +4,12 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- Agents can share files with you: `shepherdr share FILE...` copies them to Shepherdr, and **Shared files**, from Home or a terminal, lists them to preview, download or delete, with a number for files nobody has looked at yet.
+- An optional **File shared** notification, off by default, opens the files that terminal shared.
+- `shepherdr --skill` and **Settings → For your agents** give a short note to paste into your agents' instructions so they know about `shepherdr share`.
+
 ## [0.6.1] - 2026-11-03
 
 ### Added
