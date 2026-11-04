@@ -321,17 +321,29 @@ func shareRefusal(err error, store *Store) string {
 	var full *FullError
 	switch {
 	case errors.Is(err, ErrTooLarge):
-		return fmt.Sprintf("it's larger than %s, the most Shepherdr keeps for one file", formatLimit(store.limit))
+		return fmt.Sprintf("it's larger than %s, the most Shepherdr keeps for one file", formatLimit(store.limit.Bytes))
 	case errors.As(err, &full):
 		return fmt.Sprintf("shared files are full: %s of %s kept. Ask the person to delete some in Shepherdr, then share again",
-			FormatSize(full.Kept), FormatSize(full.Total))
+			formatLimit(full.Kept), formatLimit(full.Total))
 	default:
 		return "Shepherdr couldn't store it"
 	}
 }
 
-func formatLimit(limit uploads.Limit) string {
-	return FormatSize(limit.Bytes)
+// formatLimit is a size in the binary units the limits are given in, such
+// as 1 GiB, so a limit reads as it was set.
+func formatLimit(size int64) string {
+	value, unit := float64(size), "B"
+	for _, next := range []string{"KiB", "MiB", "GiB", "TiB"} {
+		if value < 1024 {
+			break
+		}
+		value, unit = value/1024, next
+	}
+	if unit == "B" {
+		return fmt.Sprintf("%d B", size)
+	}
+	return trimSize(value) + " " + unit
 }
 
 func readLine(reader *bufio.Reader, value any) error {

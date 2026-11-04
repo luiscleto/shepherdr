@@ -481,6 +481,12 @@ func TestFileTypesAndSizes(t *testing.T) {
 			t.Errorf("FormatSize(%d) = %s, want %s", size, got, want)
 		}
 	}
+	// Limits read in the binary units they are given in.
+	for size, want := range map[int64]string{12: "12 B", 10 << 10: "10 KiB", 39_000: "38 KiB", 1 << 30: "1 GiB", 10 << 30: "10 GiB", 1536 << 20: "1.5 GiB"} {
+		if got := formatLimit(size); got != want {
+			t.Errorf("formatLimit(%d) = %s, want %s", size, got, want)
+		}
+	}
 	if Tag("x.jpeg") != "JPG" || Tag("x.tar.gz") != "GZ" || Tag("x.verylong") != "FILE" || Tag("noext") != "FILE" {
 		t.Fatal("tags")
 	}
