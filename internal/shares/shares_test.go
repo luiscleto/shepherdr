@@ -96,6 +96,10 @@ func TestStoreKeepsCopiesAcrossRestartAndClearsLeftovers(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, orphan), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	// An index write that stopped before its rename.
+	if err := os.WriteFile(filepath.Join(dir, ".shared-123"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	reopened := openStore(t, dir, 1<<20, 1<<20)
 	list := reopened.List()
 	if len(list) != 1 || list[0].ID != first.ID || list[0].Source == nil || list[0].Source.Place != "site" {
@@ -106,6 +110,9 @@ func TestStoreKeepsCopiesAcrossRestartAndClearsLeftovers(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, orphan)); !os.IsNotExist(err) {
 		t.Fatalf("orphan folder kept: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".shared-123")); !os.IsNotExist(err) {
+		t.Fatalf("temporary index kept: %v", err)
 	}
 }
 

@@ -25,6 +25,7 @@ import (
 
 const (
 	indexName      = "shared.json"
+	indexTemporary = ".shared-" // starts the name of an index being written
 	incomingName   = ".incoming"
 	indexVersion   = 1
 	maxIndexBytes  = 16 << 20
@@ -213,6 +214,14 @@ func (s *Store) load() error {
 		return err
 	}
 	for _, entry := range entries {
+		// An index write that stopped before its rename left its temporary
+		// copy.
+		if strings.HasPrefix(entry.Name(), indexTemporary) {
+			if err := s.root.Remove(entry.Name()); err != nil {
+				return err
+			}
+			continue
+		}
 		if validID(entry.Name()) && !known[entry.Name()] {
 			s.logger.Warn("Removed a shared file that was never listed", "id", entry.Name())
 			if err := s.root.RemoveAll(entry.Name()); err != nil {
@@ -290,7 +299,7 @@ func (s *Store) writeIndex() error {
 		return err
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(s.dir, ".shared-*")
+	temporary, err := os.CreateTemp(s.dir, indexTemporary+"*")
 	if err != nil {
 		return fmt.Errorf("write the shared files index: %w", err)
 	}
