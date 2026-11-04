@@ -574,11 +574,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          release_name="Shepherdr $RELEASE_TAG"
           # The by-tag release endpoint returns published releases only, so it
           # cannot see an earlier run's draft. The release list includes drafts
-          # for a token with write access; match the tag there instead.
+          # for a token with write access; match the tag there instead. A draft
+          # once edited without tag_name reports an untagged-<hash> tag_name,
+          # so such a draft also belongs to this tag when its name or target
+          # is this release's. Matching too much is safe: two drafts stop the run.
+          releases_for_tag() { # releases.json tag name sha
+            jq -cs --arg tag "$2" --arg name "$3" --arg sha "$4" '[.[][]
+              | select(.tag_name == $tag
+                  or (.draft == true
+                    and ((.tag_name // "") | startswith("untagged-"))
+                    and (.name == $name or .target_commitish == $sha)))
+              | {id, draft}]' "$1"
+          }
           gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
-          tagged=$(jq -cs --arg tag "$RELEASE_TAG" '[.[][] | select(.tag_name == $tag) | {id, draft}]' "$RUNNER_TEMP/releases.json")
+          tagged=$(releases_for_tag "$RUNNER_TEMP/releases.json" "$RELEASE_TAG" "$release_name" "$RELEASE_SHA")
           published_count=$(jq -r '[.[] | select(.draft != true)] | length' <<<"$tagged")
           draft_count=$(jq -r '[.[] | select(.draft == true)] | length' <<<"$tagged")
           if [[ "$published_count" != "0" ]]; then
@@ -605,17 +617,21 @@ jobs:
               echo "draft release lookup returned an invalid release ID" >&2
               exit 1
             fi
-            # Without a draft field, the PATCH keeps the release a draft.
+            # Without a draft field, the PATCH keeps the release a draft. It
+            # always sends the tag and target: a draft edited without them
+            # loses its tag_name, and publishing it would not use the tag.
             require_draft
             gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
-              -f name="Shepherdr v0.7.0" \
+              -f tag_name="$RELEASE_TAG" \
+              -f target_commitish="$RELEASE_SHA" \
+              -f name="$release_name" \
               -F prerelease=false \
               -F body=@release-body.md >/dev/null
           else
             release_id=$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases" \
               -f tag_name="$RELEASE_TAG" \
               -f target_commitish="$RELEASE_SHA" \
-              -f name="Shepherdr v0.7.0" \
+              -f name="$release_name" \
               -F draft=true \
               -F prerelease=false \
               -F body=@release-body.md \
@@ -628,6 +644,12 @@ jobs:
 
           release_path="repos/$GITHUB_REPOSITORY/releases/$release_id"
           require_draft
+          release_ref=$(gh api "$release_path" --jq '"\(.tag_name) \(.target_commitish)"')
+          if [[ "$release_ref" != "$RELEASE_TAG $RELEASE_SHA" ]]; then
+            echo "draft release $release_id has tag and target $release_ref, not $RELEASE_TAG $RELEASE_SHA" >&2
+            exit 1
+          fi
+          echo "Draft release ID: $release_id" >> "$GITHUB_STEP_SUMMARY"
           upload_url=$(gh api "$release_path" --jq '.upload_url')
           upload_url=${upload_url%%\{*}
           if [[ "$upload_url" != https://*"/repos/$GITHUB_REPOSITORY/releases/$release_id/assets" ]]; then
