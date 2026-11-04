@@ -9,10 +9,10 @@ import type { TerminalAdapterEvents } from "./terminal/adapter";
 // Browsers have no Node Buffer. The grapheme addon decodes its tables through
 // Buffer when it exists and misreads Node's pooled bytes, which can loop forever.
 const bundle = await build({
-  stdin: { contents: 'export { closeTerminalWhileCached, TerminalPage } from "./terminal-page"; export { XTermAdapter } from "./terminal/xterm-adapter";', resolveDir: `${process.cwd()}/src` },
+  stdin: { contents: 'export { closeTerminalWhileCached, TerminalPage } from "./terminal-page"; export { XTermAdapter } from "./terminal/xterm-adapter"; export { Terminal } from "@xterm/xterm";', resolveDir: `${process.cwd()}/src` },
   bundle: true, format: "esm", write: false, define: { Buffer: "undefined" },
 });
-const { closeTerminalWhileCached, TerminalPage, XTermAdapter } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString("base64")}`);
+const { closeTerminalWhileCached, Terminal, TerminalPage, XTermAdapter } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString("base64")}`);
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 // Node's own async work, such as reading a file or a reply's body, can take
@@ -150,6 +150,34 @@ test("xterm waits for both font outcomes and departure prevents delayed resource
   assert.equal(host.childElementCount, 0);
   assert.equal(resizeCalls, 0);
   assert.equal(adapter.paste("probe"), false);
+});
+
+test("the terminal counts a grapheme cluster as one character, as Herdr does", async t => {
+  const browser = new Window({ url: "http://localhost/" });
+  const originals = { document: globalThis.document, ResizeObserver: globalThis.ResizeObserver };
+  Object.defineProperty(browser.document, "fonts", { value: { load: async () => [] } });
+  globalThis.document = browser.document as unknown as Document;
+  globalThis.ResizeObserver = class { observe() {} disconnect() {} } as unknown as typeof ResizeObserver;
+  // The real xterm loads the real grapheme addon; only drawing is stubbed.
+  // Without allowProposedApi the addon cannot reach xterm's unicode API.
+  t.mock.method(Terminal.prototype, "open", () => {});
+  let terminal: { options: { allowProposedApi?: boolean }; unicode: { activeVersion: string } } | undefined;
+  const loadAddon = Terminal.prototype.loadAddon;
+  t.mock.method(Terminal.prototype, "loadAddon", function (this: typeof terminal, addon: unknown) {
+    terminal = this;
+    return loadAddon.call(this, addon);
+  });
+  const adapter = new XTermAdapter();
+  t.after(() => {
+    adapter.destroy();
+    Object.assign(globalThis, originals);
+    browser.close();
+  });
+  const host = browser.document.createElement("div");
+  browser.document.body.append(host);
+  await adapter.mount(host, { onData() {}, onResize() {} });
+  assert.equal(terminal?.options.allowProposedApi, true);
+  assert.equal(terminal?.unicode.activeVersion, "15-graphemes");
 });
 
 function pageBrowser(t: test.TestContext, mobile: boolean, savedShortcuts?: string, herdr: "tui" | "core" = "tui", options: Record<string, unknown> = {}) {
