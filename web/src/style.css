@@ -1843,6 +1843,12 @@ button.terminal-row:hover {
   min-height: 100dvh;
 }
 
+/* The notifications invitation would cover the list's last rows and the
+   preview's footer, so it waits for another page. */
+#app.shared-screen ~ #notifications .notification-invitation {
+  display: none;
+}
+
 .shared-page {
   width: min(100%, 50rem);
   margin: 0 auto;
