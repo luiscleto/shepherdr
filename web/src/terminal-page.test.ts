@@ -147,7 +147,7 @@ test("xterm waits for both font outcomes and departure prevents delayed resource
   assert.equal(adapter.paste("probe"), false);
 });
 
-function pageBrowser(t: test.TestContext, mobile: boolean, savedShortcuts?: string, herdr: "tui" | "core" = "tui") {
+function pageBrowser(t: test.TestContext, mobile: boolean, savedShortcuts?: string, herdr: "tui" | "core" = "tui", options: Record<string, unknown> = {}) {
   const browser = new Window({ url: "http://localhost/" });
   if (savedShortcuts !== undefined) browser.localStorage.setItem("shepherdr.terminal.shortcuts", savedShortcuts);
   const originals = new Map<string, unknown>();
@@ -192,7 +192,7 @@ function pageBrowser(t: test.TestContext, mobile: boolean, savedShortcuts?: stri
   }
   const host = browser.document.createElement("div");
   browser.document.body.append(host);
-  const page = new TerminalPage(host, { herdr, paneID: "trial:p1", terminalID: "term-trial", workspaceID: "trial", title: "Trial", agentStatus: "idle" }, { onHome() {} });
+  const page = new TerminalPage(host, { herdr, paneID: "trial:p1", terminalID: "term-trial", workspaceID: "trial", title: "Trial", agentStatus: "idle" }, { onHome() {}, ...options });
   t.after(() => {
     page.destroy();
     for (const [key, value] of originals) (globalThis as Record<string, unknown>)[key] = value;
@@ -484,4 +484,21 @@ test("desktop controller failure falls back to observation and explicit Control"
   await tick();
   assert.equal(new URL(sockets[2].url).searchParams.get("mode"), "control");
   assert.equal(sockets[2].commands.length, 0);
+});
+
+test("the Shared from here notice counts files from the first list as already here", async t => {
+  const shared = (id: string) => ({
+    id: id.repeat(32), kind: "image", name: `${id}.png`, seen: false, shared_at: 1_000, size: 10, tag: "PNG",
+    from: { herdr: "tui", place: "trial", source: "a".repeat(24), current: { pane_id: "trial:p1", terminal_id: "term-trial", workspace_id: "trial" } },
+  });
+  // A fresh load opens the page before the list arrives.
+  const { host, page } = pageBrowser(t, false, undefined, "tui", { onShared() {} });
+  await tick();
+  const notice = host.querySelector<HTMLElement>(".shared-here-banner")!;
+  page.setShared([shared("a"), shared("b")]);
+  assert.equal(notice.hidden, true);
+  assert.equal(host.querySelector(".terminal-shared")?.getAttribute("aria-label"), "Shared files from this terminal, 2 new");
+  page.setShared([shared("a"), shared("b"), shared("c")]);
+  assert.equal(notice.hidden, false);
+  assert.equal(notice.querySelector("span")?.textContent, "Shared from here: c.png");
 });

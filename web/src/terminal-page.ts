@@ -29,8 +29,9 @@ interface TerminalPageOptions {
   onHome(): void;
   onNotifications?(): void;
   onShared?(): void;
-  // shared is the shared files list when the page opens: files already
-  // here bring no notice.
+  // shared is the shared files list when the page opens, if one has
+  // arrived: files already here bring no notice. Without it, the first list
+  // the page is given counts as already here.
   shared?: readonly SharedFile[];
   // message goes into the composer, unsent, once the page can take it.
   message?: string;
@@ -105,7 +106,8 @@ export class TerminalPage {
   #sharedAction: SharedFilesAction | undefined;
   #sharedNotice: HTMLDivElement | undefined;
   #sharedNoticeText: HTMLSpanElement | undefined;
-  #sharedKnown = new Set<string>();
+  // The files known before this visit, once a list has arrived.
+  #sharedKnown: Set<string> | undefined;
   #sharedDismissed = new Set<string>();
   #pendingMessage: string | undefined;
   #visibilityChanged = (): void => {
@@ -176,9 +178,7 @@ export class TerminalPage {
     this.#render();
     document.addEventListener("visibilitychange", this.#visibilityChanged);
     void this.#mountTerminal();
-    const here = this.#sharedTerminal();
-    for (const file of options.shared ?? []) if (currentlyFrom(file, here)) this.#sharedKnown.add(file.id);
-    this.setShared(options.shared ?? []);
+    if (options.shared) this.setShared(options.shared);
     if (options.message) this.#fillMessage(options.message);
   }
 
@@ -213,10 +213,12 @@ export class TerminalPage {
   // setShared shows this terminal's unseen count and a notice for files it
   // shared during this visit.
   setShared(files: readonly SharedFile[]): void {
+    this.#sharedKnown ??= new Set(files.map((file) => file.id));
+    const known = this.#sharedKnown;
     const here = this.#sharedTerminal();
     const mine = files.filter((file) => currentlyFrom(file, here));
     this.#sharedAction?.setCount(unseenCount(mine));
-    const arrivals = sortFiles(mine.filter((file) => !this.#sharedKnown.has(file.id) && !this.#sharedDismissed.has(file.id)), "newest");
+    const arrivals = sortFiles(mine.filter((file) => !known.has(file.id) && !this.#sharedDismissed.has(file.id)), "newest");
     this.#sharedArrivals = arrivals.map((file) => file.id);
     const notice = this.#sharedNotice;
     const text = this.#sharedNoticeText;

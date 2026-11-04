@@ -425,7 +425,7 @@ function terminalLabel(terminal: SharedTerminal): SharedFrom | undefined {
 // and Terminal counts, the Terminal notice and the Shared files page.
 function renderShared(): void {
   homeView.setSharedCount(unseenCount(sharedFiles ?? []));
-  terminalPage?.setShared(sharedFiles ?? []);
+  if (sharedFiles) terminalPage?.setShared(sharedFiles);
   const route = parseSharedRoute(window.location.hash);
   if (sharedPage && route) {
     const terminal = route.filter?.terminal;
@@ -799,7 +799,7 @@ function renderTerminal(route: TerminalRoute): void {
     onHome: leaveTerminal,
     onNotifications: () => notifications.openSettings(),
     onShared: () => openSharedFiles(exact),
-    shared: sharedFiles ?? [],
+    ...(sharedFiles ? { shared: sharedFiles } : {}),
     ...(asking ? { message: askForFileMessage } : {}),
   });
   syncSharedView();
