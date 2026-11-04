@@ -78,7 +78,7 @@ func RunShare(arguments []string, stdout, stderr io.Writer, getenv func(string) 
 	}
 	connection, err := net.DialTimeout("unix", path, 5*time.Second)
 	if err != nil {
-		fmt.Fprintln(stderr, "Shepherdr isn't running, so nothing was shared. Ask the person to start Shepherdr, then share again.")
+		fmt.Fprintln(stderr, dialFailure(path, err))
 		return 1
 	}
 	defer connection.Close()
@@ -104,6 +104,23 @@ func RunShare(arguments []string, stdout, stderr io.Writer, getenv func(string) 
 		return 1
 	}
 	return 0
+}
+
+// dialFailure says why the share socket couldn't be reached. No socket, or
+// nothing listening, means Shepherdr isn't running. Anything else, such as a
+// sandbox that blocks local sockets, is not that, and saying so would send
+// the person to restart a Shepherdr that is running.
+func dialFailure(path string, err error) string {
+	if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED) {
+		return "Shepherdr isn't running, so nothing was shared. Ask the person to start Shepherdr, then share again."
+	}
+	reason := err.Error()
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		reason = errno.Error()
+	}
+	return fmt.Sprintf("Shepherdr's share socket %s can't be reached from here (%s), so nothing was shared. "+
+		"A sandbox may be blocking local sockets: run shepherdr share where it can reach that socket.", path, reason)
 }
 
 func claimFromEnvironment(getenv func(string) string) Claim {
