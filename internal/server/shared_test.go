@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -123,10 +124,46 @@ func TestSharedFilesAreServedWithFixedConfiningHeaders(t *testing.T) {
 	if head.StatusCode != http.StatusOK || head.Header.Get("Content-Length") != "10" || head.Header.Get("Content-Security-Policy") != sharedFilePolicy {
 		t.Fatalf("head = %d %v", head.StatusCode, head.Header)
 	}
-	missing, _ := http.Get(server.URL + "/api/shared/" + strings.Repeat("ab", 16))
-	missing.Body.Close()
-	if missing.StatusCode != http.StatusNotFound {
-		t.Fatalf("unknown id = %d", missing.StatusCode)
+	// Errors carry the same fixed headers: a range past the end, an unknown
+	// id and a malformed one.
+	past := get(http.MethodGet, "clip.mp4", "", http.Header{"Range": {"bytes=100-"}})
+	requireFixedSharedHeaders(t, "416", past, http.StatusRequestedRangeNotSatisfiable)
+	for _, path := range []string{strings.Repeat("ab", 16), "xyz"} {
+		missing, err := http.Get(server.URL + "/api/shared/" + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		missing.Body.Close()
+		requireFixedSharedHeaders(t, "404 "+path, missing, http.StatusNotFound)
+	}
+}
+
+func TestSharedFileRefusalsCarryTheFixedHeaders(t *testing.T) {
+	application, manager, store, _ := newProtectedTestServer(t, nil)
+	defer manager.Close()
+	defer store.Close()
+	shared, ids := sharedTestStore(t, map[string]string{"a.png": "png"})
+	application.SetShares(shared)
+	server := httptest.NewServer(application.Handler())
+	defer server.Close()
+	request, _ := http.NewRequest(http.MethodGet, server.URL+"/api/shared/"+ids["a.png"], nil)
+	request.Host = "shepherdr.private"
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	requireFixedSharedHeaders(t, "no session", response, http.StatusUnauthorized)
+}
+
+func requireFixedSharedHeaders(t *testing.T, name string, response *http.Response, status int) {
+	t.Helper()
+	header := response.Header
+	got := []string{header.Get("Content-Security-Policy"), header.Get("X-Content-Type-Options"), header.Get("Cross-Origin-Resource-Policy"),
+		header.Get("Cache-Control"), header.Get("X-Frame-Options"), header.Get("Referrer-Policy")}
+	want := []string{sharedFilePolicy, "nosniff", "same-origin", "private, no-store", "DENY", "no-referrer"}
+	if response.StatusCode != status || strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("%s: %d %q, want %d %q", name, response.StatusCode, got, status, want)
 	}
 }
 

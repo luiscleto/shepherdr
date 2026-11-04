@@ -180,8 +180,8 @@ func (s *Server) readHomeMessages(connection *websocket.Conn, request *http.Requ
 	}
 }
 
-// sharedFileResponse serves one shared file's bytes with fixed headers, for
-// preview or, with ?download=1, as an attachment.
+// sharedFileResponse serves one shared file's bytes, for preview or, with
+// ?download=1, as an attachment. sharedFileHeaders adds the fixed headers.
 func (s *Server) sharedFileResponse(writer http.ResponseWriter, request *http.Request) {
 	request, lease, ok := s.bindAccessRequest(request)
 	if !ok {
@@ -210,10 +210,6 @@ func (s *Server) sharedFileResponse(writer http.ResponseWriter, request *http.Re
 	}
 	header := writer.Header()
 	header.Set("Content-Type", contentType)
-	header.Set("Content-Security-Policy", sharedFilePolicy)
-	header.Set("Cross-Origin-Resource-Policy", "same-origin")
-	header.Set("Cache-Control", "private, no-store")
-	header.Set("X-Content-Type-Options", "nosniff")
 	if value := mime.FormatMediaType(disposition, map[string]string{"filename": record.Name}); value != "" {
 		header.Set("Content-Disposition", value)
 	} else {
@@ -225,6 +221,40 @@ func (s *Server) sharedFileResponse(writer http.ResponseWriter, request *http.Re
 	}
 	// A revoked sign-in ends the response's context, and the copy stops.
 	http.ServeContent(writer, request, "", record.SharedAt, &contextFile{ctx: request.Context(), file: file})
+}
+
+// sharedFilePath reports an address of one shared file's bytes.
+func sharedFilePath(path string) bool {
+	rest, found := strings.CutPrefix(path, "/api/shared/")
+	return found && rest != "delete" && !strings.Contains(rest, "/")
+}
+
+// sharedFileWriter gives every response for a shared file's address the
+// fixed confining headers, refusals and errors included. It sets them as the
+// status is written, after anything else, such as ServeContent dropping
+// Cache-Control on a 416, has changed them.
+type sharedFileWriter struct {
+	http.ResponseWriter
+	wrote bool
+}
+
+func (w *sharedFileWriter) WriteHeader(status int) {
+	if !w.wrote {
+		w.wrote = true
+		header := w.Header()
+		header.Set("Content-Security-Policy", sharedFilePolicy)
+		header.Set("Cross-Origin-Resource-Policy", "same-origin")
+		header.Set("Cache-Control", "private, no-store")
+		header.Set("X-Content-Type-Options", "nosniff")
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *sharedFileWriter) Write(data []byte) (int, error) {
+	if !w.wrote {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(data)
 }
 
 type contextFile struct {

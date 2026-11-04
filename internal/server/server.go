@@ -588,6 +588,9 @@ func securityHeaders(next http.Handler, terminalLabEnabled bool) http.Handler {
 		writer.Header().Set("Referrer-Policy", "no-referrer")
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		writer.Header().Set("X-Frame-Options", "DENY")
+		if sharedFilePath(request.URL.Path) {
+			writer = &sharedFileWriter{ResponseWriter: writer}
+		}
 		next.ServeHTTP(writer, request)
 	})
 }
