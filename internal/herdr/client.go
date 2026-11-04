@@ -291,3 +291,30 @@ func IsNotRunning(err error) bool {
 	return errors.Is(err, os.ErrNotExist) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
 		errors.Is(err, net.ErrClosed) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE)
 }
+
+// ShellPID reads the process ID of a pane's shell with pane.process_info, a
+// read that changes nothing.
+func (c *Client) ShellPID(ctx context.Context, paneID string) (int, error) {
+	if paneID == "" {
+		return 0, errors.New("pane is empty")
+	}
+	raw, err := c.mutateResult(ctx, "pane-process-info", "pane.process_info", struct {
+		PaneID string `json:"pane_id"`
+	}{paneID}, expectMutationResult("pane_process_info", "process_info"))
+	if err != nil {
+		return 0, err
+	}
+	var result struct {
+		ProcessInfo struct {
+			PaneID   string  `json:"pane_id"`
+			ShellPID *uint32 `json:"shell_pid"`
+		} `json:"process_info"`
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return 0, err
+	}
+	if result.ProcessInfo.PaneID != paneID || result.ProcessInfo.ShellPID == nil {
+		return 0, errors.New("Herdr didn't report the pane's shell")
+	}
+	return int(*result.ProcessInfo.ShellPID), nil
+}

@@ -82,8 +82,10 @@ type CoreTerminal struct {
 	Labels        map[string]string `json:"labels"`
 	Name          *string           `json:"name"`
 	Parent        *string           `json:"parent"`
-	Status        *CoreStatus       `json:"status"`
-	Title         string            `json:"title"`
+	// PID is the terminal's own process, when it runs.
+	PID    *uint32     `json:"pid"`
+	Status *CoreStatus `json:"status"`
+	Title  string      `json:"title"`
 	// Turn goes up each time the status leaves working.
 	Turn uint64 `json:"turn"`
 }

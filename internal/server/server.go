@@ -20,6 +20,7 @@ import (
 	"github.com/luiscleto/shepherdr/internal/access"
 	"github.com/luiscleto/shepherdr/internal/herdr"
 	"github.com/luiscleto/shepherdr/internal/notifications"
+	"github.com/luiscleto/shepherdr/internal/shares"
 	"github.com/luiscleto/shepherdr/internal/uploads"
 )
 
@@ -40,6 +41,7 @@ type Server struct {
 	fileUploadLimit    uploads.Limit
 	fileUploadState    TerminalStateSource
 	notifications      *notifications.Manager
+	shares             *shares.Store
 	origin             access.Origin
 	requestBodyTime    time.Duration
 	uploadMinRate      int64
@@ -131,6 +133,10 @@ func (s *Server) Handler() http.Handler {
 		if s.terminal != nil && s.fileUploads != nil || s.coreTerminal != nil && s.coreFileUploads != nil {
 			mux.HandleFunc("POST /api/terminal/files", s.terminalFileSend)
 		}
+	}
+	if s.shares != nil {
+		mux.HandleFunc("GET /api/shared/{id}", s.sharedFileResponse)
+		mux.HandleFunc("POST /api/shared/delete", s.sharedDelete)
 	}
 	if s.notifications != nil {
 		mux.HandleFunc("POST /api/notifications/config", s.notificationConfig)
@@ -389,14 +395,36 @@ func (s *Server) homeSocket(writer http.ResponseWriter, request *http.Request) {
 	if err := writeHome(); err != nil {
 		return
 	}
+	// The shared files list is its own complete message, sent when it opens
+	// and again only when it changes.
+	var sharedChanges <-chan struct{}
+	lastShared := []byte(nil)
+	writeShared := func() error {
+		if s.shares == nil {
+			return nil
+		}
+		data, err := json.Marshal(s.sharedList())
+		if err != nil || string(data) == string(lastShared) {
+			return err
+		}
+		lastShared = data
+		return withCommitAuthority(request, func() error {
+			_ = connection.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			return connection.WriteMessage(websocket.TextMessage, data)
+		})
+	}
+	if s.shares != nil {
+		changes, unsubscribe := s.shares.Subscribe()
+		defer unsubscribe()
+		sharedChanges = changes
+		if err := writeShared(); err != nil {
+			return
+		}
+	}
 	closed := make(chan struct{})
 	go func() {
 		defer close(closed)
-		for {
-			if _, _, err := connection.ReadMessage(); err != nil {
-				return
-			}
-		}
+		s.readHomeMessages(connection, request)
 	}()
 
 	heartbeat := time.NewTicker(homeHeartbeatInterval)
@@ -411,12 +439,24 @@ func (s *Server) homeSocket(writer http.ResponseWriter, request *http.Request) {
 			if err := writeHome(); err != nil {
 				return
 			}
+			// A terminal that closed or opened may change which files are
+			// from a current terminal.
+			if err := writeShared(); err != nil {
+				return
+			}
 		case state, ok := <-coreUpdates:
 			if !ok {
 				return
 			}
 			message.Core.State = state
 			if err := writeHome(); err != nil {
+				return
+			}
+			if err := writeShared(); err != nil {
+				return
+			}
+		case <-sharedChanges:
+			if err := writeShared(); err != nil {
 				return
 			}
 		case <-heartbeat.C:
@@ -542,7 +582,7 @@ func securityHeaders(next http.Handler, terminalLabEnabled bool) http.Handler {
 			// One development-only candidate uses a WebAssembly terminal core.
 			scriptSource = "script-src 'self' 'wasm-unsafe-eval'"
 		}
-		writer.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; "+scriptSource+"; "+styleSource+"; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+		writer.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; "+scriptSource+"; "+styleSource+"; img-src 'self' data: blob:; media-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 		writer.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 		writer.Header().Set("Permissions-Policy", browserPermissions)
 		writer.Header().Set("Referrer-Policy", "no-referrer")

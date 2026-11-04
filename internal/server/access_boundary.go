@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/luiscleto/shepherdr/internal/access"
+	"github.com/luiscleto/shepherdr/internal/shares"
 )
 
 type accessContextKey uint8
@@ -165,6 +166,9 @@ func classifyProtectedRoute(path, method string) protectedRoute {
 		case "/api/terminal/read", "/api/terminal-lab/read", "/api/devices":
 			return routeProtected
 		}
+		if id, found := strings.CutPrefix(path, "/api/shared/"); found && shares.ValidID(id) {
+			return routeProtected
+		}
 		if path != "/api" && !strings.HasPrefix(path, "/api/") {
 			return routePublic
 		}
@@ -179,7 +183,8 @@ func classifyProtectedRoute(path, method string) protectedRoute {
 		case "/api/auth/reauthenticate/begin", "/api/auth/reauthenticate/finish", "/api/auth/sign-out",
 			"/api/devices/invitations", "/api/devices/revoke", "/api/workspace-actions/prepare", "/api/workspace-actions",
 			"/api/terminal-actions/prepare", "/api/terminal-actions",
-			"/api/notifications/config", "/api/notifications/settings/read", "/api/notifications/settings", "/api/terminal/files":
+			"/api/notifications/config", "/api/notifications/settings/read", "/api/notifications/settings", "/api/terminal/files",
+			"/api/shared/delete":
 			if method == http.MethodPost || path == "/api/notifications/settings" && method == http.MethodDelete {
 				return routeProtected
 			}

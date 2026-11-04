@@ -43,6 +43,7 @@ import { WorkspaceActionsClient } from "./workspace-actions";
 import { TerminalActionsClient, type TerminalActionTarget } from "./terminal-actions";
 import { NotificationsController } from "./notifications";
 import { settingsAction } from "./settings-action";
+import { parseSharedMessage, type SharedFile } from "./shared-model";
 
 interface HomeHeartbeat {
   epoch: string;
@@ -71,6 +72,8 @@ const terminalActions = new TerminalActionsClient();
 // Each Home message carries both Herdrs. Home shows one of them; the other is
 // kept for the switch, notification settings and terminal links.
 let sides: HomeSides = { core: emptyHomeState(), tui: emptyHomeState() };
+// The files agents shared, as the Home connection last listed them.
+let sharedFiles: SharedFile[] = [];
 // shownHerdr stays undefined until both Herdrs are settled (Loading terminals).
 let shownHerdr: Herdr | undefined;
 let rememberedHerdr = readRememberedHerdr(() => window.localStorage);
@@ -184,6 +187,14 @@ function activateHomeSocket(socket: WebSocket): void {
         homeConnections.recordValidFrame(socket);
         lastValidHomeFrameAt = now;
         if (!wasCurrent) render();
+        scheduleHomeCheck();
+        return;
+      }
+      const shared = parseSharedMessage(parsed);
+      if (shared) {
+        homeConnections.recordValidFrame(socket);
+        lastValidHomeFrameAt = now;
+        sharedFiles = shared;
         scheduleHomeCheck();
         return;
       }

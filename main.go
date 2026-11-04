@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"github.com/luiscleto/shepherdr/internal/herdr"
 	"github.com/luiscleto/shepherdr/internal/notifications"
 	"github.com/luiscleto/shepherdr/internal/server"
+	"github.com/luiscleto/shepherdr/internal/shares"
 	"github.com/luiscleto/shepherdr/internal/uploads"
 	"github.com/mdp/qrterminal/v3"
 )
@@ -36,6 +38,11 @@ var browserFiles embed.FS
 var releaseVersion string
 
 func main() {
+	// shepherdr share is for agents: it only streams files to the running
+	// Shepherdr and takes none of the server's flags.
+	if len(os.Args) > 1 && os.Args[1] == "share" {
+		os.Exit(shares.RunShare(os.Args[2:], os.Stdout, os.Stderr, os.Getenv))
+	}
 	if err := run(); err != nil {
 		slog.Error("Shepherdr stopped", "error", err)
 		os.Exit(1)
@@ -69,9 +76,20 @@ func run() error {
 	requestBodyTimeText := flag.String("request-body-time", "30s", "time allowed to send any other request body, such as 30s or 2m")
 	herdrReplyLimitText := flag.String("herdr-reply-limit", "64MiB", "largest reply Shepherdr reads from Herdr: bytes, KiB, MiB, or GiB, at least 1MiB")
 	logLevelText := flag.String("log-level", "info", "minimum log level: debug, info, warn, or error")
+	var shareDirectory optionalStringFlag
+	flag.Var(&shareDirectory, "share-dir", "folder that keeps the files agents share with shepherdr share, until they are deleted (default $XDG_DATA_HOME/shepherdr/shared, else ~/.local/share/shepherdr/shared)")
+	shareLimitText := flag.String("share-limit", "1GiB", "largest file an agent may share: bytes, KiB, MiB, GiB, or none")
+	shareTotalText := flag.String("share-total", "10GiB", "most bytes shared files may keep in all: bytes, KiB, MiB, GiB, or none")
+	var shareSocket optionalStringFlag
+	flag.Var(&shareSocket, "share-socket", "owner-only socket shepherdr share streams to (default $XDG_RUNTIME_DIR/shepherdr/share.sock)")
+	showSkill := flag.Bool("skill", false, "print a note for agents about shepherdr share, then exit")
 	flag.Parse()
 	if *showVersion {
 		fmt.Printf("shepherdr %s\n", buildVersion(releaseVersion, readBuildInfo()))
+		return nil
+	}
+	if *showSkill {
+		fmt.Println(shares.AgentNote)
 		return nil
 	}
 	logLevel, err := parseLogLevel(*logLevelText)
@@ -92,7 +110,8 @@ func run() error {
 		if *noSignIn || noSignInOrigin.set || publicOrigin.set || sessionLifetime.set || vapidContact.set || *resetNotifications ||
 			flagWasSet("listen") || flagWasSet("herdr-socket") || herdrCoreSocket.set || flagWasSet("terminal-lab") ||
 			flagWasSet("upload-parent") || flagWasSet("upload-limit") || flagWasSet("upload-min-rate") ||
-			flagWasSet("request-body-time") || flagWasSet("herdr-reply-limit") || flagWasSet("log-level") {
+			flagWasSet("request-body-time") || flagWasSet("herdr-reply-limit") || flagWasSet("log-level") ||
+			shareDirectory.set || flagWasSet("share-limit") || flagWasSet("share-total") || shareSocket.set {
 			return errors.New("access commands cannot be combined with server configuration flags")
 		}
 		if notificationPathErr != nil {
@@ -123,6 +142,30 @@ func run() error {
 	uploadLimit, err := uploads.ParseLimit(*uploadLimitText)
 	if err != nil {
 		return fmt.Errorf("-upload-limit: %w", err)
+	}
+	shareLimit, err := uploads.ParseLimit(*shareLimitText)
+	if err != nil {
+		return errors.New("-share-limit must be a positive byte count using optional KiB, MiB, or GiB, or none")
+	}
+	shareTotal, err := uploads.ParseLimit(*shareTotalText)
+	if err != nil {
+		return errors.New("-share-total must be a positive byte count using optional KiB, MiB, or GiB, or none")
+	}
+	sharePath := shareDirectory.value
+	if !shareDirectory.set {
+		if sharePath, err = shares.DefaultDirectory(os.Getenv, runtime.GOOS); err != nil {
+			return err
+		}
+	} else if !filepath.IsAbs(sharePath) {
+		return errors.New("-share-dir must be an absolute path")
+	}
+	shareSocketPath := shareSocket.value
+	if !shareSocket.set {
+		if shareSocketPath, err = shares.DefaultSocketPath(os.Getenv); err != nil {
+			return err
+		}
+	} else if !filepath.IsAbs(shareSocketPath) {
+		return errors.New("-share-socket must be an absolute path")
 	}
 	uploadMinRate, err := parseUploadMinRate(*uploadMinRateText)
 	if err != nil {
@@ -283,6 +326,16 @@ func run() error {
 		}
 	}
 	application.SetNotifications(notificationManager)
+	shareStore, err := shares.Open(sharePath, shareLimit, shareTotal, logger)
+	if err != nil {
+		return fmt.Errorf("open shared files: %w", err)
+	}
+	defer shareStore.Close()
+	application.SetShares(shareStore)
+	shareHerdrs := shares.Herdrs{TUISocket: *socketPath, TUI: server.TUIShareLookup(actionClient)}
+	if coreClient != nil {
+		shareHerdrs.CoreSocket, shareHerdrs.Core = coreSocketPath, server.CoreShareLookup(coreClient, homeFolder)
+	}
 
 	listener, err := net.Listen("tcp", *listenAddress)
 	if err != nil {
@@ -301,6 +354,25 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	notificationManager.Start(ctx)
+	shareAddress := ""
+	if accessManager != nil {
+		shareAddress = protectedOrigin.Value
+	} else if signInOffOrigin != nil {
+		shareAddress = signInOffOrigin.Value
+	}
+	shareService := &shares.Service{Store: shareStore, Attribute: shareHerdrs.Attribute, Origin: shareAddress, MinRate: uploadMinRate, Logger: logger}
+	shareCommand := "shepherdr share FILE"
+	if shareListener, err := shares.Listen(shareSocketPath); err != nil {
+		logger.Error("Agents can't share files with this Shepherdr", "error", err)
+	} else {
+		go shareService.Serve(ctx, shareListener)
+		if executable, err := os.Executable(); err == nil {
+			shareCommand = executable + " share FILE"
+			if shareSocket.set {
+				shareCommand = executable + " share -socket " + shareSocketPath + " FILE"
+			}
+		}
+	}
 	go tuiProjector.Run(ctx)
 	go coreProjector.Run(ctx)
 
@@ -317,7 +389,7 @@ func run() error {
 	} else if signInOffOrigin != nil {
 		address = signInOffOrigin.Value
 	}
-	logger.Info("Shepherdr is ready", "address", address, "local_address", "http://"+listener.Addr().String(), "herdr_socket", *socketPath, "herdr_core_socket", coreSocketPath, "terminal_lab", *terminalLabEnabled, "sign_in_off", *noSignIn, "upload_parent", *uploadParent, "upload_limit", *uploadLimitText, "upload_min_rate", *uploadMinRateText, "request_body_time", requestBodyTime, "herdr_reply_limit", *herdrReplyLimitText)
+	logger.Info("Shepherdr is ready", "address", address, "local_address", "http://"+listener.Addr().String(), "herdr_socket", *socketPath, "herdr_core_socket", coreSocketPath, "terminal_lab", *terminalLabEnabled, "sign_in_off", *noSignIn, "upload_parent", *uploadParent, "upload_limit", *uploadLimitText, "upload_min_rate", *uploadMinRateText, "request_body_time", requestBodyTime, "herdr_reply_limit", *herdrReplyLimitText, "share_dir", sharePath, "share_limit", *shareLimitText, "share_total", *shareTotalText, "share_command", shareCommand)
 
 	select {
 	case <-ctx.Done():
