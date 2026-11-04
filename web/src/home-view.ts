@@ -26,6 +26,7 @@ import {
   type Workspace,
 } from "./home-model";
 import { settingsAction } from "./settings-action";
+import { SharedFilesAction } from "./shared-view";
 import type { HomeReachability } from "./home-connection";
 import {
   type ConfirmationFacts,
@@ -59,6 +60,7 @@ interface HomeViewActions {
   onOpen: (entry: TerminalEntry) => void;
   onOpenCreated: (target: TerminalActionTarget, herdr: Herdr) => void;
   onNotifications?: () => void;
+  onShared?: () => void;
   onShowAll: () => void;
   onShowBlocked: () => void;
   onShowError?: () => void;
@@ -282,6 +284,7 @@ export class HomeView {
   readonly #herdrSwitch: HTMLElement;
   readonly #herdrSwitchButtons: ReadonlyMap<Herdr, HTMLButtonElement>;
   readonly #notificationsAction: HTMLButtonElement;
+  readonly #sharedAction: SharedFilesAction;
   readonly #homeTools: HTMLElement;
   readonly #loading: HTMLElement;
   readonly #loadingHeading: HTMLElement;
@@ -351,7 +354,10 @@ export class HomeView {
     this.#connectionHeading = element(this.#document, "span", "connection-label");
     connectionIndicator.append(this.#connectionDot, this.#connectionHeading);
     this.#notificationsAction = settingsAction(this.#document, () => actions.onNotifications?.(), "home-notifications");
-    this.#connectionPanel.append(connectionIndicator, this.#notificationsAction);
+    this.#sharedAction = new SharedFilesAction(this.#document, () => actions.onShared?.(), "home-shared");
+    const connectionButtons = element(this.#document, "div", "home-connection-buttons");
+    connectionButtons.append(this.#sharedAction.element, this.#notificationsAction);
+    this.#connectionPanel.append(connectionIndicator, connectionButtons);
     const mastheadActions = element(this.#document, "div", "masthead-actions");
     mastheadActions.append(this.#connectionPanel);
     this.#header.append(heading, mastheadActions);
@@ -516,6 +522,11 @@ export class HomeView {
       if (target instanceof this.#document.defaultView!.Element &&
         !target.closest(".workspace-menu, .terminal-action-sheet-panel")) this.#closeMenu();
     });
+  }
+
+  // setSharedCount shows how many shared files nobody has listed yet.
+  setSharedCount(count: number): void {
+    this.#sharedAction.setCount(count);
   }
 
   render(model: HomeViewRender): void {

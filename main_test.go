@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/luiscleto/shepherdr/internal/herdr"
 	"github.com/luiscleto/shepherdr/internal/notifications"
+	"github.com/luiscleto/shepherdr/internal/shares"
 	"github.com/luiscleto/shepherdr/internal/uploads"
 )
 
@@ -313,5 +315,27 @@ func TestBodyAndReplyLimitFlags(t *testing.T) {
 		if _, err := parseHerdrReplyLimit(value); err == nil || !strings.HasPrefix(err.Error(), "-herdr-reply-limit ") {
 			t.Fatalf("Herdr reply limit %q error = %v", value, err)
 		}
+	}
+}
+
+// Settings shows the same note for agents that shepherdr --skill prints.
+func TestSettingsShowTheSkillNote(t *testing.T) {
+	source, err := os.ReadFile("web/src/agent-note.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	start := strings.Index(text, "agentNoteLines: readonly string[] = [")
+	end := strings.Index(text[start:], "];")
+	if start < 0 || end < 0 {
+		t.Fatal("agent-note.ts lost its line list")
+	}
+	var lines []string
+	list := text[start+len("agentNoteLines: readonly string[] = ") : start+end+1]
+	if err := json.Unmarshal([]byte(list), &lines); err != nil {
+		t.Fatalf("agent-note.ts lines are not plain strings: %v", err)
+	}
+	if got := strings.Join(lines, "\n"); got != shares.AgentNote {
+		t.Fatalf("Settings note differs from shepherdr --skill:\n%s\n---\n%s", got, shares.AgentNote)
 	}
 }

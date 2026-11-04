@@ -279,7 +279,8 @@ test("Home shows one real initial or unavailable state with the transport-owned 
   assert.equal(requiredElement(connection, ".connection-label").localName, "span");
   assert.equal(requiredElement(connection, ".connection-dot").className, "connection-dot connection-dot-reconnecting");
   assert.equal(connection.childElementCount, 2);
-  assert.equal(connection.children.item(1)?.getAttribute("aria-label"), "Settings");
+  assert.equal(connection.children.item(1)?.className, "home-connection-buttons");
+  assert.deepEqual([...connection.querySelectorAll("button")].map((button) => button.getAttribute("aria-label")), ["Shared files", "Settings"]);
   assert.equal(connection.querySelectorAll("p, details").length, 0);
   assert.equal(connection.querySelectorAll("strong").length, 0);
   assert.match(app.textContent ?? "", /Loading terminals/);
@@ -397,7 +398,7 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   assert.equal(version.textContent, "Herdr TUI 0.8.0");
   const row = requiredRow(view, "pane-one");
   assert.equal(connection.childElementCount, 2);
-  assert.equal(connection.querySelectorAll("button").length, 1);
+  assert.equal(connection.querySelectorAll("button").length, 2);
   assert.doesNotMatch(connection.textContent ?? "", /Reconnect/);
   row.click();
   assert.equal(opens, 1);
@@ -425,7 +426,7 @@ test("transport changes keep the last complete Home and its stable badge slot", 
   assert.equal(requiredElement(connection, ".connection-label").textContent, "Offline");
   assert.equal(requiredElement(connection, ".connection-dot").className, "connection-dot connection-dot-offline");
   assert.equal(connection.childElementCount, 2);
-  assert.equal(connection.querySelectorAll("button").length, 1);
+  assert.equal(connection.querySelectorAll("button").length, 2);
   assert.doesNotMatch(connection.textContent ?? "", /Reconnect/);
 
   render(view, current);

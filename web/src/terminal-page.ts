@@ -13,6 +13,8 @@ import { ReaderView, readerMessageAction, setIconButton } from "./terminal/reade
 import { TerminalSession, type SessionMode } from "./terminal/session";
 import { readTerminalView, saveTerminalView } from "./terminal/view-preference";
 import { XTermAdapter } from "./terminal/xterm-adapter";
+import { currentlyFrom, sortFiles, unseenCount, type SharedFile, type SharedTerminal } from "./shared-model";
+import { SharedFilesAction } from "./shared-view";
 
 export interface TerminalPageTarget {
   agentStatus?: string;
@@ -26,6 +28,12 @@ export interface TerminalPageTarget {
 interface TerminalPageOptions {
   onHome(): void;
   onNotifications?(): void;
+  onShared?(): void;
+  // shared is the shared files list when the page opens: files already
+  // here bring no notice.
+  shared?: readonly SharedFile[];
+  // message goes into the composer, unsent, once the page can take it.
+  message?: string;
 }
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -94,6 +102,12 @@ export class TerminalPage {
   #uploadAttempt = 0;
   #uploadState: ReaderInputState = "ready";
   #uploadIntent: "insert" | "submit" = "submit";
+  #sharedAction: SharedFilesAction | undefined;
+  #sharedNotice: HTMLDivElement | undefined;
+  #sharedNoticeText: HTMLSpanElement | undefined;
+  #sharedKnown = new Set<string>();
+  #sharedDismissed = new Set<string>();
+  #pendingMessage: string | undefined;
   #visibilityChanged = (): void => {
     this.#session?.inView(document.visibilityState === "visible");
     this.#fitAgain();
@@ -127,6 +141,11 @@ export class TerminalPage {
     this.#controlAction.hidden = true;
     const settings = settingsAction(document, () => options.onNotifications?.(), "terminal-notifications");
     header.append(action("Home", options.onHome, "terminal-home"), title);
+    if (options.onShared) {
+      const openShared = options.onShared;
+      this.#sharedAction = new SharedFilesAction(document, openShared, "terminal-shared", "Shared files from this terminal");
+      header.append(this.#sharedAction.element);
+    }
     if (this.#mobile) {
       this.#toggle = action("", () => this.#switchView(), "terminal-view-toggle");
       header.append(this.#toggle);
@@ -142,6 +161,7 @@ export class TerminalPage {
       this.#terminalMount.addEventListener(type, () => { if (personInput(type) && this.#canType()) this.#fitAgain(); }, true);
     }
     this.#surface.append(this.#terminalMount);
+    if (options.onShared) this.#surface.append(this.#mountSharedNotice(options.onShared));
     host.className = `terminal-screen ${this.#mobile ? "terminal-reader-page terminal-shared-page" : "terminal-desktop-page"}`;
     host.replaceChildren(header, this.#surface);
     this.#linkSheet = new LinkSheet(host);
@@ -156,6 +176,69 @@ export class TerminalPage {
     this.#render();
     document.addEventListener("visibilitychange", this.#visibilityChanged);
     void this.#mountTerminal();
+    const here = this.#sharedTerminal();
+    for (const file of options.shared ?? []) if (currentlyFrom(file, here)) this.#sharedKnown.add(file.id);
+    this.setShared(options.shared ?? []);
+    if (options.message) this.#fillMessage(options.message);
+  }
+
+  #sharedTerminal(): SharedTerminal {
+    return { herdr: this.herdr, paneID: this.paneID, terminalID: this.terminalID };
+  }
+
+  // The notice for files this terminal shares while the page is open. It
+  // overlays the top of the terminal, so the terminal keeps its size, and
+  // never covers the composer.
+  #mountSharedNotice(openShared: () => void): HTMLDivElement {
+    const notice = element("div", "reader-history-banner shared-here-banner");
+    notice.hidden = true;
+    const text = element("span");
+    text.setAttribute("role", "status");
+    const show = action("Show files", openShared);
+    const dismiss = element("button", "reader-history-close reader-icon-button");
+    dismiss.type = "button";
+    setIconButton(dismiss, "Dismiss", "close");
+    dismiss.addEventListener("click", () => {
+      for (const id of this.#sharedArrivals) this.#sharedDismissed.add(id);
+      notice.hidden = true;
+    });
+    notice.append(text, show, dismiss);
+    this.#sharedNotice = notice;
+    this.#sharedNoticeText = text;
+    return notice;
+  }
+
+  #sharedArrivals: string[] = [];
+
+  // setShared shows this terminal's unseen count and a notice for files it
+  // shared during this visit.
+  setShared(files: readonly SharedFile[]): void {
+    const here = this.#sharedTerminal();
+    const mine = files.filter((file) => currentlyFrom(file, here));
+    this.#sharedAction?.setCount(unseenCount(mine));
+    const arrivals = sortFiles(mine.filter((file) => !this.#sharedKnown.has(file.id) && !this.#sharedDismissed.has(file.id)), "newest");
+    this.#sharedArrivals = arrivals.map((file) => file.id);
+    const notice = this.#sharedNotice;
+    const text = this.#sharedNoticeText;
+    if (!notice || !text) return;
+    notice.hidden = arrivals.length === 0;
+    if (arrivals.length === 0) return;
+    text.replaceChildren("Shared from here: ", element("strong", undefined, arrivals[0].name));
+    if (arrivals.length > 1) text.append(` and ${arrivals.length - 1} more`);
+  }
+
+  // fillMessage puts text in the composer without sending it. On a phone
+  // that is Reader's Message; on a desktop, whose terminal takes typing
+  // directly, it is pasted at the cursor once this page controls the
+  // terminal, without Enter.
+  #fillMessage(text: string): void {
+    if (this.#mobile && this.#reader) {
+      if (!this.#readerVisible) this.#switchView();
+      this.#reader.showComposer();
+      this.#reader.paste(text);
+      return;
+    }
+    this.#pendingMessage = text;
   }
 
   updateTarget(title: string, agentStatus?: string): void {
@@ -405,7 +488,12 @@ export class TerminalPage {
           }
           else if (this.#ownership !== "occupied") this.#ownership = "observing";
           this.#render();
-          if (!this.#mobile && mode !== "observe") this.#xterm.focus();
+          if (!this.#mobile && mode !== "observe") {
+            this.#xterm.focus();
+            const message = this.#pendingMessage;
+            this.#pendingMessage = undefined;
+            if (message && this.#canType()) this.#xterm.paste(message);
+          }
           resolve(mode !== "observe");
         },
         onInputForwarded: (requestID) => {

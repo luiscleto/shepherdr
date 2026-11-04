@@ -1,3 +1,4 @@
+import { agentNote } from "./agent-note";
 export interface NotificationEvents {
   blocked: boolean;
   done: boolean;
@@ -176,9 +177,11 @@ export class NotificationsController {
   #devicesAvailable = false;
   #devicesExpanded = false;
   #notificationsExpanded = false;
+  #agentsExpanded = false;
+  #agentNoteCopied: string | undefined;
   #openDevices: ((host: HTMLElement, closeSettings: () => void) => void) | undefined;
   #closeDevices: (() => void) | undefined;
-  #focusSection: "devices" | "notifications" | undefined;
+  #focusSection: "agents" | "devices" | "notifications" | undefined;
   #returnFocus: HTMLElement | undefined;
   #subscription: BrowserPushSubscription | undefined;
 
@@ -238,6 +241,8 @@ export class NotificationsController {
       : undefined;
     this.#notificationsExpanded = false;
     this.#devicesExpanded = false;
+    this.#agentsExpanded = false;
+    this.#agentNoteCopied = undefined;
     this.#dialogOpen = true;
     this.#renderSettings();
     void this.#loadSettings();
@@ -528,6 +533,8 @@ export class NotificationsController {
       panel.append(devicesSection);
     }
 
+    panel.append(this.#agentsSection());
+
     layer.append(panel);
     layer.addEventListener("click", (event) => {
       if (event.target === layer) this.#closeSettings();
@@ -547,8 +554,57 @@ export class NotificationsController {
     }
   }
 
-  #toggleSection(section: "devices" | "notifications"): void {
-    if (section === "notifications") {
+  // agentsSection shows the note agents need to find `shepherdr share`, to
+  // paste into their global instructions. Shepherdr never edits those files.
+  #agentsSection(): HTMLElement {
+    const section = element(this.#document, "section", "settings-section settings-agents");
+    const heading = element(this.#document, "h3");
+    const toggle = action(this.#document, "For your agents", () => this.#toggleSection("agents"), "settings-section-toggle");
+    toggle.setAttribute("aria-expanded", String(this.#agentsExpanded));
+    toggle.setAttribute("aria-controls", "settings-agents-content");
+    toggle.dataset.settingsSection = "agents";
+    heading.append(toggle);
+    section.append(heading);
+    if (!this.#agentsExpanded) return section;
+    const content = element(this.#document, "div", "settings-section-content");
+    content.id = "settings-agents-content";
+    const help = element(this.#document, "p");
+    help.append(
+      "So agents can share files with you, paste this into their global instructions, such as ",
+      element(this.#document, "code", undefined, "~/.claude/CLAUDE.md"),
+      " or ",
+      element(this.#document, "code", undefined, "~/.codex/AGENTS.md"),
+      ". Shepherdr doesn't edit those files.",
+    );
+    const note = element(this.#document, "pre", "agent-note", agentNote);
+    note.tabIndex = 0;
+    const copy = action(this.#document, "Copy", () => {
+      void (async () => {
+        try {
+          await navigator.clipboard.writeText(agentNote);
+          this.#agentNoteCopied = "Copied.";
+        } catch {
+          this.#agentNoteCopied = "Couldn't copy. Select the text and copy it.";
+        }
+        this.#focusSection = "agents";
+        this.#renderSettings();
+      })();
+    }, "notification-primary agent-note-copy");
+    content.append(help, note, copy);
+    if (this.#agentNoteCopied) {
+      const feedback = element(this.#document, "p", "notification-feedback", this.#agentNoteCopied);
+      feedback.setAttribute("role", "status");
+      content.append(feedback);
+    }
+    section.append(content);
+    return section;
+  }
+
+  #toggleSection(section: "agents" | "devices" | "notifications"): void {
+    if (section === "agents") {
+      this.#agentsExpanded = !this.#agentsExpanded;
+      this.#agentNoteCopied = undefined;
+    } else if (section === "notifications") {
       this.#notificationsExpanded = !this.#notificationsExpanded;
     } else {
       this.#devicesExpanded = !this.#devicesExpanded;

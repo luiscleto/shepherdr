@@ -43,7 +43,21 @@ import { WorkspaceActionsClient } from "./workspace-actions";
 import { TerminalActionsClient, type TerminalActionTarget } from "./terminal-actions";
 import { NotificationsController } from "./notifications";
 import { settingsAction } from "./settings-action";
-import { parseSharedMessage, type SharedFile } from "./shared-model";
+import {
+  filterSource,
+  parseSharedMessage,
+  parseSharedRoute,
+  readSharedSort,
+  rememberSharedSort,
+  sharedHash,
+  unseenCount,
+  type SharedFile,
+  type SharedFrom,
+  type SharedRoute,
+  type SharedTerminal,
+} from "./shared-model";
+import { SharedPage } from "./shared-view";
+import { askForFileMessage } from "./agent-note";
 
 interface HomeHeartbeat {
   epoch: string;
@@ -74,6 +88,13 @@ const terminalActions = new TerminalActionsClient();
 let sides: HomeSides = { core: emptyHomeState(), tui: emptyHomeState() };
 // The files agents shared, as the Home connection last listed them.
 let sharedFiles: SharedFile[] = [];
+let sharedSort = readSharedSort(() => window.localStorage);
+let sharedPage: SharedPage | undefined;
+// The list in view that this browser last told the server about, so it can
+// mark those files seen; "" when none is.
+let sentSharedView = "";
+// askingTerminal gets Ask for a file's message in its composer when it opens.
+let askingTerminal: SharedTerminal | undefined;
 // shownHerdr stays undefined until both Herdrs are settled (Loading terminals).
 let shownHerdr: Herdr | undefined;
 let rememberedHerdr = readRememberedHerdr(() => window.localStorage);
@@ -132,6 +153,7 @@ const homeView = new HomeView(app, {
   onOpen: openTerminal,
   onOpenCreated: openCreatedTerminal,
   onNotifications: () => notifications.openSettings(),
+  onShared: () => openSharedFiles(),
   onShowAll: showAllTerminals,
   onShowBlocked: () => showStatusTerminals("blocked"),
   onShowError: () => showStatusTerminals("error"),
@@ -174,6 +196,9 @@ function createHomeSocket(): WebSocket {
 function activateHomeSocket(socket: WebSocket): void {
   socket.addEventListener("open", () => {
     if (!homeConnections.owns(socket)) return;
+    // A new connection has no list in view until this browser says so.
+    sentSharedView = "";
+    syncSharedView();
     scheduleHomeCheck();
   });
   socket.addEventListener("message", (event) => {
@@ -195,6 +220,7 @@ function activateHomeSocket(socket: WebSocket): void {
         homeConnections.recordValidFrame(socket);
         lastValidHomeFrameAt = now;
         sharedFiles = shared;
+        renderShared();
         scheduleHomeCheck();
         return;
       }
@@ -346,28 +372,157 @@ function terminalPaneFromHash(): string | undefined {
 }
 
 function homeInterfaceActive(): boolean {
-  return (accessMode === "active" || accessMode === "sign-in-off") && !terminalPaneFromHash();
+  return (accessMode === "active" || accessMode === "sign-in-off") && !terminalPaneFromHash() && !parseSharedRoute(window.location.hash);
+}
+
+// sharedViewMessage is what this browser tells the server about the Shared
+// files list: which one is in view, so the server marks its files seen.
+function sharedViewMessage(): string {
+  const route = parseSharedRoute(window.location.hash);
+  const shown = (accessMode === "active" || accessMode === "sign-in-off") && route !== undefined &&
+    document.visibilityState === "visible";
+  if (!shown) return JSON.stringify({ type: "shared.leave" });
+  const filter = route.filter;
+  if (!filter) return JSON.stringify({ type: "shared.view", all: true });
+  const source = filterSource(sharedFiles, filter) ?? "";
+  return JSON.stringify({
+    type: "shared.view",
+    herdr: filter.herdr,
+    source,
+    pane_id: filter.terminal?.paneID ?? "",
+    terminal_id: filter.terminal?.terminalID ?? "",
+  });
+}
+
+function syncSharedView(): void {
+  const message = sharedViewMessage();
+  if (message === sentSharedView || (sentSharedView === "" && message.includes("shared.leave"))) return;
+  const socket = homeConnections.current;
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  socket.send(message);
+  sentSharedView = message;
+}
+
+function sharedMarkHerdr(herdr: Herdr): boolean {
+  return herdrSwitchShown(sides) && shownHerdr !== undefined && herdr !== shownHerdr;
+}
+
+// terminalLabel names a Terminal page's terminal from Home.
+function terminalLabel(terminal: SharedTerminal): SharedFrom | undefined {
+  const entry = findTerminal(sides[terminal.herdr].home, terminal.paneID);
+  if (!entry || entry.terminal.terminal_id !== terminal.terminalID) return undefined;
+  const place = entry.workspace.label;
+  const tab = terminal.herdr === "core" && entry.workspace.tabs.length > 1 ? entry.tab.label : undefined;
+  return {
+    herdr: terminal.herdr, place, source: "",
+    ...(tab ? { tab } : {}),
+    ...(entry.terminal.agent ? { agent: entry.terminal.agent.name } : {}),
+  };
+}
+
+// renderShared shows the shared files list wherever it appears: the Home
+// and Terminal counts, the Terminal notice and the Shared files page.
+function renderShared(): void {
+  homeView.setSharedCount(unseenCount(sharedFiles));
+  terminalPage?.setShared(sharedFiles);
+  const route = parseSharedRoute(window.location.hash);
+  if (sharedPage && route) {
+    const terminal = route.filter?.terminal;
+    const label = terminal ? terminalLabel(terminal) : undefined;
+    sharedPage.update({
+      canAsk: terminal !== undefined && label !== undefined && liveActionsAvailable(terminal.herdr),
+      files: sharedFiles,
+      markHerdr: sharedMarkHerdr,
+      route,
+      sort: sharedSort,
+      ...(label ? { terminalLabel: label } : {}),
+    });
+  }
+  syncSharedView();
+}
+
+function renderSharedPage(): void {
+  terminalPage?.destroy();
+  terminalPage = undefined;
+  document.body.classList.remove("terminal-active");
+  if (!sharedPage) {
+    window.scrollTo(0, 0);
+    sharedPage = new SharedPage(app, {
+      askForFile: () => {
+        const terminal = parseSharedRoute(window.location.hash)?.filter?.terminal;
+        if (!terminal) return;
+        askingTerminal = terminal;
+        window.location.hash = terminalHash(terminal.herdr, terminal.paneID, terminal.terminalID);
+      },
+      back: () => {
+        const back = parseSharedRoute(window.location.hash)?.back;
+        window.location.hash = back ? terminalHash(back.herdr, back.paneID, back.terminalID) : "";
+      },
+      navigate: (route: SharedRoute) => { window.location.hash = sharedHash(route); },
+      openTerminal: (herdr, target) => { window.location.hash = terminalHash(herdr, target.pane_id, target.terminal_id); },
+      remove: removeSharedFiles,
+      sort: (sort) => {
+        sharedSort = sort;
+        rememberSharedSort(() => window.localStorage, sort);
+        renderShared();
+      },
+    });
+  }
+  renderShared();
+}
+
+function closeSharedPage(): void {
+  sharedPage?.destroy();
+  sharedPage = undefined;
+}
+
+async function removeSharedFiles(ids: string[]): Promise<boolean> {
+  try {
+    const response = await fetch("/api/shared/delete", {
+      method: "POST",
+      mode: "same-origin",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+function openSharedFiles(terminal?: SharedTerminal): void {
+  window.location.hash = sharedHash(terminal ? { back: terminal, filter: { herdr: terminal.herdr, terminal } } : {});
 }
 
 function render(): void {
   if (accessMode === "trust") {
     terminalPage?.destroy();
     terminalPage = undefined;
+    closeSharedPage();
     accessController.renderTrust(app, trustToken ?? "");
     return;
   }
   if (accessMode === "signed-out") {
     terminalPage?.destroy();
     terminalPage = undefined;
+    closeSharedPage();
     accessController.renderSignIn(app);
     return;
   }
   if (accessMode === "checking") {
     terminalPage?.destroy();
     terminalPage = undefined;
+    closeSharedPage();
     accessController.renderChecking(app);
     return;
   }
+  if (parseSharedRoute(window.location.hash)) {
+    renderSharedPage();
+    return;
+  }
+  closeSharedPage();
   const route = parseTerminalRoute(window.location.hash);
   const paneID = route?.paneID;
   if (returningToHome(renderedTerminalPane, paneID)) {
@@ -423,6 +578,8 @@ function renderHome(): void {
     state,
     suggestedFolders: suggestedFolders(sides),
   });
+  homeView.setSharedCount(unseenCount(sharedFiles));
+  syncSharedView();
   homeFocusPane = undefined;
   homeFocusWorkspace = undefined;
   homeAnchorTop = undefined;
@@ -626,6 +783,10 @@ function renderTerminal(route: TerminalRoute): void {
     return;
   }
   terminalPage?.destroy();
+  const exact: SharedTerminal = { herdr, paneID, terminalID: entry.terminal.terminal_id };
+  const asking = askingTerminal !== undefined && askingTerminal.herdr === herdr && askingTerminal.paneID === paneID &&
+    askingTerminal.terminalID === exact.terminalID;
+  askingTerminal = undefined;
   terminalPage = new TerminalPage(app, {
     agentStatus: entry.terminal.agent?.status,
     herdr,
@@ -633,7 +794,14 @@ function renderTerminal(route: TerminalRoute): void {
     terminalID: entry.terminal.terminal_id,
     title: entry.terminal.title,
     workspaceID: entry.workspace.id,
-  }, { onHome: leaveTerminal, onNotifications: () => notifications.openSettings() });
+  }, {
+    onHome: leaveTerminal,
+    onNotifications: () => notifications.openSettings(),
+    onShared: () => openSharedFiles(exact),
+    shared: sharedFiles,
+    ...(asking ? { message: askForFileMessage } : {}),
+  });
+  syncSharedView();
 }
 
 function renderTerminalWaiting(): void {
@@ -696,6 +864,7 @@ closeTerminalWhileCached(window, () => {
   if (terminalPaneFromHash()) render();
 });
 document.addEventListener("visibilitychange", () => {
+  syncSharedView();
   if (document.visibilityState !== "visible") {
     homeResumeTracker.markNonForeground();
     return;

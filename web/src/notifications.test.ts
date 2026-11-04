@@ -336,8 +336,11 @@ test("Home keeps its icon-only Settings action below the connection indicator", 
   assert.equal(settings?.classList.contains("settings-action"), true);
   assert.equal(settings?.textContent, "");
   assert.equal(settings?.querySelectorAll("svg").length, 1);
-  assert.equal(settings?.parentElement?.className, "state-panel home-connection");
-  assert.equal(settings?.parentElement?.children.item(0)?.className, "connection-indicator");
+  // Settings sits beside Shared files, under the connection badge.
+  assert.equal(settings?.parentElement?.className, "home-connection-buttons");
+  assert.equal(settings?.parentElement?.parentElement?.className, "state-panel home-connection");
+  assert.equal(settings?.parentElement?.parentElement?.children.item(0)?.className, "connection-indicator");
+  assert.equal(settings?.parentElement?.children.item(0)?.getAttribute("aria-label"), "Shared files");
   assert.equal(settings?.parentElement?.children.item(1)?.getAttribute("aria-label"), "Settings");
   assert.equal(settings?.parentElement?.childElementCount, 2);
   settings?.click();
