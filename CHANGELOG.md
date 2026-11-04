@@ -4,11 +4,14 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-04
+
 ### Added
 
-- Agents can share files with you: `shepherdr share FILE...` copies them to Shepherdr, and **Shared files**, from Home or a terminal, lists them to preview, download or delete, with a number for files nobody has looked at yet.
+- Agents can share files with you: `shepherdr share FILE...` copies them to Shepherdr, and **Shared files**, from Home or a terminal, lists them to preview, download or delete, with a number for files nobody has looked at yet. Agents need `shepherdr` on their `PATH`.
 - An optional **File shared** notification, off by default, opens the files that terminal shared.
 - `shepherdr --skill` and **Settings → For your agents** give a short note to paste into your agents' instructions so they know about `shepherdr share`.
+- `-share-dir` sets where shared files are kept until deleted, `-share-limit` (1 GiB) caps one shared file, `-share-total` (10 GiB) caps them all, and `-share-socket` names the socket `shepherdr share` uses.
 
 ### Compatibility
 
@@ -212,7 +215,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Works with Herdr 0.8.0 through 0.8.2. Older versions do not start; newer versions start with a warning that they have not been tested.
 - macOS downloads are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/luiscleto/shepherdr/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/luiscleto/shepherdr/compare/v0.5.2...v0.6.1
 [0.5.2]: https://github.com/luiscleto/shepherdr/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/luiscleto/shepherdr/compare/v0.4.3...v0.5.1
