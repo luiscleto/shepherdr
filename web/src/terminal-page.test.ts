@@ -537,7 +537,7 @@ test("a terminal's earlier draft brings back its picked files", async t => {
   assert.equal(page.draft(), undefined);
 });
 
-test("Shared files and Show files wait while files are sending, as the view switch does", async t => {
+test("Shared files and Show files wait while files are sending, as the view switch does, and the page keeps no draft", async t => {
   const shared = (id: string) => ({
     id: id.repeat(32), kind: "image", name: `${id}.png`, seen: false, shared_at: 1_000, size: 10, tag: "PNG",
     from: { herdr: "tui", place: "trial", source: "a".repeat(24), current: { pane_id: "trial:p1", terminal_id: "term-trial", workspace_id: "trial" } },
@@ -559,9 +559,12 @@ test("Shared files and Show files wait while files are sending, as the view swit
   const show = [...host.querySelectorAll<HTMLButtonElement>(".shared-here-banner button")].find(button => button.textContent === "Show files")!;
   const toggle = host.querySelector<HTMLButtonElement>(".terminal-view-toggle")!;
   assert.deepEqual([sharedButton.disabled, show.disabled, toggle.disabled], [false, false, false]);
+  assert.equal(page.draft()?.files.length, 1);
   host.querySelector<HTMLButtonElement>(".reader-send")!.click();
   for (let i = 0; i < 20 && !reply; i++) await tick();
   assert.deepEqual([sharedButton.disabled, show.disabled, toggle.disabled], [true, true, true]);
+  // Browser Back can still leave for Shared files; the send's result is not known yet.
+  assert.equal(page.draft(), undefined);
   reply(new Response(JSON.stringify({ message: "Terminal input was sent.", result: "forwarded" })));
   for (let i = 0; i < 5 && sharedButton.disabled; i++) await tick();
   assert.deepEqual([sharedButton.disabled, show.disabled, toggle.disabled], [false, false, false]);

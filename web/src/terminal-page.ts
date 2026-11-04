@@ -188,8 +188,10 @@ export class TerminalPage {
   }
 
   // draft is Reader's unsent message and pending files, for this terminal's
-  // next page. A desktop page has no composer of its own.
+  // next page. A desktop page has no composer of its own. A message whose
+  // files are sending is not a draft: its result is not known yet.
   draft(): ReaderDraft | undefined {
+    if (this.#uploadState === "requesting") return undefined;
     const draft = this.#reader?.draft();
     return draft?.text || draft?.files.length ? draft : undefined;
   }
