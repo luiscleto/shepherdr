@@ -134,9 +134,12 @@ export class TerminalPage {
     this.herdr = target.herdr;
     this.#workspaceID = target.workspaceID;
     this.#mobile = terminalReaderForDevice();
-    // Mobile scroll gestures navigate Herdr history. Local frame scrollback is
-    // reset on full frames; disabling it also removes FitAddon's unused gutter.
-    this.#xterm = new XTermAdapter(this.#mobile ? 0 : 10_000);
+    // Mobile scroll gestures navigate Herdr TUI history. Local frame
+    // scrollback is reset on full frames; disabling it also removes FitAddon's
+    // unused gutter. Herdr Core has no scroll command, so a core terminal
+    // keeps local scrollback everywhere, filled with core's history.
+    const core = target.herdr === "core";
+    this.#xterm = new XTermAdapter(this.#mobile && !core ? 0 : 10_000, core);
     this.#readerVisible = this.#mobile && (readTerminalView() ?? "reader") === "reader";
     const header = element("header", "terminal-header");
     const title = element("div", "terminal-title");

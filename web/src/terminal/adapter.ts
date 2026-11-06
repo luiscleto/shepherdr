@@ -69,6 +69,32 @@ export function terminalWheelRows(
   };
 }
 
+// Herdr Core has no scroll command, so a core terminal's wheel scrolls the
+// page's own scrollback, which the attach fills with core's history. Whole
+// rows scroll at once; the part of a row left over carries to the next event.
+export function localScrollRows(
+  delta: number,
+  deltaMode: number,
+  rowHeight: number,
+  viewportRows: number,
+  remainder: number,
+): { lines: number; remainder: number } {
+  if (!Number.isFinite(delta) || !Number.isFinite(rowHeight) || rowHeight <= 0 || !Number.isFinite(remainder)) {
+    return { lines: 0, remainder: 0 };
+  }
+  const rows = (deltaMode === 1 ? delta : deltaMode === 2 ? delta * viewportRows : delta / rowHeight) + remainder;
+  const lines = Math.trunc(rows);
+  return { lines: Math.max(-maximumScrollLines, Math.min(maximumScrollLines, lines)), remainder: rows - lines };
+}
+
+// A core terminal's area, when the terminal is bigger than it, and its
+// scrollback read as one page: moving up scrolls the area to its top, then
+// the scrollback; moving down scrolls the scrollback back to the latest
+// output, then the area.
+export function localScrollMovesArea(up: boolean, areaTop: number, viewportY: number, baseY: number): boolean {
+  return up ? areaTop > 0 : viewportY >= baseY;
+}
+
 // A terminal bigger than its area, such as one another viewer sized, keeps
 // its overflow inside the area. A swipe along an axis that overflows scrolls
 // the area, so all of the terminal stays reachable; any other swipe stays a

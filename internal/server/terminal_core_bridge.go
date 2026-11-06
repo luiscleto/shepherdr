@@ -208,6 +208,11 @@ type coreStreamItem struct {
 	end   bool
 }
 
+// coreTerminalHistory is how many lines of core's history every Terminal
+// page attach asks for, as the Herdr app asks. Core has no scroll command,
+// so the page scrolls this history in its own scrollback.
+const coreTerminalHistory = 2_000
+
 func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, request *http.Request) {
 	settings, err := parseTerminalBridgeSettings(request)
 	if err != nil {
@@ -251,7 +256,7 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 		delete(bridge.holders, session)
 		bridge.mutex.Unlock()
 	}()
-	attachment, err := bridge.client.Attach(request.Context(), settings.pane, settings.cols, settings.rows, !control, true, 0)
+	attachment, err := bridge.client.Attach(request.Context(), settings.pane, settings.cols, settings.rows, !control, true, coreTerminalHistory)
 	if err != nil {
 		bridge.logger.Info("terminal attach failed", "herdr", "core", "pane", settings.pane, "mode", settings.mode, "error", err)
 		_ = writeTerminalStatus(connection, "Could not open this Herdr terminal")
@@ -493,7 +498,8 @@ func (bridge *CoreTerminalBridge) productionSocket(writer http.ResponseWriter, r
 }
 
 // applyCommand carries out one browser command. Text, keys and resizes need
-// control; Herdr Core has no scroll command, so wheel scrolling stays local.
+// control; Herdr Core has no scroll command, so the page scrolls its own
+// scrollback, seeded with core's history.
 // A resize to the size the terminal already has is not sent: core counts a
 // resize as activity, and the browser asks again at a person's actions. A
 // page going out of view only stops holding its size.

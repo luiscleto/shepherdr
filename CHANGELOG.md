@@ -8,6 +8,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 - The developer-only terminal lab and its `-terminal-lab` flag.
 
+### Fixed
+
+- The full terminal for a Herdr app terminal now scrolls back through up to 2,000 lines of earlier output, with the wheel or a swipe, on phones and computers. Scrolling never sends keys to the program.
+
 ## [0.7.0] - 2026-11-04
 
 ### Added

@@ -4,6 +4,8 @@ import { Terminal } from "@xterm/xterm";
 import { terminalPaste } from "../terminal-input";
 import {
   initialTerminalWheelState,
+  localScrollMovesArea,
+  localScrollRows,
   terminalWheelRows,
   touchScrollsArea,
   type TerminalAdapterEvents,
@@ -17,6 +19,7 @@ export class XTermAdapter {
   #resizeObserver: ResizeObserver | undefined;
   #terminal: Terminal | undefined;
   #wheelState: TerminalWheelState = initialTerminalWheelState();
+  #localRemainder = 0;
   #writing = false;
   #events: TerminalAdapterEvents | undefined;
   #host: HTMLElement | undefined;
@@ -27,7 +30,9 @@ export class XTermAdapter {
   #pasteCleanup: (() => void) | undefined;
   #destroyed = false;
 
-  constructor(private readonly scrollback = 10_000) {}
+  // localScroll: the wheel and swipes scroll this page's own scrollback and
+  // never reach the program, for Herdr Core, which has no scroll command.
+  constructor(private readonly scrollback = 10_000, private readonly localScroll = false) {}
 
   async mount(host: HTMLElement, events: TerminalAdapterEvents): Promise<void> {
     if (this.#destroyed) return;
@@ -101,6 +106,10 @@ export class XTermAdapter {
     this.#pasteCleanup = () => host.removeEventListener("paste", paste, true);
     terminal.onData(events.onData);
     terminal.attachCustomWheelEventHandler((event) => {
+      // A core terminal's wheel is handled before xterm sees it, below.
+      // Never xterm's own path: without scrollback, as in the alternate
+      // screen, it would type arrow keys into the program.
+      if (this.localScroll) return false;
       if (!events.onScroll || event.ctrlKey || event.deltaY === 0) return true;
       const screen = terminal.element?.querySelector<HTMLElement>(".xterm-screen");
       const bounds = screen?.getBoundingClientRect();
@@ -123,19 +132,43 @@ export class XTermAdapter {
       if (accepted) event.preventDefault();
       return !accepted;
     });
+    // xterm's viewport scrolls its scrollback before any custom wheel
+    // handler runs, so a core terminal takes the wheel here first.
+    const wheel = (event: WheelEvent): void => {
+      if (event.ctrlKey || event.deltaY === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const bounds = terminal.element?.querySelector(".xterm-screen")?.getBoundingClientRect();
+      if (!bounds || bounds.height <= 0) return;
+      const rowHeight = bounds.height / terminal.rows;
+      const buffer = terminal.buffer.active;
+      if (localScrollMovesArea(event.deltaY < 0, host.scrollTop, buffer.viewportY, buffer.baseY)) {
+        host.scrollBy({ top: event.deltaMode === 1 ? event.deltaY * rowHeight : event.deltaMode === 2 ? event.deltaY * host.clientHeight : event.deltaY });
+        return;
+      }
+      const result = localScrollRows(event.deltaY, event.deltaMode, rowHeight, terminal.rows, this.#localRemainder);
+      this.#localRemainder = result.remainder;
+      if (result.lines) terminal.scrollLines(result.lines);
+    };
+    if (this.localScroll) host.addEventListener("wheel", wheel, { capture: true, passive: false });
     let touch: { x: number; y: number; area?: boolean } | undefined;
+    // Scrolling a core terminal's own scrollback needs no control.
+    const scrolls = (): boolean => this.#inputEnabled || this.localScroll;
     const start = (event: TouchEvent): void => {
-      if (event.touches.length !== 1 || !this.#inputEnabled) return;
+      if (event.touches.length !== 1 || !scrolls()) return;
       touch = { x: event.touches[0].clientX, y: event.touches[0].clientY };
       event.stopImmediatePropagation();
     };
     const move = (event: TouchEvent): void => {
-      if (!touch || event.touches.length !== 1 || !this.#inputEnabled) return;
+      if (!touch || event.touches.length !== 1 || !scrolls()) return;
       const point = event.touches[0];
       if (touch.area === undefined) {
         const dx = point.clientX - touch.x, dy = point.clientY - touch.y;
         if (dx === 0 && dy === 0) return;
-        touch.area = touchScrollsArea(dx, dy, host.scrollWidth > host.clientWidth + 1, host.scrollHeight > host.clientHeight + 1);
+        const buffer = terminal.buffer.active;
+        touch.area = this.localScroll && Math.abs(dy) >= Math.abs(dx)
+          ? localScrollMovesArea(dy > 0, host.scrollTop, buffer.viewportY, buffer.baseY)
+          : touchScrollsArea(dx, dy, host.scrollWidth > host.clientWidth + 1, host.scrollHeight > host.clientHeight + 1);
       }
       if (touch.area) {
         event.stopImmediatePropagation();
@@ -147,7 +180,8 @@ export class XTermAdapter {
       event.preventDefault();
       event.stopImmediatePropagation();
       if (!lines) return;
-      events.onScroll?.({
+      if (this.localScroll) terminal.scrollLines(Math.max(-1000, Math.min(1000, lines)));
+      else events.onScroll?.({
         direction: lines < 0 ? "up" : "down", lines: Math.min(1000, Math.abs(lines)), modifiers: 0,
         column: Math.max(0, Math.min(terminal.cols - 1, Math.floor((touch.x - bounds.left) * terminal.cols / bounds.width))),
         row: Math.max(0, Math.min(terminal.rows - 1, Math.floor((point.clientY - bounds.top) * terminal.rows / bounds.height))),
@@ -160,6 +194,7 @@ export class XTermAdapter {
     host.addEventListener("touchend", end, true);
     host.addEventListener("touchcancel", end, true);
     this.#touchCleanup = () => {
+      host.removeEventListener("wheel", wheel, true);
       host.removeEventListener("touchstart", start, true);
       host.removeEventListener("touchmove", move, true);
       host.removeEventListener("touchend", end, true);
@@ -236,6 +271,7 @@ export class XTermAdapter {
     this.#host = undefined;
     this.#events = undefined;
     this.#wheelState = initialTerminalWheelState();
+    this.#localRemainder = 0;
   }
 
   #drainOutput(): void {

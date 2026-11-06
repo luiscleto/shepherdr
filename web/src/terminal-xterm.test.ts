@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { initialTerminalWheelState, personInputFilter, terminalWheelRows, touchScrollsArea } from "./terminal/adapter";
+import { initialTerminalWheelState, localScrollMovesArea, localScrollRows, personInputFilter, terminalWheelRows, touchScrollsArea } from "./terminal/adapter";
 
 test("desktop wheel and trackpad deltas become bounded terminal history rows", () => {
   const initial = initialTerminalWheelState();
@@ -38,6 +38,25 @@ test("the likely-trackpad boundary matches xterm mouse-report and alternate-scro
   assert.equal(damped.state.applicationRemainder, -0.3);
 
   assert.equal(terminalWheelRows(-50, 0, 50, 24, initial).lines, -1);
+});
+
+test("a core terminal's wheel scrolls whole local rows and keeps the part of a row left over", () => {
+  assert.deepEqual(localScrollRows(-120, 0, 20, 24, 0), { lines: -6, remainder: 0 });
+  assert.deepEqual(localScrollRows(3, 1, 17, 24, 0), { lines: 3, remainder: 0 });
+  assert.deepEqual(localScrollRows(-1, 2, 17, 24, 0), { lines: -24, remainder: 0 });
+  const first = localScrollRows(10, 0, 16, 24, 0);
+  assert.deepEqual([first.lines, first.remainder], [0, 0.625]);
+  const second = localScrollRows(10, 0, 16, 24, first.remainder);
+  assert.deepEqual([second.lines, second.remainder], [1, 0.25]);
+  assert.equal(localScrollRows(-20_000, 1, 17, 24, 0).lines, -1_000);
+  assert.deepEqual(localScrollRows(Number.NaN, 0, 16, 24, 0.5), { lines: 0, remainder: 0 });
+});
+
+test("a core terminal's area and scrollback scroll as one page", () => {
+  assert.equal(localScrollMovesArea(true, 40, 2_000, 2_000), true);
+  assert.equal(localScrollMovesArea(true, 0, 2_000, 2_000), false);
+  assert.equal(localScrollMovesArea(false, 0, 1_500, 2_000), false);
+  assert.equal(localScrollMovesArea(false, 0, 2_000, 2_000), true);
 });
 
 test("a swipe scrolls the terminal area only along an axis the terminal overflows", () => {
