@@ -4,6 +4,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-06
+
 ### Removed
 
 - The developer-only terminal lab and its `-terminal-lab` flag.
@@ -11,6 +13,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 ### Fixed
 
 - The full terminal for a Herdr app terminal now scrolls back through up to 2,000 lines of earlier output, with the wheel or a swipe, on phones and computers. Scrolling never sends keys to the program.
+- A file send stopped because its workspace closed or Shepherdr shut down can no longer close the browser's connection afterwards.
 
 ## [0.7.0] - 2026-11-04
 
@@ -223,7 +226,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Works with Herdr 0.8.0 through 0.8.2. Older versions do not start; newer versions start with a warning that they have not been tested.
 - macOS downloads are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/luiscleto/shepherdr/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/luiscleto/shepherdr/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/luiscleto/shepherdr/compare/v0.5.2...v0.6.1
 [0.5.2]: https://github.com/luiscleto/shepherdr/compare/v0.5.1...v0.5.2
