@@ -422,7 +422,8 @@ export class TerminalPage {
         if (this.#ownership === "controlling") this.#session?.resize(dimensions);
         if (!this.#hasConnected && this.#ready) void this.#connect(this.#desiredControl ? "control" : "observe");
       },
-      onScroll: (scroll) => this.#canType() && this.#session?.scroll(scroll) === true,
+      // A core terminal scrolls in the page; Herdr Core has no scroll command.
+      onScroll: this.herdr === "core" ? undefined : (scroll) => this.#canType() && this.#session?.scroll(scroll) === true,
       onLink: (uri) => this.#linkSheet.open(uri),
     });
     if (this.#destroyed) { this.#xterm.destroy(); return; }

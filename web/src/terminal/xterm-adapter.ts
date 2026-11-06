@@ -142,7 +142,7 @@ export class XTermAdapter {
       if (!bounds || bounds.height <= 0) return;
       const rowHeight = bounds.height / terminal.rows;
       const buffer = terminal.buffer.active;
-      if (localScrollMovesArea(event.deltaY < 0, host.scrollTop, buffer.viewportY, buffer.baseY)) {
+      if (localScrollMovesArea(event.deltaY < 0, host.scrollTop, buffer.viewportY, buffer.baseY, host.scrollHeight > host.clientHeight + 1)) {
         host.scrollBy({ top: event.deltaMode === 1 ? event.deltaY * rowHeight : event.deltaMode === 2 ? event.deltaY * host.clientHeight : event.deltaY });
         return;
       }
@@ -167,7 +167,7 @@ export class XTermAdapter {
         if (dx === 0 && dy === 0) return;
         const buffer = terminal.buffer.active;
         touch.area = this.localScroll && Math.abs(dy) >= Math.abs(dx)
-          ? localScrollMovesArea(dy > 0, host.scrollTop, buffer.viewportY, buffer.baseY)
+          ? localScrollMovesArea(dy > 0, host.scrollTop, buffer.viewportY, buffer.baseY, host.scrollHeight > host.clientHeight + 1)
           : touchScrollsArea(dx, dy, host.scrollWidth > host.clientWidth + 1, host.scrollHeight > host.clientHeight + 1);
       }
       if (touch.area) {

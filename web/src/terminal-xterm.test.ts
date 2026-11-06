@@ -53,10 +53,13 @@ test("a core terminal's wheel scrolls whole local rows and keeps the part of a r
 });
 
 test("a core terminal's area and scrollback scroll as one page", () => {
-  assert.equal(localScrollMovesArea(true, 40, 2_000, 2_000), true);
-  assert.equal(localScrollMovesArea(true, 0, 2_000, 2_000), false);
-  assert.equal(localScrollMovesArea(false, 0, 1_500, 2_000), false);
-  assert.equal(localScrollMovesArea(false, 0, 2_000, 2_000), true);
+  assert.equal(localScrollMovesArea(true, 40, 2_000, 2_000, true), true);
+  assert.equal(localScrollMovesArea(true, 0, 2_000, 2_000, true), false);
+  assert.equal(localScrollMovesArea(false, 0, 1_500, 2_000, true), false);
+  assert.equal(localScrollMovesArea(false, 0, 2_000, 2_000, true), true);
+  // At the latest output in an area that fits, a swipe stays the terminal's
+  // and is cancelled, so it never bounces or pans the page.
+  assert.equal(localScrollMovesArea(false, 0, 2_000, 2_000, false), false);
 });
 
 test("a swipe scrolls the terminal area only along an axis the terminal overflows", () => {

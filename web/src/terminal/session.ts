@@ -55,8 +55,7 @@ export interface TerminalSessionLike {
 
 interface TerminalSessionOptions {
   endpoint: string;
-  // herdr names the Herdr that holds the terminal. Herdr Core has no scroll
-  // command, so wheel scrolling stays in the browser there.
+  // herdr names the Herdr that holds the terminal.
   herdr?: "tui" | "core";
   terminalID?: string;
 }
@@ -255,7 +254,7 @@ export class TerminalSession implements TerminalSessionLike {
   }
 
   scroll(scroll: TerminalScroll): boolean {
-    if (this.#mode === "observe" || this.#herdr === "core") return false;
+    if (this.#mode === "observe") return false;
     return this.#send({ type: "terminal.scroll", source: "wheel", ...scroll });
   }
 

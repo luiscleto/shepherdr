@@ -90,9 +90,9 @@ export function localScrollRows(
 // A core terminal's area, when the terminal is bigger than it, and its
 // scrollback read as one page: moving up scrolls the area to its top, then
 // the scrollback; moving down scrolls the scrollback back to the latest
-// output, then the area.
-export function localScrollMovesArea(up: boolean, areaTop: number, viewportY: number, baseY: number): boolean {
-  return up ? areaTop > 0 : viewportY >= baseY;
+// output, then the area. An area that doesn't overflow never moves.
+export function localScrollMovesArea(up: boolean, areaTop: number, viewportY: number, baseY: number, overflows: boolean): boolean {
+  return overflows && (up ? areaTop > 0 : viewportY >= baseY);
 }
 
 // A terminal bigger than its area, such as one another viewer sized, keeps

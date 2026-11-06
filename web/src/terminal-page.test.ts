@@ -245,9 +245,8 @@ test("a Herdr Core terminal opens controlling, releases to observing without Tak
   const shortcuts = Array.from(host.querySelectorAll(".terminal-saved-shortcuts button")).map(button => button.textContent).join(",");
   assert.equal(shortcuts, "Esc,Enter,A");
   assert.equal(host.textContent?.includes("Take over"), false);
-  // Herdr Core has no scroll command: the wheel stays local while controlling.
-  assert.equal(events().onScroll?.({ direction: "up", lines: 3, column: 1, row: 1, modifiers: 0 }), false);
-  assert.equal(sockets[0].commands.some(command => command.type === "terminal.scroll"), false);
+  // Herdr Core has no scroll command: the page scrolls its own scrollback.
+  assert.equal(events().onScroll, undefined);
   control.click();
   await tick();
   assert.equal(new URL(sockets[1].url).searchParams.get("mode"), "observe");
