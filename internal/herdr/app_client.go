@@ -15,7 +15,7 @@ import (
 
 const (
 	minimumValidatedAppVersion = "0.1.10"
-	maximumValidatedAppVersion = "0.1.13"
+	maximumValidatedAppVersion = "0.1.14"
 	appCommandTimeout          = 10 * time.Second
 	appStatusTimeout           = 2 * time.Second
 	appWindowDidNotAnswer      = "the window did not answer"
