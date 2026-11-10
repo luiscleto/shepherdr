@@ -202,6 +202,20 @@ test("delete asks first and Delete all shown removes exactly what is shown", asy
   window.close();
 });
 
+test("a gone terminal saved under two places goes by its newest in the bar and Delete all", () => {
+  const gone = { herdr: "core" as const, place: "reports", source: review, agent: "claude" };
+  const shared = [
+    file("a", { from: { ...gone, tab: "drafts" }, shared_at: 1_000 }),
+    file("b", { from: { ...gone, tab: "notes" }, shared_at: 2_000 }),
+  ];
+  const { host } = page({ files: shared, route: { filter: { herdr: "core", source: review } } });
+  assert.equal(host.querySelector(".shared-filter p")?.textContent, "From reports / notes · claude");
+  host.querySelector<HTMLButtonElement>(".shared-page-menu .workspace-menu-trigger")?.click();
+  host.querySelector<HTMLButtonElement>(".shared-page-menu .workspace-menu-popover button")?.click();
+  assert.equal(host.querySelector(".shared-sheet .home-action-copy")?.textContent,
+    "This removes the 2 files shared from reports / notes, for every device. The agent's own files stay where they were.");
+});
+
 test("the empty page says how to share, and the tray button shows only a nonzero count", () => {
   const { host, view, window } = page({ files: [] });
   assert.equal(host.querySelector(".shared-empty h2")?.textContent, "Nothing shared yet");

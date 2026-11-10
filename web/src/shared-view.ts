@@ -252,14 +252,20 @@ export class SharedPage {
     return filesFor(model.files, model.route.filter);
   }
 
+  // #filterFrom names the filtered terminal, for its bar and Delete all: a
+  // live terminal by its name on Home, else by its newest file, since a file
+  // may carry an older name.
+  #filterFrom(model: ListedModel, shown: SharedFile[]): SharedFrom | undefined {
+    const newest = sortFiles(shown, "newest")[0]?.from;
+    return model.terminalLabel ? keepAgent(model.terminalLabel, newest?.agent) : newest;
+  }
+
   #renderFilter(model: ListedModel, shown: SharedFile[]): void {
     const filter = model.route.filter;
     this.#filterBar.hidden = !filter;
     if (!filter) return;
     const document = this.#document;
-    // A live terminal goes by its name on Home; a file may carry an older one.
-    const newest = sortFiles(shown, "newest")[0]?.from;
-    const from = model.terminalLabel ? keepAgent(model.terminalLabel, newest?.agent) : newest;
+    const from = this.#filterFrom(model, shown);
     const text = element(document, "p");
     text.append("From ");
     if (from) {
@@ -532,7 +538,7 @@ export class SharedPage {
     if (!model) return;
     const shown = this.#shown(model);
     const count = shown.length;
-    const from = shown[0]?.from;
+    const from = this.#filterFrom(model, shown);
     const copy = model.route.filter && from
       ? `This removes the ${count === 1 ? "file" : `${count} files`} shared from ${placeText(from)}, for every device. The agent's own files stay where they were.`
       : `This removes ${count === 1 ? "this file" : `all ${count} files`} for every device. The agents' own files stay where they were.`;
