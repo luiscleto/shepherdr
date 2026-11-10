@@ -234,19 +234,28 @@ export function terminalFrom(herdr: Herdr, entry: TerminalEntry): SharedFrom {
   };
 }
 
+// keepAgent is a current terminal's live name, with the agent saved when it
+// shared while the terminal reports none, as after its agent exits to the
+// shell.
+export function keepAgent(live: SharedFrom, saved: string | undefined): SharedFrom {
+  return live.agent || !saved ? live : { ...live, agent: saved };
+}
+
 // withLiveNames names each file whose terminal is still current as that
-// terminal is named on Home now. A file keeps the name it was shared with
-// once its terminal is gone.
+// terminal is named on Home now, keeping its saved agent when the terminal
+// reports none. A file keeps the name it was shared with once its terminal
+// is gone.
 export function withLiveNames(files: readonly SharedFile[], live: (herdr: Herdr, target: SharedTarget) => SharedFrom | undefined): SharedFile[] {
   return files.map((file) => {
     const from = file.from;
     const name = from?.current ? live(from.herdr, from.current) : undefined;
     if (!from?.current || !name) return file;
+    const { agent } = keepAgent(name, from.agent);
     return {
       ...file,
       from: {
         current: from.current, herdr: from.herdr, place: name.place, source: from.source,
-        ...(name.tab ? { tab: name.tab } : {}), ...(name.agent ? { agent: name.agent } : {}),
+        ...(name.tab ? { tab: name.tab } : {}), ...(agent ? { agent } : {}),
       },
     };
   });

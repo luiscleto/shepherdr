@@ -8,6 +8,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 - **New tab** in each Herdr app space's menu adds a tab at the end of the space and opens its terminal. With the Herdr app window open, the window shows the new tab's space. It works while the Herdr app is closed too; the app adds the tab when it next opens, and its place among the space's tabs may change then.
 
+### Fixed
+
+- **Shared files** keeps naming the agent that shared a file, as in "delta · claude", after that agent exits and its terminal stays open.
+
 ### Compatibility
 
 - Support Herdr Core 0.1.20 and the Herdr app 0.1.15.

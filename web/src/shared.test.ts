@@ -156,9 +156,12 @@ test("a terminal's filtered list, its empty state and Ask for a file", () => {
   assert.deepEqual(texts(host, ".shared-name"), ["a.png", "b.png"]);
   assert.equal(host.querySelector(".shared-filter p")?.textContent, "From site · claude-code");
   // While the terminal is on Home, the bar uses its name there, even when its
-  // files were shared under an older one.
+  // files were shared under an older one, and its live agent when it has one.
+  view.update({ ...full, terminalLabel: { herdr: "core", place: "notes", source: "", agent: "codex" } });
+  assert.equal(host.querySelector(".shared-filter p")?.textContent, "From notes · codex");
+  // With no agent now, as after the agent exits to the shell, the saved one stays.
   view.update({ ...full, terminalLabel: { herdr: "core", place: "notes", source: "" } });
-  assert.equal(host.querySelector(".shared-filter p")?.textContent, "From notes");
+  assert.equal(host.querySelector(".shared-filter p")?.textContent, "From notes · claude-code");
   assert.deepEqual(texts(host, ".shared-from"), ["site · claude-code", "site · claude-code"]);
   assert.equal(host.querySelector(".terminal-connection")?.textContent, "2 of 4 files · 400 B");
   assert.equal(host.querySelector(".terminal-home")?.textContent, "Back");
@@ -275,12 +278,33 @@ test("a file from a current terminal takes its live name; a gone terminal's file
   assert.equal(fromText(named[0].from, false), "claude-code");
   assert.equal(named[0].from?.source, site);
   assert.deepEqual(named[0].from?.current, helper);
-  // A live place drops a recorded tab and agent it no longer has.
-  assert.equal(fromText(named[1].from, false), "reports");
+  // A live place drops a recorded tab it no longer has, and keeps the saved
+  // agent while the terminal reports none.
+  assert.equal(fromText(named[1].from, false), "reports · codex");
   // A gone terminal keeps its recorded place; outside Herdr stays so.
   assert.equal(fromText(named[2].from, false), "Other terminals · claude-code");
   assert.equal(fromText(named[3].from, false), "Outside Herdr");
   assert.equal(named[3], shared[3]);
+});
+
+test("an agent that exits to the shell keeps its name on its files; a new agent shows its own", () => {
+  const delta = { pane_id: "t7", terminal_id: "core:t7", workspace_id: "spc-delta" };
+  const helper = { pane_id: "t11", terminal_id: "core:t11", workspace_id: "other" };
+  const shared = [
+    file("a", { from: { herdr: "core", place: "delta", source: site, agent: "claude", current: delta }, shared_at: 2_000 }),
+    file("b", { from: { herdr: "core", place: "Other terminals", source: review, agent: "claude", current: helper }, shared_at: 1_000 }),
+  ];
+  const plain = (herdr: string, target: { pane_id: string }) => target.pane_id === "t7"
+    ? { herdr: "core" as const, place: "delta", source: "" }
+    : { herdr: "core" as const, place: "bash", source: "" };
+  const exited = withLiveNames(shared, plain);
+  assert.deepEqual(exited.map((item) => fromText(item.from, false)), ["delta · claude", "bash · claude"]);
+  const { host, view, full } = page({ files: exited, sort: "agent" });
+  assert.deepEqual(texts(host, ".shared-group-heading"), ["delta · claude · 1", "bash · claude · 1"]);
+  // Another agent now runs there: its live name wins.
+  const codex = withLiveNames(shared, (herdr, target) => ({ ...plain(herdr, target), agent: "codex" }));
+  view.update({ ...full, files: codex });
+  assert.deepEqual(texts(host, ".shared-group-heading"), ["delta · codex · 1", "bash · codex · 1"]);
 });
 
 test("a gone terminal outside every space goes by Other terminals in its rows, bar and group", () => {

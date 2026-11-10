@@ -6,6 +6,7 @@ import {
   formatSize,
   fromText,
   groupByAgent,
+  keepAgent,
   placeText,
   sharedFileURL,
   sharedSortLabels,
@@ -257,7 +258,8 @@ export class SharedPage {
     if (!filter) return;
     const document = this.#document;
     // A live terminal goes by its name on Home; a file may carry an older one.
-    const from = model.terminalLabel ?? shown[0]?.from;
+    const newest = sortFiles(shown, "newest")[0]?.from;
+    const from = model.terminalLabel ? keepAgent(model.terminalLabel, newest?.agent) : newest;
     const text = element(document, "p");
     text.append("From ");
     if (from) {
