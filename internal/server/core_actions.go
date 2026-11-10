@@ -462,7 +462,7 @@ func (c *coreActionCoordinator) runNewTab(writer http.ResponseWriter, request *h
 		return
 	}
 	defer c.release()
-	_, tabs, ok := c.tabSpace(writer, herdr.AppWindowOpen, workspaceID)
+	_, _, tabs, ok := c.tabSpace(writer, herdr.AppWindowOpen, workspaceID)
 	if !ok {
 		return
 	}
@@ -509,11 +509,10 @@ func (c *coreActionCoordinator) runNewTabInCore(writer http.ResponseWriter, requ
 		return
 	}
 	defer c.release()
-	current, _, ok := c.tabSpace(writer, herdr.AppWindowClosed, workspaceID)
+	current, folder, _, ok := c.tabSpace(writer, herdr.AppWindowClosed, workspaceID)
 	if !ok {
 		return
 	}
-	folder, _, _ := herdr.CoreSpace(current.read, workspaceID)
 	// Core refuses a missing folder only after using up an address.
 	if !filepath.IsAbs(folder) || folderMissing(folder) {
 		writeRefusal(writer, http.StatusUnprocessableEntity, "folder_missing", "")
@@ -531,24 +530,25 @@ func (c *coreActionCoordinator) runNewTabInCore(writer http.ResponseWriter, requ
 }
 
 // tabSpace reads Home with window's actions and finds the exact space, which
-// must still offer New tab. It returns how many tabs the app holds for it.
-func (c *coreActionCoordinator) tabSpace(writer http.ResponseWriter, window herdr.AppWindowState, workspaceID string) (coreView, int, bool) {
+// must still offer New tab. It returns the space's folder and how many tabs
+// the app holds for it.
+func (c *coreActionCoordinator) tabSpace(writer http.ResponseWriter, window herdr.AppWindowState, workspaceID string) (coreView, string, int, bool) {
 	current, err := c.view(context.Background(), window)
 	if err != nil {
 		writeRefusal(writer, http.StatusServiceUnavailable, "herdr_unavailable", err.Error())
-		return coreView{}, 0, false
+		return coreView{}, "", 0, false
 	}
 	workspace, found := findCoreWorkspace(current.home, workspaceID)
 	if !found {
 		writeRefusal(writer, http.StatusNotFound, "not_found", "")
-		return coreView{}, 0, false
+		return coreView{}, "", 0, false
 	}
-	_, tabs, inDocument := herdr.CoreSpace(current.read, workspaceID)
+	folder, tabs, inDocument := herdr.CoreSpace(current.read, workspaceID)
 	if !slices.Contains(workspace.Actions, herdr.WorkspaceActionNewTab) || !inDocument {
 		writeRefusal(writer, http.StatusConflict, "not_applicable", "")
-		return coreView{}, 0, false
+		return coreView{}, "", 0, false
 	}
-	return current, tabs, true
+	return current, folder, tabs, true
 }
 
 // runRenameSpace names a space in the app window; an empty name returns it to
