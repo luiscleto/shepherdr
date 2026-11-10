@@ -32,6 +32,12 @@ test("parses only exact documented action outcomes and prepared facts", () => {
   assert.equal(prepared?.outcome === "prepared" ? prepared.expected.agent_total : -1, 4);
 
   assert.equal(parseWorkspaceActionResponse({ outcome: "succeeded", resource: {} }), undefined);
+  // New tab answers with the exact terminal it made, and nothing else.
+  const terminal = { workspace_id: "sp1", tab_id: "tb2", pane_id: "t3", terminal_id: "core:t3" };
+  assert.equal(JSON.stringify(parseWorkspaceActionResponse({ outcome: "succeeded", terminal })), JSON.stringify({ outcome: "succeeded", terminal }));
+  assert.equal(parseWorkspaceActionResponse({ outcome: "succeeded", terminal: { ...terminal, pane_id: "" } }), undefined);
+  assert.equal(parseWorkspaceActionResponse({ outcome: "succeeded", terminal: { ...terminal, extra: 1 } }), undefined);
+  assert.equal(parseWorkspaceActionResponse({ outcome: "unknown", terminal }), undefined);
   assert.equal(parseWorkspaceActionResponse({ outcome: "unknown", detail: "maybe" }), undefined);
   assert.equal(parseWorkspaceActionResponse({ outcome: "refused", reason: "dirty" }), undefined);
   assert.equal(parseWorkspaceActionResponse({ outcome: "refused", reason: "folder_missing" })?.outcome, "refused");

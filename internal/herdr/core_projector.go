@@ -15,8 +15,8 @@ type AppWindow interface {
 }
 
 // SetAppWindow makes Home on herdr-core offer the app's actions: those the
-// window does while app says it is open, and New space and New terminal
-// through core while it is closed. Call it before Run.
+// window does while app says it is open, and New space, New terminal and New
+// tab through core while it is closed. Call it before Run.
 func (p *Projector) SetAppWindow(app AppWindow) {
 	p.app = app
 }

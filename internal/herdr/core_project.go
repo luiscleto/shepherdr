@@ -199,8 +199,8 @@ func projectCore(read CoreRead, homeFolder string, repositories func(folder stri
 
 	snapshot := Snapshot{Version: read.Version, Workspaces: []WorkspaceInfo{}, Tabs: []TabInfo{}, Panes: []PaneInfo{}, Agents: []AgentInfo{}}
 	home := Home{Workspaces: []Workspace{}}
-	// New space and New terminal work with the app window open or closed;
-	// Rename space only while it is open.
+	// New space, New terminal and New tab work with the app window open or
+	// closed; Rename space only while it is open.
 	paired := read.AppWindow != AppWindowUnpaired
 	if paired {
 		home.Actions = []HomeAction{HomeActionCreateSpace}
@@ -235,6 +235,10 @@ func projectCore(read CoreRead, homeFolder string, repositories func(folder stri
 		}
 		if read.AppWindow == AppWindowOpen && !space.Waiting {
 			workspace.Actions = []WorkspaceAction{WorkspaceActionRenameSpace, WorkspaceActionCloseWorkspace}
+		}
+		// New tab needs a space the app already has, on this machine.
+		if paired && !space.Waiting && !space.Machine {
+			workspace.Actions = slices.Insert(workspace.Actions, 0, WorkspaceActionNewTab)
 		}
 		if space.Name != "" {
 			name := space.Name
@@ -520,4 +524,19 @@ func CorePaneBlock(read CoreRead, spaceID, tabID, address string) (string, bool)
 		}
 	}
 	return "", false
+}
+
+// CoreSpace finds a space the read's document has, with its folder and how
+// many tabs the app holds for it.
+func CoreSpace(read CoreRead, spaceID string) (folder string, tabs int, found bool) {
+	spaces, err := parseAppDocument(read.Document)
+	if err != nil {
+		return "", 0, false
+	}
+	for _, space := range spaces {
+		if space.ID == spaceID {
+			return space.Folder, len(space.Tabs), true
+		}
+	}
+	return "", 0, false
 }

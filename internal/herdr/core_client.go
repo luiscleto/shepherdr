@@ -68,7 +68,7 @@ const (
 	// asked yet. Home offers no app actions.
 	AppWindowUnpaired AppWindowState = iota
 	AppWindowOpen
-	// AppWindowClosed: New space and New terminal start in core, and the app
+	// AppWindowClosed: New space, New terminal and New tab start in core, and the app
 	// adds them when its window next opens.
 	AppWindowClosed
 )
@@ -293,8 +293,8 @@ func (c *CoreClient) Kill(ctx context.Context, address string) (string, error) {
 
 // Run starts core's own shell in folder, labelled with the Herdr app's space
 // and tab ids, and returns its address. The app adds a terminal so labelled
-// when its window next opens. It is used only for New space and New terminal
-// while the window is closed, with ids from a fresh read: the app adopts a
+// when its window next opens. It is used only for New space, New terminal
+// and New tab while the window is closed, with ids from a fresh read: the app adopts a
 // closed space's or tab's ids by bringing it back.
 func (c *CoreClient) Run(ctx context.Context, folder, space, tab string) (string, error) {
 	connection, _, err := c.open(ctx)

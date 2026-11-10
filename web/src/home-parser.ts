@@ -21,6 +21,7 @@ const workspaceActions = new Set<WorkspaceAction>([
   "close_group",
   "delete_checkout",
   "rename_space",
+  "new_tab",
 ]);
 const terminalActions = new Set<TerminalAction>(["split_terminal", "rename_terminal", "close_terminal", "pin_agent", "unpin_agent"]);
 

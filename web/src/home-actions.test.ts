@@ -1647,3 +1647,131 @@ test("Herdr Core starts New terminal in Herdr Core while the app window is close
   assert.deepEqual(results, ["Check Home before starting another terminal.", "This folder doesn't exist."]);
   window.close();
 });
+
+// Home on Herdr Core with New tab: a space with two tabs, and a space with one
+// tab and one terminal.
+function coreNewTabHome(closed = false): Home {
+  const home = closed ? coreClosedHome() : coreAppHome();
+  home.workspaces[0].actions = closed ? ["new_tab", "close_workspace"] : ["new_tab", "rename_space", "close_workspace"];
+  home.workspaces.splice(1, 0, {
+    actions: closed ? ["new_tab", "close_workspace"] : ["new_tab", "rename_space", "close_workspace"],
+    id: "sp-one",
+    label: "One",
+    number: 2,
+    tabs: [{
+      current: false,
+      id: "tb-one",
+      label: "1",
+      number: 1,
+      terminals: [{ actions: ["split_terminal", "close_terminal"], pane_id: "t7", terminal_id: "core:t7", title: "shell" }],
+    }],
+  });
+  return home;
+}
+
+function menuTrigger(app: HTMLElement, label: string): HTMLButtonElement {
+  return requiredMatchingElement<HTMLButtonElement>(
+    app, ".workspace-menu-trigger", (node) => node.getAttribute("aria-label") === label,
+  );
+}
+
+function menuItemTexts(trigger: HTMLButtonElement): string[] {
+  return Array.from(trigger.parentElement!.querySelectorAll('[role="menuitem"]'), (item) => item.textContent ?? "");
+}
+
+test("Herdr Core offers New tab in each space's top-level menu and opens the new tab's terminal", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  const requests: RunWorkspaceActionRequest[] = [];
+  const opened: TerminalActionTarget[] = [];
+  const created = { workspace_id: "sp-core", tab_id: "tb-new", pane_id: "t20", terminal_id: "core:t20" };
+  const { app } = makeView(window, {
+    herdr: "core",
+    onOpenCreated: (target) => { opened.push(target); },
+    run: async (value) => {
+      requests.push(value);
+      return { outcome: "succeeded", terminal: { ...created, workspace_id: (value as { workspace_id: string }).workspace_id } };
+    },
+  }, coreNewTabHome());
+
+  // The space header's menu, the single-tab row's menu, and not Other terminals.
+  const header = menuTrigger(app, "Actions for Core <img src=x>");
+  header.click();
+  assert.deepEqual(menuItemTexts(header), ["New tab", "Rename space", "Close space"]);
+  const row = menuTrigger(app, "Actions for One");
+  assert.deepEqual(menuItemTexts(row), ["New terminal", "Close terminal", "New tab", "Rename space", "Close space"]);
+  assert.equal(Array.from(app.querySelectorAll('[role="menuitem"]'), (item) => item.textContent).filter((text) => text === "New tab").length, 2);
+
+  requiredMatchingElement<HTMLButtonElement>(header.parentElement!, '[role="menuitem"]', (item) => item.textContent === "New tab").click();
+  const panel = requiredElement(app, ".home-action-panel");
+  assert.equal(requiredElement(panel, ".home-action-title").textContent, "New tab");
+  assert.equal(requiredElement(panel, ".home-action-copy").textContent, "This adds a tab at the end of Core <img src=x> and opens it.");
+  assert.equal(panel.querySelectorAll("img, .home-action-warning").length, 0);
+  assert.deepEqual(Array.from(panel.querySelectorAll(".home-action-buttons button"), (button) => button.textContent), ["New tab", "Cancel"]);
+  requiredMatchingElement<HTMLButtonElement>(panel, ".home-action-buttons button", (button) => button.textContent === "New tab").click();
+  await settle();
+
+  row.click();
+  requiredMatchingElement<HTMLButtonElement>(row.parentElement!, '[role="menuitem"]', (item) => item.textContent === "New tab").click();
+  requiredMatchingElement<HTMLButtonElement>(app, ".home-action-buttons button", (button) => button.textContent === "New tab").click();
+  await settle();
+  assert.deepEqual(requests.map((request) => JSON.stringify(request)), [
+    '{"herdr":"core","action":"new_tab","workspace_id":"sp-core"}',
+    '{"herdr":"core","action":"new_tab","workspace_id":"sp-one"}',
+  ]);
+  assert.deepEqual(opened, [created, { ...created, workspace_id: "sp-one" }]);
+  window.close();
+});
+
+test("Herdr Core starts New tab in Herdr Core while the app window is closed, with a warning, and says what failed", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  const requests: RunWorkspaceActionRequest[] = [];
+  let opened: TerminalActionTarget | undefined;
+  const created = { workspace_id: "sp-core", tab_id: "tb-new", pane_id: "t20", terminal_id: "core:t20" };
+  const outcomes: RunWorkspaceActionResponse[] = [
+    { outcome: "succeeded", terminal: created },
+    { outcome: "succeeded" },
+    { outcome: "unknown" },
+    { outcome: "refused", reason: "folder_missing" },
+    { outcome: "refused", reason: "not_found" },
+    { outcome: "refused", reason: "app_closed" },
+  ];
+  const { app } = makeView(window, {
+    herdr: "core",
+    onOpenCreated: (target) => { opened = target; },
+    run: async (value) => {
+      requests.push(value);
+      return outcomes.shift()!;
+    },
+  }, coreNewTabHome(true));
+  const results: string[] = [];
+  for (let index = 0; index < 6; index++) {
+    const trigger = menuTrigger(app, "Actions for Core <img src=x>");
+    trigger.click();
+    if (index === 0) assert.deepEqual(menuItemTexts(trigger), ["New tab", "Close space"]);
+    requiredMatchingElement<HTMLButtonElement>(trigger.parentElement!, '[role="menuitem"]', (item) => item.textContent === "New tab").click();
+    const panel = requiredElement(app, ".home-action-panel");
+    if (index === 0) {
+      assert.equal(requiredElement(panel, ".home-action-copy").textContent, "This adds a tab at the end of Core <img src=x> and opens it.");
+      assert.equal(
+        requiredElement(panel, ".home-action-warning").textContent,
+        "The Herdr app is closed. Shepherdr will start this tab in Herdr Core, and the app will add it when it next opens. Its place among the space's tabs may change then.",
+      );
+    }
+    requiredMatchingElement<HTMLButtonElement>(panel, ".home-action-buttons button", (button) => button.textContent === "New tab").click();
+    await settle();
+    if (index > 0) {
+      results.push(requiredElement(panel, ".home-action-copy").textContent ?? "");
+      requiredMatchingElement<HTMLButtonElement>(panel, "button", (button) => button.textContent === "Done").click();
+    }
+  }
+  assert.equal(JSON.stringify(requests[0]), '{"herdr":"core","action":"new_tab","workspace_id":"sp-core","best_effort":true}');
+  assert.deepEqual(opened, created);
+  assert.deepEqual(results, [
+    "Check Home before starting another tab.",
+    "Check Home before starting another tab.",
+    "This folder doesn't exist.",
+    "This space is no longer here.",
+    "The Herdr app window is closed. Open the action again to start it in Herdr Core.",
+  ]);
+  window.close();
+});

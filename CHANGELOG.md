@@ -4,6 +4,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+- **New tab** in each Herdr app space's menu adds a tab at the end of the space and opens its terminal. It works while the Herdr app is closed too; the app adds the tab when it next opens, and its place among the space's tabs may change then.
+
 ### Compatibility
 
 - Support Herdr Core 0.1.20 and the Herdr app 0.1.15.

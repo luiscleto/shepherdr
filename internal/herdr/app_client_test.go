@@ -146,7 +146,9 @@ func TestNewAppClientGatesVersionAndCommands(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
 	commands := `[{"name":"space.new","args":[{"name":"name"},{"name":"folder"},{"name":"tab"}]},` +
 		`{"name":"pane.split","args":[{"name":"direction"},{"name":"pane"}]},` +
-		`{"name":"space.rename","args":[{"name":"id"},{"name":"name"}]}]`
+		`{"name":"space.rename","args":[{"name":"id"},{"name":"name"}]},` +
+		`{"name":"tab.new","args":[{"name":"name"},{"name":"space"},{"name":"folder"}]},` +
+		`{"name":"tab.move","args":[{"name":"id"},{"name":"index"}]}]`
 	script := `#!/bin/sh
 case "$1" in
   --version) echo "herdr-app $(cat "$(dirname "$0")/version")" ;;
@@ -221,5 +223,13 @@ esac
 	write("commands", strings.Replace(commands, `"space.rename"`, `"space.retitle"`, 1))
 	if _, err := NewAppClient(context.Background(), client.path, logger); err == nil || !strings.Contains(err.Error(), "space.rename") {
 		t.Fatalf("missing command: %v", err)
+	}
+	write("commands", strings.Replace(commands, `{"name":"space"},`, ``, 1))
+	if _, err := NewAppClient(context.Background(), client.path, logger); err == nil || !strings.Contains(err.Error(), "tab.new") {
+		t.Fatalf("tab.new without space: %v", err)
+	}
+	write("commands", strings.Replace(commands, `"tab.move"`, `"tab.shift"`, 1))
+	if _, err := NewAppClient(context.Background(), client.path, logger); err == nil || !strings.Contains(err.Error(), "tab.move") {
+		t.Fatalf("missing tab.move: %v", err)
 	}
 }

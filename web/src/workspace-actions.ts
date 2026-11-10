@@ -1,7 +1,8 @@
 import type { Herdr } from "./home-model";
+import type { TerminalActionTarget } from "./terminal-actions";
 
-export type WorkspaceAction = "create_worktree" | "close_workspace" | "close_group" | "delete_checkout" | "rename_space";
-export type DestructiveWorkspaceAction = Exclude<WorkspaceAction, "create_worktree" | "rename_space">;
+export type WorkspaceAction = "create_worktree" | "close_workspace" | "close_group" | "delete_checkout" | "rename_space" | "new_tab";
+export type DestructiveWorkspaceAction = Exclude<WorkspaceAction, "create_worktree" | "rename_space" | "new_tab">;
 
 // error comes only from Herdr Core and unknown only from the Herdr TUI.
 export interface InterruptionCounts {
@@ -48,8 +49,10 @@ export interface UnknownWorkspaceAction {
   outcome: "unknown";
 }
 
+// New tab answers with its terminal, which the browser opens.
 export interface SucceededWorkspaceAction {
   outcome: "succeeded";
+  terminal?: TerminalActionTarget;
 }
 
 export type WorkspaceActionResponse =
@@ -89,6 +92,15 @@ export interface RenameSpaceRequest {
   name: string;
 }
 
+// Herdr Core: New tab adds a tab at the end of the space. While the Herdr app
+// window is closed it starts in Herdr Core: best_effort says the person
+// confirmed that sheet.
+export type NewTabRequest = {
+  herdr: Herdr;
+  action: "new_tab";
+  workspace_id: string;
+} & ({} | { best_effort: true });
+
 export interface ConfirmWorkspaceActionRequest {
   herdr: Herdr;
   action: DestructiveWorkspaceAction;
@@ -100,6 +112,7 @@ export type RunWorkspaceActionRequest =
   | CreateSpaceRequest
   | CreateWorktreeRequest
   | RenameSpaceRequest
+  | NewTabRequest
   | ConfirmWorkspaceActionRequest;
 export type PreparedWorkspaceActionResponse = PreparedWorkspaceAction | RefusedWorkspaceAction;
 export type RunWorkspaceActionResponse = SucceededWorkspaceAction | RefusedWorkspaceAction | UnknownWorkspaceAction;
@@ -137,6 +150,22 @@ function exactKeys(value: Record<string, unknown>, required: readonly string[], 
 
 function nonnegativeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+// parseTerminalActionTarget reads the exact terminal an action names or made.
+export function parseTerminalActionTarget(value: unknown): TerminalActionTarget | undefined {
+  const target = record(value);
+  if (!target || !exactKeys(target, ["workspace_id", "tab_id", "pane_id", "terminal_id"]) ||
+    typeof target.workspace_id !== "string" || target.workspace_id === "" ||
+    typeof target.tab_id !== "string" || target.tab_id === "" ||
+    typeof target.pane_id !== "string" || target.pane_id === "" ||
+    typeof target.terminal_id !== "string" || target.terminal_id === "") return undefined;
+  return {
+    workspace_id: target.workspace_id,
+    tab_id: target.tab_id,
+    pane_id: target.pane_id,
+    terminal_id: target.terminal_id,
+  };
 }
 
 export function parseInterruptionCounts(value: unknown, agentTotal: number): InterruptionCounts | undefined {
@@ -183,6 +212,10 @@ function parseConfirmationFacts(value: unknown, action: DestructiveWorkspaceActi
 export function parseWorkspaceActionResponse(value: unknown): WorkspaceActionResponse | undefined {
   const response = record(value);
   if (!response || typeof response.outcome !== "string") return undefined;
+  if (response.outcome === "succeeded" && Object.hasOwn(response, "terminal")) {
+    const terminal = parseTerminalActionTarget(response.terminal);
+    return exactKeys(response, ["outcome", "terminal"]) && terminal ? { outcome: "succeeded", terminal } : undefined;
+  }
   if (response.outcome === "succeeded" || response.outcome === "unknown") {
     return exactKeys(response, ["outcome"]) ? { outcome: response.outcome } : undefined;
   }

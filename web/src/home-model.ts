@@ -61,8 +61,8 @@ export type HomeAction = "create_space";
 
 export interface Home {
   actions?: HomeAction[];
-  // "closed" while the Herdr app window is closed: New space and New terminal
-  // then start in Herdr Core, and the app adds them when it next opens.
+  // "closed" while the Herdr app window is closed: New space, New terminal and
+  // New tab then start in Herdr Core, and the app adds them when it next opens.
   app_window?: "closed";
   blocked_count: number;
   error_count: number;

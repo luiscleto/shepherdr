@@ -20,6 +20,9 @@ const (
 	WorkspaceActionDeleteCheckout WorkspaceAction = "delete_checkout"
 	// Rename space comes only from the Herdr app window.
 	WorkspaceActionRenameSpace WorkspaceAction = "rename_space"
+	// New tab adds a tab at the end of a Herdr Core space: in the app window
+	// while it is open, else in core, labelled for the app to add.
+	WorkspaceActionNewTab WorkspaceAction = "new_tab"
 )
 
 type WorkspaceActionTarget struct {

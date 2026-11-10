@@ -49,7 +49,7 @@ import {
 } from "./terminal-actions";
 
 const statusOrder = ["working", "blocked", "error", "idle", "done", "unknown"] as const;
-// New space and New terminal sheets confirmed while the Herdr app window was
+// New space, New terminal and New tab sheets confirmed while the Herdr app window was
 // open, sent after it closed: the closed window's sheet starts them in Herdr Core.
 const appClosedCreate = "The Herdr app window is closed. Open the action again to start it in Herdr Core.";
 
@@ -220,6 +220,7 @@ function workspaceActionLabels(herdr: Herdr): Record<WorkspaceAction, string> {
     close_group: "Close workspace",
     delete_checkout: "Delete checkout",
     rename_space: "Rename space",
+    new_tab: "New tab",
   };
 }
 
@@ -1543,7 +1544,7 @@ export class HomeView {
 
   #updateWorkspaceMenu(nodes: WorkspaceMenuNodes, workspace: Workspace): void {
     setAttribute(nodes.trigger, "aria-label", `Actions for ${workspace.label}`);
-    const order: WorkspaceAction[] = ["rename_space", "create_worktree", "close_workspace", "close_group", "delete_checkout"];
+    const order: WorkspaceAction[] = ["new_tab", "rename_space", "create_worktree", "close_workspace", "close_group", "delete_checkout"];
     const labels = workspaceActionLabels(this.#shownHerdr());
     const items: Node[] = [];
     for (const action of order) {
@@ -1601,7 +1602,7 @@ export class HomeView {
       items.push(item);
     }
     if (includeWorkspace) {
-      const workspaceOrder: WorkspaceAction[] = ["rename_space", "create_worktree", "close_workspace", "close_group", "delete_checkout"];
+      const workspaceOrder: WorkspaceAction[] = ["new_tab", "rename_space", "create_worktree", "close_workspace", "close_group", "delete_checkout"];
       const labels = workspaceActionLabels(this.#shownHerdr());
       for (const action of workspaceOrder) {
         if (!entry.workspace.actions.includes(action)) continue;
@@ -1994,6 +1995,28 @@ export class HomeView {
     this.#showActionLayer(`Rename ${workspace.label}`, [form], () => this.#closeActionLayer(), name);
   }
 
+  // New tab adds a tab at the end of the space and opens its terminal. While
+  // the Herdr app window is closed it starts in Herdr Core, with a warning.
+  #openNewTab(workspace: Workspace, returnFocus: HTMLElement, herdr: Herdr): void {
+    if (this.#actionRunning) return;
+    this.#returnFocus = returnFocus;
+    const inCore = this.#appWindowClosed(herdr);
+    const copy = element(this.#document, "p", "home-action-copy", `This adds a tab at the end of ${workspace.label} and opens it.`);
+    const warning = element(
+      this.#document,
+      "p",
+      "home-action-warning",
+      "The Herdr app is closed. Shepherdr will start this tab in Herdr Core, and the app will add it when it next opens. Its place among the space's tabs may change then.",
+    );
+    const choices = element(this.#document, "div", "home-action-buttons");
+    const start = this.#button("New tab", () => void this.#submitAction(inCore
+      ? { herdr, action: "new_tab", workspace_id: workspace.id, best_effort: true }
+      : { herdr, action: "new_tab", workspace_id: workspace.id }));
+    start.className = "home-action-primary";
+    choices.append(start, this.#button("Cancel", () => this.#closeActionLayer()));
+    this.#showActionLayer("New tab", inCore ? [copy, warning, choices] : [copy, choices], () => this.#closeActionLayer(), start);
+  }
+
   #formActions(primaryLabel: string, cancel: () => void): { container: HTMLElement; primary: HTMLButtonElement } {
     const container = element(this.#document, "div", "home-action-buttons");
     const primary = element(this.#document, "button", "home-action-primary", primaryLabel);
@@ -2007,8 +2030,8 @@ export class HomeView {
     return this.#lastRender?.herdr ?? "tui";
   }
 
-  // While the Herdr app window is closed, New space and New terminal start in
-  // Herdr Core.
+  // While the Herdr app window is closed, New space, New terminal and New tab
+  // start in Herdr Core.
   #appWindowClosed(herdr: Herdr): boolean {
     return herdr === "core" && this.#lastRender?.state.home.app_window === "closed";
   }
@@ -2285,6 +2308,10 @@ export class HomeView {
       this.#openRenameSpace(workspace, returnFocus, herdr);
       return;
     }
+    if (action === "new_tab") {
+      this.#openNewTab(workspace, returnFocus, herdr);
+      return;
+    }
     this.#returnFocus = returnFocus;
     void this.#prepareAction({ herdr, action, workspace_id: workspace.id });
   }
@@ -2413,8 +2440,17 @@ export class HomeView {
     }
     this.#actionRunning = false;
     this.#renderAgain();
+    const creates = request.action === "create_space" || request.action === "new_tab";
     if (response.outcome === "refused") {
-      this.#showRefusal(response, request.herdr, undefined, request.action === "create_space" ? appClosedCreate : undefined);
+      this.#showRefusal(response, request.herdr, undefined, creates ? appClosedCreate : undefined);
+    } else if (request.action === "new_tab") {
+      // The new tab's terminal opens, as after New terminal.
+      if (response.outcome === "succeeded" && response.terminal) {
+        this.#closeActionLayer();
+        this.#actions.onOpenCreated(response.terminal, request.herdr);
+      } else {
+        this.#showResult("Result unknown", "Check Home before starting another tab.");
+      }
     } else if (response.outcome === "unknown") {
       this.#showUnknown(request.action);
     } else if (request.action === "create_space" && "best_effort" in request) {
@@ -2432,12 +2468,13 @@ export class HomeView {
       close_group: "Closing workspace",
       delete_checkout: "Deleting checkout",
       rename_space: "Renaming space",
+      new_tab: "Creating tab",
     };
     return headings[action];
   }
 
-  #showSuccess(action: RunWorkspaceActionRequest["action"], herdr: Herdr): void {
-    const copy: Record<RunWorkspaceActionRequest["action"], [string, string]> = {
+  #showSuccess(action: Exclude<RunWorkspaceActionRequest["action"], "new_tab">, herdr: Herdr): void {
+    const copy: Record<Exclude<RunWorkspaceActionRequest["action"], "new_tab">, [string, string]> = {
       create_space: ["Space created", "Home will update when the new space is ready."],
       create_worktree: ["Worktree created", "Home will update when the new worktree is ready."],
       close_workspace: [herdr === "core" ? "Space closed" : "Workspace closed", "Its folder and branch remain. Home will update when it is ready."],

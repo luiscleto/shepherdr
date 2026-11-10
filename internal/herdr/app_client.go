@@ -31,6 +31,8 @@ var appRequiredArguments = map[string][]string{
 	"space.new":    {"name", "folder"},
 	"pane.split":   {"direction", "pane"},
 	"space.rename": {"id", "name"},
+	"tab.new":      {"space"},
+	"tab.move":     {"id", "index"},
 }
 
 // AppClient drives the Herdr app window through its documented herdr-app
@@ -91,7 +93,7 @@ func checkAppCommands(output []byte) error {
 		}
 		offered[command.Name] = arguments
 	}
-	for _, name := range []string{"space.new", "pane.split", "space.rename"} {
+	for _, name := range []string{"space.new", "pane.split", "space.rename", "tab.new", "tab.move"} {
 		arguments, ok := offered[name]
 		if !ok {
 			return fmt.Errorf("this Herdr app doesn't offer %s", name)

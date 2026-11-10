@@ -1,5 +1,5 @@
 import type { Agent, AgentStatus, Herdr } from "./home-model";
-import { parseInterruptionCounts, type ConfirmationFacts, type RefusalReason } from "./workspace-actions";
+import { parseInterruptionCounts, parseTerminalActionTarget, type ConfirmationFacts, type RefusalReason } from "./workspace-actions";
 
 export interface TerminalActionTarget {
   workspace_id: string;
@@ -99,21 +99,6 @@ function exactKeys(value: Record<string, unknown>, required: readonly string[], 
   return required.every((key) => Object.hasOwn(value, key)) && Object.keys(value).every((key) => allowed.has(key));
 }
 
-function parseTarget(value: unknown): TerminalActionTarget | undefined {
-  const target = record(value);
-  if (!target || !exactKeys(target, ["workspace_id", "tab_id", "pane_id", "terminal_id"]) ||
-    typeof target.workspace_id !== "string" || target.workspace_id === "" ||
-    typeof target.tab_id !== "string" || target.tab_id === "" ||
-    typeof target.pane_id !== "string" || target.pane_id === "" ||
-    typeof target.terminal_id !== "string" || target.terminal_id === "") return undefined;
-  return {
-    workspace_id: target.workspace_id,
-    tab_id: target.tab_id,
-    pane_id: target.pane_id,
-    terminal_id: target.terminal_id,
-  };
-}
-
 function parseAgent(value: unknown): Agent | undefined {
   const agent = record(value);
   if (!agent || !exactKeys(agent, ["kind", "name", "status"]) ||
@@ -158,7 +143,7 @@ function parseCloseFacts(value: unknown): TerminalCloseFacts | undefined {
     typeof facts.terminal_title !== "string" || typeof facts.closes_tab !== "boolean") return undefined;
   if (Object.hasOwn(facts, "closes_workers") &&
     (!nonnegativeInteger(facts.closes_workers) || facts.closes_workers === 0)) return undefined;
-  const target = parseTarget(facts.target);
+  const target = parseTerminalActionTarget(facts.target);
   if (!target) return undefined;
   const agent = Object.hasOwn(facts, "agent") ? parseAgent(facts.agent) : undefined;
   if (Object.hasOwn(facts, "agent") && !agent) return undefined;
@@ -208,7 +193,7 @@ export function parseTerminalActionResponse(value: unknown): PreparedTerminalAct
   }
   if (response.outcome === "succeeded") {
     if (!exactKeys(response, ["outcome"], ["terminal"])) return undefined;
-    const terminal = Object.hasOwn(response, "terminal") ? parseTarget(response.terminal) : undefined;
+    const terminal = Object.hasOwn(response, "terminal") ? parseTerminalActionTarget(response.terminal) : undefined;
     if (Object.hasOwn(response, "terminal") && !terminal) return undefined;
     return { outcome: "succeeded", ...(terminal ? { terminal } : {}) };
   }

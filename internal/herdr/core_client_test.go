@@ -350,14 +350,14 @@ func TestCoreProjectorKeepsHomeLiveWhileTheAppWindowHangs(t *testing.T) {
 	// later answer brings it back.
 	window.answers <- false
 	closed := waitForState(t, updates, func(state State) bool { return state.Home.AppWindow == "closed" })
-	if !appActions(closed) || len(closed.Home.Workspaces[0].Actions) != 1 {
+	if !appActions(closed) || len(closed.Home.Workspaces[0].Actions) != 2 {
 		t.Fatalf("closed = %+v", closed.Home)
 	}
 	projector.RequestRefresh()
 	<-window.asked
 	window.answers <- true
 	back := waitForState(t, updates, func(state State) bool { return state.Home.AppWindow == "" })
-	if back.Connection != ConnectionLive || back.Home.Workspaces[0].Label != "beta" || len(back.Home.Workspaces[0].Actions) != 2 {
+	if back.Connection != ConnectionLive || back.Home.Workspaces[0].Label != "beta" || len(back.Home.Workspaces[0].Actions) != 3 {
 		t.Fatalf("back = %+v", back)
 	}
 }

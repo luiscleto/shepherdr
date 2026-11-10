@@ -412,14 +412,14 @@ func TestProjectCoreOffersTheAppWindowActionsOnlyWhileItIsOpen(t *testing.T) {
 	want := []string{
 		// Only the named space has a manual name. A worker has no pane, so it
 		// can't be split; neither can a terminal under Other terminals.
-		"alpha alpha [rename_space close_workspace]",
+		"alpha alpha [new_tab rename_space close_workspace]",
 		"  t3 [split_terminal close_terminal]",
 		"  t9 [close_terminal]",
 		"  t4 [split_terminal close_terminal]",
 		"  t5 [split_terminal close_terminal]",
-		"repo - [rename_space close_workspace]",
+		"repo - [new_tab rename_space close_workspace]",
 		"  t6 [split_terminal close_terminal]",
-		"~ - [rename_space close_workspace]",
+		"~ - [new_tab rename_space close_workspace]",
 		"  t7 [split_terminal close_terminal]",
 		"Other terminals - []",
 		"  t8 [close_terminal]",
@@ -436,14 +436,14 @@ func TestProjectCoreOffersTheAppWindowActionsOnlyWhileItIsOpen(t *testing.T) {
 		t.Fatalf("no app: %v %+v", err, unpaired)
 	}
 
-	// While the window is closed, New space and New terminal start in core;
-	// Rename space needs the window.
+	// While the window is closed, New space, New terminal and New tab start in
+	// core; Rename space needs the window.
 	read.AppWindow = AppWindowClosed
 	_, closed, err := ProjectCore(read, "/home/user")
 	if err != nil || !reflect.DeepEqual(closed.Actions, []HomeAction{HomeActionCreateSpace}) || closed.AppWindow != "closed" {
 		t.Fatalf("closed window: %v %v %q", err, closed.Actions, closed.AppWindow)
 	}
-	if !reflect.DeepEqual(closed.Workspaces[0].Actions, []WorkspaceAction{WorkspaceActionCloseWorkspace}) ||
+	if !reflect.DeepEqual(closed.Workspaces[0].Actions, []WorkspaceAction{WorkspaceActionNewTab, WorkspaceActionCloseWorkspace}) ||
 		!reflect.DeepEqual(closed.Workspaces[0].Tabs[0].Terminals[0].Actions, []TerminalAction{TerminalActionSplit, TerminalActionClose}) ||
 		!reflect.DeepEqual(closed.Workspaces[0].Tabs[0].Terminals[1].Actions, []TerminalAction{TerminalActionClose}) {
 		t.Fatalf("closed window actions: %+v", closed.Workspaces[0])
@@ -560,7 +560,7 @@ func TestProjectCoreShowsWaitingTerminalsWhereTheAppPutsThem(t *testing.T) {
 		alpha := home.Workspaces[0].Tabs[0].Terminals
 		newTerminal, newSpaceFirst := alpha[len(alpha)-1], space.Tabs[0].Terminals[0]
 		// While waiting, a terminal has no pane to start a terminal next to,
-		// and a waiting space can only be closed.
+		// and a waiting space can only be closed; once placed, it takes New tab.
 		placed := index == 4
 		wantFirst := []TerminalAction{TerminalActionClose}
 		if placed {
@@ -570,8 +570,12 @@ func TestProjectCoreShowsWaitingTerminalsWhereTheAppPutsThem(t *testing.T) {
 		if index >= 3 {
 			wantNew = []TerminalAction{TerminalActionSplit, TerminalActionClose}
 		}
+		wantClosedSpace := []WorkspaceAction{WorkspaceActionCloseWorkspace}
+		if placed {
+			wantClosedSpace = []WorkspaceAction{WorkspaceActionNewTab, WorkspaceActionCloseWorkspace}
+		}
 		if newTerminal.PaneID != "t1b" || !reflect.DeepEqual(newTerminal.Actions, wantNew) || !reflect.DeepEqual(newSpaceFirst.Actions, wantFirst) ||
-			!reflect.DeepEqual(space.Actions, []WorkspaceAction{WorkspaceActionCloseWorkspace}) {
+			!reflect.DeepEqual(space.Actions, wantClosedSpace) {
 			t.Fatalf("read %d: actions t1b %v, t19 %v, space %v", index, newTerminal.Actions, newSpaceFirst.Actions, space.Actions)
 		}
 		// With the window open, a waiting space still can't be renamed.
@@ -579,7 +583,7 @@ func TestProjectCoreShowsWaitingTerminalsWhereTheAppPutsThem(t *testing.T) {
 		_, open, _ := ProjectCore(read, "/home/user")
 		wantSpace := []WorkspaceAction{WorkspaceActionCloseWorkspace}
 		if placed {
-			wantSpace = []WorkspaceAction{WorkspaceActionRenameSpace, WorkspaceActionCloseWorkspace}
+			wantSpace = []WorkspaceAction{WorkspaceActionNewTab, WorkspaceActionRenameSpace, WorkspaceActionCloseWorkspace}
 		}
 		if got := open.Workspaces[len(open.Workspaces)-1].Actions; !reflect.DeepEqual(got, wantSpace) || open.AppWindow != "" {
 			t.Fatalf("read %d open: space actions %v, window %q", index, got, open.AppWindow)

@@ -24,9 +24,9 @@ import (
 // Herdr Core offers Close terminal and Close space, both through terminal.kill.
 // Each is prepared from a fresh complete read, confirmed, then checked against
 // another fresh complete read before anything is killed. With the Herdr app,
-// it also offers New space and New terminal: the window does them while it is
-// open, and while it is closed they start in core, labelled so the app adds
-// them when it next opens. Rename space needs the window open. There is no
+// it also offers New space, New terminal and New tab: the window does them
+// while it is open, and while it is closed they start in core, labelled so the
+// app adds them when it next opens. Rename space needs the window open. There is no
 // retry.
 
 type coreActionClient interface {
@@ -121,6 +121,9 @@ func (c *coreActionCoordinator) run(writer http.ResponseWriter, request *http.Re
 		return
 	case actionOK && action == string(herdr.WorkspaceActionRenameSpace):
 		c.runRenameSpace(writer, request, fields)
+		return
+	case actionOK && action == string(herdr.WorkspaceActionNewTab):
+		c.runNewTab(writer, request, fields)
 		return
 	case !actionOK || action != string(herdr.WorkspaceActionCloseWorkspace):
 		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
@@ -434,6 +437,118 @@ func (c *coreActionCoordinator) runInCore(request *http.Request, folder, space, 
 		return runErr
 	})
 	return address, err
+}
+
+// runNewTab adds a tab at the end of the exact space in the app window, with
+// the app's own folder and name, then waits for Home to show its terminal so
+// the browser can open it. The app puts a new tab after the space's selected
+// tab, so it is then moved to the end. A request confirmed on the closed
+// window's sheet starts the tab in core instead.
+func (c *coreActionCoordinator) runNewTab(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage) {
+	if _, bestEffort := fields["best_effort"]; bestEffort {
+		c.runNewTabInCore(writer, request, fields)
+		return
+	}
+	keys := []string{"action", "workspace_id"}
+	if !requireObjectKeys(writer, fields, keys, keys) {
+		return
+	}
+	workspaceID, ok := decodeString(fields["workspace_id"])
+	if !ok || workspaceID == "" {
+		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
+		return
+	}
+	if !c.startAppAction(writer) {
+		return
+	}
+	defer c.release()
+	_, tabs, ok := c.tabSpace(writer, herdr.AppWindowOpen, workspaceID)
+	if !ok {
+		return
+	}
+	updates, unsubscribe := c.subscribeHome()
+	defer unsubscribe()
+	var created struct {
+		Space    string `json:"space"`
+		Tab      string `json:"tab"`
+		Terminal string `json:"terminal"`
+	}
+	if err := c.doApp(request, "tab.new", map[string]any{"space": workspaceID}, &created); err != nil {
+		c.finishAppError(writer, err)
+		return
+	}
+	if created.Space != workspaceID || created.Tab == "" || created.Terminal == "" {
+		c.unknown(writer, http.StatusBadGateway)
+		return
+	}
+	// The tab exists either way: if the move fails, it stays where the app
+	// put it and still opens. There is no retry or undo.
+	var moved struct {
+		OK bool `json:"ok"`
+	}
+	_ = c.doApp(request, "tab.move", map[string]any{"id": created.Tab, "index": tabs + 1}, &moved)
+	c.openWhenShown(writer, updates, terminalActionTarget{WorkspaceID: workspaceID, TabID: created.Tab}, created.Terminal)
+}
+
+// runNewTabInCore starts core's shell in the space's folder, labelled with
+// the space and a new tab id. The app adds the tab when its window next
+// opens, after the space's selected tab, and until then Home shows it at the
+// end of the space. The space comes from a fresh read just before the run:
+// while the window is closed only the app writes the document.
+func (c *coreActionCoordinator) runNewTabInCore(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage) {
+	keys := []string{"action", "workspace_id", "best_effort"}
+	if !requireObjectKeys(writer, fields, keys, keys) {
+		return
+	}
+	workspaceID, ok := decodeString(fields["workspace_id"])
+	if !ok || workspaceID == "" || !decodeTrue(fields["best_effort"]) {
+		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
+		return
+	}
+	if !c.startCoreAction(writer) {
+		return
+	}
+	defer c.release()
+	current, _, ok := c.tabSpace(writer, herdr.AppWindowClosed, workspaceID)
+	if !ok {
+		return
+	}
+	folder, _, _ := herdr.CoreSpace(current.read, workspaceID)
+	// Core refuses a missing folder only after using up an address.
+	if !filepath.IsAbs(folder) || folderMissing(folder) {
+		writeRefusal(writer, http.StatusUnprocessableEntity, "folder_missing", "")
+		return
+	}
+	tab := unusedAppID("tb", current.read)
+	updates, unsubscribe := c.subscribeHome()
+	defer unsubscribe()
+	address, err := c.runInCore(request, folder, workspaceID, tab)
+	if err != nil {
+		c.finishAppError(writer, err)
+		return
+	}
+	c.openWhenShown(writer, updates, terminalActionTarget{WorkspaceID: workspaceID, TabID: tab}, address)
+}
+
+// tabSpace reads Home with window's actions and finds the exact space, which
+// must still offer New tab. It returns how many tabs the app holds for it.
+func (c *coreActionCoordinator) tabSpace(writer http.ResponseWriter, window herdr.AppWindowState, workspaceID string) (coreView, int, bool) {
+	current, err := c.view(context.Background(), window)
+	if err != nil {
+		writeRefusal(writer, http.StatusServiceUnavailable, "herdr_unavailable", err.Error())
+		return coreView{}, 0, false
+	}
+	workspace, found := findCoreWorkspace(current.home, workspaceID)
+	if !found {
+		writeRefusal(writer, http.StatusNotFound, "not_found", "")
+		return coreView{}, 0, false
+	}
+	_, tabs, inDocument := herdr.CoreSpace(current.read, workspaceID)
+	if !slices.Contains(workspace.Actions, herdr.WorkspaceActionNewTab) || !inDocument {
+		writeRefusal(writer, http.StatusConflict, "not_applicable", "")
+		return coreView{}, 0, false
+	}
+	return current, tabs, true
 }
 
 // runRenameSpace names a space in the app window; an empty name returns it to

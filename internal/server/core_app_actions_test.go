@@ -18,13 +18,15 @@ import (
 )
 
 // fakeApp records the commands sent to the app window and answers each with
-// reply, or with err.
+// its replies entry, else reply, or with its errs entry, else err.
 type fakeApp struct {
 	mu       sync.Mutex
 	open     bool
 	commands []string
 	reply    string
+	replies  map[string]string
 	err      error
+	errs     map[string]error
 	after    func()
 }
 
@@ -39,6 +41,12 @@ func (f *fakeApp) Do(_ context.Context, command string, args map[string]any, res
 	encoded, _ := json.Marshal(args)
 	f.commands = append(f.commands, command+" "+string(encoded))
 	reply, err, after := f.reply, f.err, f.after
+	if commandReply, ok := f.replies[command]; ok {
+		reply = commandReply
+	}
+	if commandErr, ok := f.errs[command]; ok {
+		err = commandErr
+	}
 	f.mu.Unlock()
 	if err != nil {
 		return err
@@ -402,5 +410,152 @@ func TestCoreNewTerminalWhileClosedStartsInTheTerminalsFolderAndOpens(t *testing
 		`{"herdr":"core","action":"split_terminal",`+coreTarget(coreAlpha, coreAlphaTab, "t3")+`,"best_effort":true}`), http.StatusBadGateway, "unknown", "")
 	if got := core.ran(); len(got) != 2 || got[1] != start+" "+coreAlpha+" "+coreAlphaTab {
 		t.Fatalf("runs %q", got)
+	}
+}
+
+func TestCoreNewTabAddsATabAtTheEndOfTheExactSpaceAndOpensIt(t *testing.T) {
+	core := newFakeCore(t)
+	published := &fakeHome{}
+	app := &fakeApp{open: true, replies: map[string]string{
+		"tab.new":  `{"space":"` + coreAlpha + `","tab":"tbNEW","terminal":"t20"}`,
+		"tab.move": `{"ok":true}`,
+	}}
+	app.after = func() {
+		// The app adds tbNEW to alpha, then Home publishes it.
+		core.change(func(read *herdr.CoreRead) {
+			if strings.Contains(string(read.Document), "tbNEW") {
+				return
+			}
+			read.Terminals = append(read.Terminals, herdr.CoreTerminal{Address: "t20", CWD: "/tmp/w1/work/repo", CreatedMS: 99})
+			read.Document = json.RawMessage(strings.Replace(compactJSON(t, read.Document),
+				`"id":"`+coreAlpha+`","name":"alpha","tabs":[`,
+				`"id":"`+coreAlpha+`","name":"alpha","tabs":[{"id":"tbNEW","name":"","root":{"content":{"terminal":"t20"},"id":"pNEW","type":"block"}},`, 1))
+		})
+		published.publish(t, core)
+	}
+	handler := coreAppHandler(core, app, published, &countingHomeRefresher{})
+	run := func(workspaceID string) *httptest.ResponseRecorder {
+		return performSideActionRequest(t, handler, "/api/workspace-actions", `{"herdr":"core","action":"new_tab","workspace_id":"`+workspaceID+`"}`)
+	}
+	opened := func(response *httptest.ResponseRecorder) terminalActionTarget {
+		t.Helper()
+		assertOutcome(t, response, http.StatusOK, "succeeded", "")
+		var body struct {
+			Terminal terminalActionTarget `json:"terminal"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		return body.Terminal
+	}
+
+	// The app chooses the folder and name, then the tab moves after alpha's
+	// two tabs and opens.
+	want := terminalActionTarget{WorkspaceID: coreAlpha, TabID: "tbNEW", PaneID: "t20", TerminalID: coreID + ":t20"}
+	if got := opened(run(coreAlpha)); got != want {
+		t.Fatalf("terminal = %+v, want %+v", got, want)
+	}
+	if got := app.sent(); !reflect.DeepEqual(got, []string{`tab.new {"space":"` + coreAlpha + `"}`, `tab.move {"id":"tbNEW","index":3}`}) {
+		t.Fatalf("commands = %q", got)
+	}
+
+	// A failed move leaves the tab where the app put it: it still opens, with
+	// no retry and no undo.
+	app.errs = map[string]error{"tab.move": &herdr.APIError{Code: "app", Message: "no tab"}}
+	if got := opened(run(coreAlpha)); got != want {
+		t.Fatalf("terminal after a failed move = %+v", got)
+	}
+	if got := app.sent(); len(got) != 4 || got[3] != `tab.move {"id":"tbNEW","index":4}` {
+		t.Fatalf("commands = %q", got)
+	}
+
+	// Other terminals isn't a space, a closed space is gone, the app's own
+	// refusal shows, and an answer for another space is unknown.
+	app.after, app.errs = nil, nil
+	assertOutcome(t, run(herdr.OtherTerminalsID), http.StatusConflict, "refused", "not_applicable")
+	assertOutcome(t, run("spGONE"), http.StatusNotFound, "refused", "not_found")
+	app.errs = map[string]error{"tab.new": &herdr.APIError{Code: "app", Message: "no space"}}
+	assertOutcome(t, run(coreRepo), http.StatusUnprocessableEntity, "refused", "herdr_refused")
+	app.errs = nil
+	app.replies["tab.new"] = `{"space":"` + coreRepo + `x","tab":"tbX","terminal":"t21"}`
+	assertOutcome(t, run(coreRepo), http.StatusBadGateway, "unknown", "")
+	if got := app.sent(); len(got) != 6 {
+		t.Fatalf("commands = %q", got)
+	}
+
+	// The open window's sheet confirmed after the window closed sends nothing.
+	app.open = false
+	assertOutcome(t, run(coreRepo), http.StatusServiceUnavailable, "refused", "app_closed")
+	if len(app.sent()) != 6 || len(core.ran()) != 0 {
+		t.Fatalf("commands %q, runs %q", app.sent(), core.ran())
+	}
+}
+
+func TestCoreNewTabWhileClosedStartsInTheSpaceFolderAndOpens(t *testing.T) {
+	core := newFakeCore(t)
+	published := &fakeHome{}
+	app := &fakeApp{open: false}
+	folder := t.TempDir()
+	core.change(func(read *herdr.CoreRead) {
+		read.Document = json.RawMessage(strings.Replace(compactJSON(t, read.Document), `"folder":"/tmp/w1/work/repo",`, `"folder":"`+folder+`",`, 1))
+	})
+	core.afterRun = func() { published.publish(t, core) }
+	handler := coreAppHandler(core, app, published, &countingHomeRefresher{})
+	run := func(body string) *httptest.ResponseRecorder {
+		return performSideActionRequest(t, handler, "/api/workspace-actions", `{"herdr":"core","action":"new_tab",`+body+`}`)
+	}
+
+	response := run(`"workspace_id":"` + coreAlpha + `","best_effort":true`)
+	assertOutcome(t, response, http.StatusOK, "succeeded", "")
+	var body struct {
+		Terminal terminalActionTarget `json:"terminal"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	// It starts in alpha's folder with a new tab id, and opens in that tab,
+	// which Home shows at the end of alpha until the app adds it.
+	runs := core.ran()
+	shape := regexp.MustCompile(`^` + regexp.QuoteMeta(folder+" "+coreAlpha) + ` (tb[0-9a-f]{32})$`)
+	match := shape.FindStringSubmatch(strings.Join(runs, "\n"))
+	if len(runs) != 1 || match == nil || len(app.sent()) != 0 {
+		t.Fatalf("runs %q, app commands %q", runs, app.sent())
+	}
+	want := terminalActionTarget{WorkspaceID: coreAlpha, TabID: match[1], PaneID: "t31", TerminalID: coreID + ":t31"}
+	if body.Terminal != want {
+		t.Fatalf("terminal = %+v, want %+v", body.Terminal, want)
+	}
+	read, _ := core.Read(context.Background())
+	_, home, _ := herdr.ProjectCore(read, "/home/user")
+	if tabs := home.Workspaces[0].Tabs; tabs[len(tabs)-1].ID != match[1] || tabs[len(tabs)-1].Label != "3" {
+		t.Fatalf("alpha's tabs = %+v", tabs)
+	}
+
+	// Other terminals isn't a space, a closed space is gone, a space the app
+	// hasn't added yet has no tabs to add to, and only true confirms the sheet.
+	core.afterRun = nil
+	waiting, _ := core.Run(context.Background(), folder, "sp"+strings.Repeat("a", 32), "tb"+strings.Repeat("b", 32))
+	if waiting == "" {
+		t.Fatal("no waiting space")
+	}
+	for _, test := range []struct {
+		body, reason string
+		status       int
+	}{
+		{`"workspace_id":"` + herdr.OtherTerminalsID + `","best_effort":true`, "not_applicable", http.StatusConflict},
+		{`"workspace_id":"spGONE","best_effort":true`, "not_found", http.StatusNotFound},
+		{`"workspace_id":"sp` + strings.Repeat("a", 32) + `","best_effort":true`, "not_applicable", http.StatusConflict},
+		{`"workspace_id":"` + coreAlpha + `","best_effort":false`, "invalid_request", http.StatusBadRequest},
+		{`"workspace_id":"` + coreAlpha + `","best_effort":true,"folder":"/tmp"`, "invalid_request", http.StatusBadRequest},
+	} {
+		assertOutcome(t, run(test.body), test.status, "refused", test.reason)
+	}
+	// A space whose folder is gone is refused before core uses up an address.
+	if err := os.Remove(folder); err != nil {
+		t.Fatal(err)
+	}
+	assertOutcome(t, run(`"workspace_id":"`+coreAlpha+`","best_effort":true`), http.StatusUnprocessableEntity, "refused", "folder_missing")
+	if len(core.ran()) != 2 || len(app.sent()) != 0 {
+		t.Fatalf("runs %q, app commands %q", core.ran(), app.sent())
 	}
 }
