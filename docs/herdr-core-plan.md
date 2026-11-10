@@ -133,8 +133,8 @@ Each Herdr has its own badge state; Home shows the state of the Herdr it is show
 |---|---|---|
 | Socket missing or refused | **Herdr is not running** | as today |
 | hello generation ≠ 1, or a required method or feature missing | **Cannot use this Herdr** | "This Herdr Core can't serve Shepherdr: it doesn't offer <method>." |
-| Core version < 0.1.15 | **Cannot use this Herdr** | "Herdr Core <v> is older than the supported range; Shepherdr supports Herdr Core 0.1.15 through 0.1.19." |
-| Core version > 0.1.19 | **Live** + the existing best-effort warning in the log | as for the TUI |
+| Core version < 0.1.15 | **Cannot use this Herdr** | "Herdr Core <v> is older than the supported range; Shepherdr supports Herdr Core 0.1.15 through 0.1.20." |
+| Core version > 0.1.20 | **Live** + the existing best-effort warning in the log | as for the TUI |
 | `herdr-app` document present but not the expected shape (section 3.1) | **Cannot use this Herdr** | "The Herdr app's layout could not be read." |
 | Live, then the socket drops | **Reconnecting**, then **Offline** after 45 s | unchanged loop |
 
@@ -152,7 +152,7 @@ Liveness: core's 15 s `heartbeat` on the event connection counts as liveness, li
 - `terminal.run` is used only for two labelled runs while the Herdr app window is closed: **New space** and **New terminal** (wave 3c, `docs/herdr-core-closed-create-plan.md`). Each is `{cwd, labels: {herdr.space, herdr.tab, herdr.seen: "0"}, keep: true}`, with no `argv`, `name`, `env` or caller. Stale-id rule: a labelled run for a space or tab the app has closed brings it back, so New terminal takes its ids from a fresh complete read just before the run (while the window is closed only the app writes the document, so it can't change), and New space uses new ids that aren't in that read.
 - `terminal.label` writes only `herdr.seen` on the exact terminal a Terminal page shows while it is in view, and `herdr.pinned` for **Pin** and **Unpin**; `events.subscribe {terminal}` follows the terminal a page shows meanwhile (section 1, the `herdr.seen` and `herdr.pinned` labels). Neither is required by the gate: without them nothing is marked, and **Pin** is refused.
 - Never used: `terminal.read` (it scrolls full-screen apps), `terminal.send`, `doc.set`, `terminal.put`, `machine.*`, `server.*`, `exec`/`file.*`, and `terminal.run` for anything else.
-- Validated range: 0.1.15 through 0.1.19 (0.1.16 added 2026-11-01, 0.1.17 on 2026-11-03, 0.1.18 on 2026-11-04 and 0.1.19 on 2026-11-08, each after its parity run). Newer runs best effort with a warning. Add each version to the range only after the real acceptance below.
+- Validated range: 0.1.15 through 0.1.20 (0.1.16 added 2026-11-01, 0.1.17 on 2026-11-03, 0.1.18 on 2026-11-04, 0.1.19 on 2026-11-08 and 0.1.20 on 2026-11-10, each after its parity run). Newer runs best effort with a warning. Add each version to the range only after the real acceptance below.
 
 ---
 
@@ -301,7 +301,7 @@ The existing Super note stays: it reaches only programs that turned on enhanced 
 ## 4b. App window actions (wave 3b)
 
 - Shepherdr runs `herdr-app` from `PATH` only as `--version`, `commands`, `status` and `do <command> <one JSON object>`, with no shell. It never runs bare `herdr-app`, which opens the window. If `herdr-app` is missing, or Shepherdr follows a non-default core socket, app actions are off and this is logged once.
-- Gate: herdr-app 0.1.10 through 0.1.14 validated; newer runs best effort with a warning. `commands` must list `space.new {name, folder}`, `pane.split {direction, pane}` and `space.rename {id, name}`.
+- Gate: herdr-app 0.1.10 through 0.1.15 validated; newer runs best effort with a warning. `commands` must list `space.new {name, folder}`, `pane.split {direction, pane}` and `space.rename {id, name}`.
 - Window open = `herdr-app status` exits 0 within 2 s. Home asks every 5 s and after each action, apart from the core reads, so a window that stops answering reads as closed without holding up Home. Each app action also asks first. A change publishes one complete Home.
 - Results: exit 0 = succeeded; "the window did not answer", "the window hung up", or a timeout = unknown; "no Herdr window" = not sent ("The Herdr app window is closed. Open it on the computer, then try again."); other errors = refused, with the app's message. There is no retry. Afterwards, one complete core read.
 - New space shows the new space in the app window. New terminal focuses the new pane when its tab is shown there.

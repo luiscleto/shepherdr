@@ -4,6 +4,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Compatibility
+
+- Support Herdr Core 0.1.20 and the Herdr app 0.1.15.
+
 ## [0.7.2] - 2026-11-08
 
 ### Compatibility
