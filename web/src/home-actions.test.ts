@@ -1775,3 +1775,95 @@ test("Herdr Core starts New tab in Herdr Core while the app window is closed, wi
   ]);
   window.close();
 });
+
+// Home on Herdr Core with Rename tab: Core lists its tabs (a split tab and a
+// one-terminal tab), and One has a single tab.
+function coreRenameTabHome(): Home {
+  const home = coreNewTabHome();
+  const space = home.workspaces[0];
+  space.actions = ["new_tab", "rename_space", "rename_tab", "close_workspace"];
+  space.tabs[0].label = "fix <i>login</i> 🐑";
+  space.tabs[0].manual_name = "fix <i>login</i> 🐑";
+  return home;
+}
+
+test("Herdr Core renames a tab from its row's menu, starting from the name it was given", async () => {
+  const window = new Window({ url: "http://localhost/" });
+  const requests: RunWorkspaceActionRequest[] = [];
+  const outcomes: RunWorkspaceActionResponse[] = [
+    { outcome: "succeeded" },
+    { outcome: "unknown" },
+    { outcome: "refused", reason: "herdr_refused", detail: 'no tab "tb-two"' },
+  ];
+  const { app } = makeView(window, {
+    herdr: "core",
+    run: async (value) => {
+      requests.push(value);
+      return outcomes.shift()!;
+    },
+  }, coreRenameTabHome());
+
+  // Each tab row's menu has it; the space's menus and a single-tab space's row don't.
+  assert.deepEqual(menuItemTexts(menuTrigger(app, "Actions for Core <img src=x>")), ["New tab", "Rename space", "Close space"]);
+  assert.deepEqual(menuItemTexts(menuTrigger(app, "Actions for One")), ["New terminal", "Close terminal", "New tab", "Rename space", "Close space"]);
+  const split = menuTrigger(app, "Actions for fix <i>login</i> 🐑");
+  assert.deepEqual(menuItemTexts(split), ["Rename tab"]);
+  const single = menuTrigger(app, "Actions for 2");
+  assert.deepEqual(menuItemTexts(single), ["New terminal", "Close terminal", "Rename tab"]);
+
+  const results: string[] = [];
+  const rename = async (trigger: HTMLButtonElement, name: string | undefined, check?: (panel: HTMLElement, input: HTMLInputElement) => void) => {
+    trigger.click();
+    requiredMatchingElement<HTMLButtonElement>(trigger.parentElement!, '[role="menuitem"]', (item) => item.textContent === "Rename tab").click();
+    const panel = requiredElement(app, ".home-action-panel");
+    const input = requiredElement<HTMLInputElement>(panel, 'input[name="tab_name"]');
+    check?.(panel, input);
+    if (name !== undefined) input.value = name;
+    requiredElement<HTMLFormElement>(panel, ".home-action-form")
+      .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    results.push([
+      requiredElement(panel, ".home-action-title").textContent,
+      requiredElement(panel, ".home-action-copy").textContent,
+      panel.querySelector(".home-action-detail")?.textContent ?? "",
+    ].join(" | "));
+    requiredMatchingElement<HTMLButtonElement>(panel, "button", (button) => button.textContent === "Done").click();
+  };
+
+  await rename(split, "", (panel, input) => {
+    assert.equal(requiredElement(panel, ".home-action-title").textContent, "Rename fix <i>login</i> 🐑");
+    assert.equal(panel.querySelectorAll("i, b, img").length, 0);
+    assert.equal(input.value, "fix <i>login</i> 🐑");
+    assert.equal(requiredElement(panel, ".home-action-help").textContent, "Leave the name blank to use the automatic name.");
+    assert.equal(requiredElement(panel, ".home-action-primary").textContent, "Rename tab");
+  });
+  await rename(single, "<b>review</b>", (panel, input) => {
+    // A tab called by its number has no name to start from.
+    assert.equal(requiredElement(panel, ".home-action-title").textContent, "Rename 2");
+    assert.equal(input.value, "");
+  });
+  await rename(single, "x");
+  assert.deepEqual(requests.map((request) => JSON.stringify(request)), [
+    '{"herdr":"core","action":"rename_tab","workspace_id":"sp-core","tab_id":"tb-main","name":""}',
+    '{"herdr":"core","action":"rename_tab","workspace_id":"sp-core","tab_id":"tb-two","name":"<b>review</b>"}',
+    '{"herdr":"core","action":"rename_tab","workspace_id":"sp-core","tab_id":"tb-two","name":"x"}',
+  ]);
+  assert.deepEqual(results, [
+    "Tab renamed | The new name is ready on Home. | ",
+    "Result unknown | Result unknown. Check Home before renaming this tab again. | ",
+    'Action not completed | Herdr refused this action. | no tab "tb-two"',
+  ]);
+  window.close();
+});
+
+test("Herdr Core offers no Rename tab while the app window is closed", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app } = makeView(window, { herdr: "core" }, coreNewTabHome(true));
+  assert.equal(
+    Array.from(app.querySelectorAll(".workspace-menu-trigger"), (node) => node.getAttribute("aria-label")).includes("Actions for main"),
+    false,
+  );
+  assert.deepEqual(menuItemTexts(menuTrigger(app, "Actions for 2")), ["New terminal", "Close terminal"]);
+  assert.equal(Array.from(app.querySelectorAll('[role="menuitem"]'), (item) => item.textContent).includes("Rename tab"), false);
+  window.close();
+});

@@ -21,6 +21,7 @@ const workspaceActions = new Set<WorkspaceAction>([
   "close_group",
   "delete_checkout",
   "rename_space",
+  "rename_tab",
   "new_tab",
 ]);
 const terminalActions = new Set<TerminalAction>(["split_terminal", "rename_terminal", "close_terminal", "pin_agent", "unpin_agent"]);
@@ -77,8 +78,9 @@ function parseTerminal(value: unknown): Terminal | undefined {
 
 function parseTab(value: unknown): Tab | undefined {
   const tab = record(value);
-  if (!tab || !exactKeys(tab, ["current", "id", "label", "number", "terminals"]) ||
+  if (!tab || !exactKeys(tab, ["current", "id", "label", "number", "terminals"], ["manual_name"]) ||
     typeof tab.current !== "boolean" || typeof tab.id !== "string" || typeof tab.label !== "string" ||
+    (Object.hasOwn(tab, "manual_name") && typeof tab.manual_name !== "string") ||
     !nonnegativeInteger(tab.number) || !Array.isArray(tab.terminals)) return undefined;
   const terminals: Terminal[] = [];
   for (const value of tab.terminals) {
@@ -86,7 +88,14 @@ function parseTab(value: unknown): Tab | undefined {
     if (!terminal) return undefined;
     terminals.push(terminal);
   }
-  return { current: tab.current, id: tab.id, label: tab.label, number: tab.number, terminals };
+  return {
+    current: tab.current,
+    id: tab.id,
+    label: tab.label,
+    ...(typeof tab.manual_name === "string" ? { manual_name: tab.manual_name } : {}),
+    number: tab.number,
+    terminals,
+  };
 }
 
 function parseAgentCounts(value: unknown): AgentCounts | undefined {

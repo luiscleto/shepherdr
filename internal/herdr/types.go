@@ -172,11 +172,14 @@ const (
 )
 
 type Tab struct {
-	Current   bool       `json:"current"`
-	ID        string     `json:"id"`
-	Label     string     `json:"label"`
-	Number    uint       `json:"number"`
-	Terminals []Terminal `json:"terminals"`
+	Current bool   `json:"current"`
+	ID      string `json:"id"`
+	Label   string `json:"label"`
+	// ManualName is the name a person gave a Herdr Core tab; without one the
+	// app calls it by its number.
+	ManualName *string    `json:"manual_name,omitempty"`
+	Number     uint       `json:"number"`
+	Terminals  []Terminal `json:"terminals"`
 }
 
 type Workspace struct {

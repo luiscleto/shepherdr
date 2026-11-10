@@ -29,6 +29,8 @@ export interface Tab {
   current: boolean;
   id: string;
   label: string;
+  // The name a person gave a Herdr Core tab; without one the app calls it by its number.
+  manual_name?: string;
   number: number;
   terminals: Terminal[];
 }

@@ -164,6 +164,42 @@ func TestCoreRenameSpaceSendsTheNameOrEmptyForAutomatic(t *testing.T) {
 	}
 }
 
+// Rename tab names the exact tab; the app refuses one it no longer has.
+func TestCoreRenameTabSendsTheExactTabAndNameOrEmptyForItsNumber(t *testing.T) {
+	core := newFakeCore(t)
+	app := &fakeApp{open: true, reply: `{"ok":true}`}
+	refresh := &countingHomeRefresher{}
+	handler := coreAppHandler(core, app, nil, refresh)
+	rename := func(tab, name string) *httptest.ResponseRecorder {
+		return performSideActionRequest(t, handler, "/api/workspace-actions",
+			`{"herdr":"core","action":"rename_tab","workspace_id":"`+coreAlpha+`","tab_id":"`+tab+`","name":"`+name+`"}`)
+	}
+	assertOutcome(t, rename(coreSecond, "fix <b>login</b> 🐑"), http.StatusOK, "succeeded", "")
+	assertOutcome(t, rename(coreAlphaTab, "  "), http.StatusOK, "succeeded", "")
+	assertOutcome(t, rename(herdr.OtherTerminalsID, "x"), http.StatusConflict, "refused", "not_applicable")
+	assertOutcome(t, rename("", "x"), http.StatusBadRequest, "refused", "invalid_request")
+	assertOutcome(t, performSideActionRequest(t, handler, "/api/workspace-actions",
+		`{"herdr":"core","action":"rename_tab","workspace_id":"`+coreAlpha+`","name":"x"}`), http.StatusBadRequest, "refused", "invalid_request")
+
+	app.err = &herdr.APIError{Code: "app_refused", Message: `no tab "tbgone"`}
+	response := rename("tbgone", "x")
+	assertOutcome(t, response, http.StatusUnprocessableEntity, "refused", "herdr_refused")
+	if !strings.Contains(response.Body.String(), `no tab \"tbgone\"`) {
+		t.Fatalf("refusal = %s", response.Body.String())
+	}
+	want := []string{
+		`tab.rename {"id":"` + coreSecond + `","name":"fix \u003cb\u003elogin\u003c/b\u003e 🐑"}`,
+		`tab.rename {"id":"` + coreAlphaTab + `","name":""}`,
+		`tab.rename {"id":"tbgone","name":"x"}`,
+	}
+	if got := app.sent(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("commands = %q, want %q", got, want)
+	}
+	if refresh.count.Load() != 2 {
+		t.Fatalf("refreshes = %d", refresh.count.Load())
+	}
+}
+
 func TestCoreAppActionOutcomes(t *testing.T) {
 	core := newFakeCore(t)
 	rename := `{"herdr":"core","action":"rename_space","workspace_id":"` + coreAlpha + `","name":"x"}`

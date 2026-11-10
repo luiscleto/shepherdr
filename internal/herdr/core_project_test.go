@@ -412,7 +412,7 @@ func TestProjectCoreOffersTheAppWindowActionsOnlyWhileItIsOpen(t *testing.T) {
 	want := []string{
 		// Only the named space has a manual name. A worker has no pane, so it
 		// can't be split; neither can a terminal under Other terminals.
-		"alpha alpha [new_tab rename_space close_workspace]",
+		"alpha alpha [new_tab rename_space rename_tab close_workspace]",
 		"  t3 [split_terminal close_terminal]",
 		"  t9 [close_terminal]",
 		"  t4 [split_terminal close_terminal]",
@@ -426,6 +426,10 @@ func TestProjectCoreOffersTheAppWindowActionsOnlyWhileItIsOpen(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("actions:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	// Rename tab starts from the name the person gave the tab, if any.
+	if tabs := home.Workspaces[0].Tabs; tabs[0].ManualName == nil || *tabs[0].ManualName != "main" || tabs[1].ManualName != nil || tabs[1].Label != "2" {
+		t.Fatalf("alpha tabs = %+v", tabs)
 	}
 
 	// Without the app, or before its window answers, there are no app actions.

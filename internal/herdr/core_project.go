@@ -200,7 +200,7 @@ func projectCore(read CoreRead, homeFolder string, repositories func(folder stri
 	snapshot := Snapshot{Version: read.Version, Workspaces: []WorkspaceInfo{}, Tabs: []TabInfo{}, Panes: []PaneInfo{}, Agents: []AgentInfo{}}
 	home := Home{Workspaces: []Workspace{}}
 	// New space, New terminal and New tab work with the app window open or
-	// closed; Rename space only while it is open.
+	// closed; Rename space and Rename tab only while it is open.
 	paired := read.AppWindow != AppWindowUnpaired
 	if paired {
 		home.Actions = []HomeAction{HomeActionCreateSpace}
@@ -233,7 +233,8 @@ func projectCore(read CoreRead, homeFolder string, repositories func(folder stri
 			Actions: []WorkspaceAction{WorkspaceActionCloseWorkspace}, ID: space.ID, Label: spaceLabel(space, live, homeFolder),
 			Number: uint(spaceIndex + 1), Tabs: []Tab{},
 		}
-		if read.AppWindow == AppWindowOpen && !space.Waiting {
+		renames := read.AppWindow == AppWindowOpen && !space.Waiting
+		if renames {
 			workspace.Actions = []WorkspaceAction{WorkspaceActionRenameSpace, WorkspaceActionCloseWorkspace}
 		}
 		// New tab needs a space the app already has, on this machine.
@@ -251,6 +252,9 @@ func projectCore(read CoreRead, homeFolder string, repositories func(folder stri
 			tab := Tab{ID: appTab.ID, Label: appTab.Name, Number: uint(tabIndex + 1), Terminals: []Terminal{}}
 			if tab.Label == "" {
 				tab.Label = strconv.Itoa(tabIndex + 1)
+			} else {
+				name := appTab.Name
+				tab.ManualName = &name
 			}
 			for _, address := range appTab.Terminals {
 				terminal, exists := live[address]
@@ -273,6 +277,10 @@ func projectCore(read CoreRead, homeFolder string, repositories func(folder stri
 		}
 		if len(workspace.Tabs) == 0 {
 			continue
+		}
+		// Home names a space's tabs only when it lists them, each in its row.
+		if renames && len(workspace.Tabs) > 1 {
+			workspace.Actions = slices.Insert(workspace.Actions, len(workspace.Actions)-1, WorkspaceActionRenameTab)
 		}
 		// New space suggests the repository folders of the spaces Home shows.
 		// Another machine's folder isn't on this one.

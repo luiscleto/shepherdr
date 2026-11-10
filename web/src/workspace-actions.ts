@@ -1,8 +1,15 @@
 import type { Herdr } from "./home-model";
 import type { TerminalActionTarget } from "./terminal-actions";
 
-export type WorkspaceAction = "create_worktree" | "close_workspace" | "close_group" | "delete_checkout" | "rename_space" | "new_tab";
-export type DestructiveWorkspaceAction = Exclude<WorkspaceAction, "create_worktree" | "rename_space" | "new_tab">;
+export type WorkspaceAction =
+  | "create_worktree"
+  | "close_workspace"
+  | "close_group"
+  | "delete_checkout"
+  | "rename_space"
+  | "rename_tab"
+  | "new_tab";
+export type DestructiveWorkspaceAction = Exclude<WorkspaceAction, "create_worktree" | "rename_space" | "rename_tab" | "new_tab">;
 
 // error comes only from Herdr Core and unknown only from the Herdr TUI.
 export interface InterruptionCounts {
@@ -92,6 +99,16 @@ export interface RenameSpaceRequest {
   name: string;
 }
 
+// Rename tab, also from the Herdr app window only, names one tab of a space. A
+// blank name returns the tab to its number.
+export interface RenameTabRequest {
+  herdr: Herdr;
+  action: "rename_tab";
+  workspace_id: string;
+  tab_id: string;
+  name: string;
+}
+
 // Herdr Core: New tab adds a tab at the end of the space. While the Herdr app
 // window is closed it starts in Herdr Core: best_effort says the person
 // confirmed that sheet.
@@ -112,6 +129,7 @@ export type RunWorkspaceActionRequest =
   | CreateSpaceRequest
   | CreateWorktreeRequest
   | RenameSpaceRequest
+  | RenameTabRequest
   | NewTabRequest
   | ConfirmWorkspaceActionRequest;
 export type PreparedWorkspaceActionResponse = PreparedWorkspaceAction | RefusedWorkspaceAction;

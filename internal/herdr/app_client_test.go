@@ -147,6 +147,7 @@ func TestNewAppClientGatesVersionAndCommands(t *testing.T) {
 	commands := `[{"name":"space.new","args":[{"name":"name"},{"name":"folder"},{"name":"tab"}]},` +
 		`{"name":"pane.split","args":[{"name":"direction"},{"name":"pane"}]},` +
 		`{"name":"space.rename","args":[{"name":"id"},{"name":"name"}]},` +
+		`{"name":"tab.rename","args":[{"name":"id"},{"name":"name"}]},` +
 		`{"name":"tab.new","args":[{"name":"name"},{"name":"space"},{"name":"folder"}]},` +
 		`{"name":"tab.move","args":[{"name":"id"},{"name":"index"}]}]`
 	script := `#!/bin/sh
@@ -227,6 +228,10 @@ esac
 	write("commands", strings.Replace(commands, `{"name":"space"},`, ``, 1))
 	if _, err := NewAppClient(context.Background(), client.path, logger); err == nil || !strings.Contains(err.Error(), "tab.new") {
 		t.Fatalf("tab.new without space: %v", err)
+	}
+	write("commands", strings.Replace(commands, `"tab.rename"`, `"tab.retitle"`, 1))
+	if _, err := NewAppClient(context.Background(), client.path, logger); err == nil || !strings.Contains(err.Error(), "tab.rename") {
+		t.Fatalf("missing tab.rename: %v", err)
 	}
 	write("commands", strings.Replace(commands, `"tab.move"`, `"tab.shift"`, 1))
 	if _, err := NewAppClient(context.Background(), client.path, logger); err == nil || !strings.Contains(err.Error(), "tab.move") {

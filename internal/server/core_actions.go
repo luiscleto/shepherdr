@@ -26,8 +26,8 @@ import (
 // another fresh complete read before anything is killed. With the Herdr app,
 // it also offers New space, New terminal and New tab: the window does them
 // while it is open, and while it is closed they start in core, labelled so the
-// app adds them when it next opens. Rename space needs the window open. There is no
-// retry.
+// app adds them when it next opens. Rename space and Rename tab need the window
+// open. There is no retry.
 
 type coreActionClient interface {
 	Read(context.Context) (herdr.CoreRead, error)
@@ -121,6 +121,9 @@ func (c *coreActionCoordinator) run(writer http.ResponseWriter, request *http.Re
 		return
 	case actionOK && action == string(herdr.WorkspaceActionRenameSpace):
 		c.runRenameSpace(writer, request, fields)
+		return
+	case actionOK && action == string(herdr.WorkspaceActionRenameTab):
+		c.runRenameTab(writer, request, fields)
 		return
 	case actionOK && action == string(herdr.WorkspaceActionNewTab):
 		c.runNewTab(writer, request, fields)
@@ -568,6 +571,33 @@ func (c *coreActionCoordinator) runRenameSpace(writer http.ResponseWriter, reque
 		writeRefusal(writer, http.StatusConflict, "not_applicable", "")
 		return
 	}
+	c.renameInApp(writer, request, "space.rename", workspaceID, name)
+}
+
+// runRenameTab names a tab in the app window; an empty name returns it to its
+// number. The app refuses an id it no longer has, so nothing else is renamed.
+func (c *coreActionCoordinator) runRenameTab(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage) {
+	keys := []string{"action", "workspace_id", "tab_id", "name"}
+	if !requireObjectKeys(writer, fields, keys, keys) {
+		return
+	}
+	workspaceID, workspaceOK := decodeString(fields["workspace_id"])
+	tabID, tabOK := decodeString(fields["tab_id"])
+	name, nameOK := decodeString(fields["name"])
+	if !workspaceOK || !tabOK || !nameOK || workspaceID == "" || tabID == "" {
+		writeRefusal(writer, http.StatusBadRequest, "invalid_request", "")
+		return
+	}
+	if workspaceID == herdr.OtherTerminalsID || tabID == herdr.OtherTerminalsID {
+		writeRefusal(writer, http.StatusConflict, "not_applicable", "")
+		return
+	}
+	c.renameInApp(writer, request, "tab.rename", tabID, name)
+}
+
+// renameInApp sends command with the exact id while the window is open. A
+// blank name is sent empty, for the app's own name.
+func (c *coreActionCoordinator) renameInApp(writer http.ResponseWriter, request *http.Request, command, id, name string) {
 	if strings.TrimSpace(name) == "" {
 		name = ""
 	}
@@ -578,7 +608,7 @@ func (c *coreActionCoordinator) runRenameSpace(writer http.ResponseWriter, reque
 	var renamed struct {
 		OK bool `json:"ok"`
 	}
-	if err := c.doApp(request, "space.rename", map[string]any{"id": workspaceID, "name": name}, &renamed); err != nil {
+	if err := c.doApp(request, command, map[string]any{"id": id, "name": name}, &renamed); err != nil {
 		c.finishAppError(writer, err)
 		return
 	}

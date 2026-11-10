@@ -346,8 +346,8 @@ func TestCoreProjectorKeepsHomeLiveWhileTheAppWindowHangs(t *testing.T) {
 		t.Fatalf("a core change behind a hung window took %s, actions %v", elapsed, renamed.Home.Actions)
 	}
 
-	// The hung check ends as closed: Home says so, and Rename space goes. A
-	// later answer brings it back.
+	// The hung check ends as closed: Home says so, and Rename space and
+	// Rename tab go. A later answer brings them back.
 	window.answers <- false
 	closed := waitForState(t, updates, func(state State) bool { return state.Home.AppWindow == "closed" })
 	if !appActions(closed) || len(closed.Home.Workspaces[0].Actions) != 2 {
@@ -357,7 +357,7 @@ func TestCoreProjectorKeepsHomeLiveWhileTheAppWindowHangs(t *testing.T) {
 	<-window.asked
 	window.answers <- true
 	back := waitForState(t, updates, func(state State) bool { return state.Home.AppWindow == "" })
-	if back.Connection != ConnectionLive || back.Home.Workspaces[0].Label != "beta" || len(back.Home.Workspaces[0].Actions) != 3 {
+	if back.Connection != ConnectionLive || back.Home.Workspaces[0].Label != "beta" || len(back.Home.Workspaces[0].Actions) != 4 {
 		t.Fatalf("back = %+v", back)
 	}
 }

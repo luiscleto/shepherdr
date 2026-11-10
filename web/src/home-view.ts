@@ -34,6 +34,8 @@ import {
   type PreparedWorkspaceActionResponse,
   type PrepareWorkspaceActionRequest,
   type RefusedWorkspaceAction,
+  type RenameSpaceRequest,
+  type RenameTabRequest,
   type RunWorkspaceActionRequest,
   type RunWorkspaceActionResponse,
   type WorkspaceAction,
@@ -213,6 +215,9 @@ interface ConnectionCopy {
   tone: "live" | "offline" | "reconnecting";
 }
 
+// Rename tab is on each tab's row, never in a space's menu.
+type SpaceMenuAction = Exclude<WorkspaceAction, "rename_tab">;
+
 function workspaceActionLabels(herdr: Herdr): Record<WorkspaceAction, string> {
   return {
     create_worktree: "New worktree",
@@ -220,6 +225,7 @@ function workspaceActionLabels(herdr: Herdr): Record<WorkspaceAction, string> {
     close_group: "Close workspace",
     delete_checkout: "Delete checkout",
     rename_space: "Rename space",
+    rename_tab: "Rename tab",
     new_tab: "New tab",
   };
 }
@@ -306,6 +312,8 @@ export class HomeView {
   readonly #tabPickerRows = new Map<string, WorkspacePickerRowNodes>();
   readonly #workspaceMenus = new Map<string, WorkspaceMenuNodes>();
   readonly #terminalMenus = new Map<string, WorkspaceMenuNodes>();
+  // tabMenus holds split tab rows' menus by tabRowKey.
+  readonly #tabMenus = new Map<string, WorkspaceMenuNodes>();
   readonly #workspaceValues = new Map<string, Workspace>();
   readonly #entries = new Map<string, TerminalEntry>();
   readonly #pinnedSpaces = new Map<string, PinnedSpaceNodes>();
@@ -747,6 +755,7 @@ export class HomeView {
     this.#workspaceSets.clear();
     this.#workspaceMenus.clear();
     this.#terminalMenus.clear();
+    this.#tabMenus.clear();
     this.#workspaceValues.clear();
     this.#entries.clear();
     this.#pinnedSpaces.clear();
@@ -1014,8 +1023,9 @@ export class HomeView {
     return nodes;
   }
 
-  // A tab with one terminal opens it and has its menu. A split tab opens the
-  // picker for its terminals, which keep their menus there.
+  // A tab with one terminal opens it and has its menu, with Rename tab. A split
+  // tab opens the picker for its terminals, which keep their menus there, and
+  // its own menu has Rename tab.
   #tabItem(workspace: Workspace, tab: Tab, actionsAvailable: boolean, managementAvailable: boolean): HTMLLIElement {
     const key = tabRowKey(workspace.id, tab.id);
     this.#renderedTabRows.add(key);
@@ -1027,11 +1037,33 @@ export class HomeView {
     if (tab.terminals.length === 1) {
       const entry = { workspace, tab, terminal: tab.terminals[0] };
       const row = this.#terminalRow(entry, true, actionsAvailable, true).row;
-      reconcileChildren(item, [this.#terminalActionRow(entry, row, managementAvailable, false, `Actions for ${tab.label}`)]);
+      reconcileChildren(item, [this.#terminalActionRow(entry, row, managementAvailable, false, `Actions for ${tab.label}`, true)]);
     } else {
-      reconcileChildren(item, [this.#tabPickerRow(workspace, tab, actionsAvailable)]);
+      reconcileChildren(item, [this.#tabActionRow(workspace, tab, this.#tabPickerRow(workspace, tab, actionsAvailable), managementAvailable)]);
     }
     return item;
+  }
+
+  #tabActionRow(workspace: Workspace, tab: Tab, primary: HTMLElement, managementAvailable: boolean): HTMLElement {
+    if (!managementAvailable || !workspace.actions.includes("rename_tab")) return primary;
+    const key = tabRowKey(workspace.id, tab.id);
+    let nodes = this.#tabMenus.get(key);
+    if (!nodes) {
+      nodes = this.#actionMenu(`tab:${key}`);
+      const trigger = nodes.trigger;
+      const item = this.#button("Rename tab", () => this.#chooseRenameTab(workspace.id, tab.id, trigger));
+      item.setAttribute("role", "menuitem");
+      nodes.items.set("rename_tab", item);
+      reconcileChildren(nodes.menu, [item]);
+      this.#tabMenus.set(key, nodes);
+    }
+    setAttribute(nodes.trigger, "aria-label", `Actions for ${tab.label}`);
+    const open = this.#openMenuKey === `tab:${key}`;
+    setHidden(nodes.menu, !open);
+    setAttribute(nodes.trigger, "aria-expanded", String(open));
+    setClass(nodes.menuRoot, "workspace-menu");
+    reconcileChildren(nodes.container, [primary, nodes.menuRoot]);
+    return nodes.container;
   }
 
   #tabPickerRow(workspace: Workspace, tab: Tab, actionsAvailable: boolean): HTMLElement {
@@ -1508,11 +1540,13 @@ export class HomeView {
     managementAvailable: boolean,
     includeWorkspace: boolean,
     menuName?: string,
+    tabRow = false,
   ): HTMLElement {
+    const renamesTab = tabRow && entry.workspace.actions.includes("rename_tab");
     if (!managementAvailable ||
-      (entry.terminal.actions.length === 0 && (!includeWorkspace || entry.workspace.actions.length === 0))) return primary;
+      (entry.terminal.actions.length === 0 && !renamesTab && (!includeWorkspace || entry.workspace.actions.length === 0))) return primary;
     const nodes = this.#terminalMenu(entry.terminal.pane_id);
-    this.#updateTerminalMenu(nodes, entry, includeWorkspace, menuName);
+    this.#updateTerminalMenu(nodes, entry, includeWorkspace, menuName, renamesTab);
     setClass(nodes.menuRoot, "workspace-menu terminal-menu");
     reconcileChildren(nodes.container, [primary, nodes.menuRoot]);
     return nodes.container;
@@ -1544,7 +1578,7 @@ export class HomeView {
 
   #updateWorkspaceMenu(nodes: WorkspaceMenuNodes, workspace: Workspace): void {
     setAttribute(nodes.trigger, "aria-label", `Actions for ${workspace.label}`);
-    const order: WorkspaceAction[] = ["new_tab", "rename_space", "create_worktree", "close_workspace", "close_group", "delete_checkout"];
+    const order: SpaceMenuAction[] = ["new_tab", "rename_space", "create_worktree", "close_workspace", "close_group", "delete_checkout"];
     const labels = workspaceActionLabels(this.#shownHerdr());
     const items: Node[] = [];
     for (const action of order) {
@@ -1568,6 +1602,7 @@ export class HomeView {
     entry: TerminalEntry,
     includeWorkspace: boolean,
     menuName?: string,
+    renamesTab = false,
   ): void {
     // Other terminals is not a space: its lone terminal's menu is the terminal's.
     const forWorkspace = includeWorkspace && (this.#shownHerdr() === "tui" || entry.workspace.actions.length > 0);
@@ -1601,8 +1636,22 @@ export class HomeView {
       }
       items.push(item);
     }
+    // A tab's row stands for the tab too, so it renames the tab it is in now.
+    if (renamesTab) {
+      let item = nodes.items.get("tab:rename_tab");
+      if (!item) {
+        const paneID = entry.terminal.pane_id;
+        item = this.#button("Rename tab", () => {
+          const current = this.#entries.get(paneID);
+          if (current) this.#chooseRenameTab(current.workspace.id, current.tab.id, nodes.trigger);
+        });
+        item.setAttribute("role", "menuitem");
+        nodes.items.set("tab:rename_tab", item);
+      }
+      items.push(item);
+    }
     if (includeWorkspace) {
-      const workspaceOrder: WorkspaceAction[] = ["new_tab", "rename_space", "create_worktree", "close_workspace", "close_group", "delete_checkout"];
+      const workspaceOrder: SpaceMenuAction[] = ["new_tab", "rename_space", "create_worktree", "close_workspace", "close_group", "delete_checkout"];
       const labels = workspaceActionLabels(this.#shownHerdr());
       for (const action of workspaceOrder) {
         if (!entry.workspace.actions.includes(action)) continue;
@@ -1728,6 +1777,7 @@ export class HomeView {
     const separator = key.indexOf(":");
     const kind = key.slice(0, separator);
     const id = key.slice(separator + 1);
+    if (kind === "tab") return this.#tabMenus.get(id);
     return kind === "workspace" ? this.#workspaceMenus.get(id) : this.#terminalMenus.get(id);
   }
 
@@ -1975,24 +2025,47 @@ export class HomeView {
   }
 
   #openRenameSpace(workspace: Workspace, returnFocus: HTMLElement, herdr: Herdr): void {
+    this.#openRename(workspace.label, "space", workspace.manual_name, returnFocus,
+      (name) => ({ herdr, action: "rename_space", workspace_id: workspace.id, name }));
+  }
+
+  #chooseRenameTab(workspaceID: string, tabID: string, returnFocus: HTMLElement): void {
+    const workspace = this.#workspaceValues.get(workspaceID);
+    const tab = workspace?.tabs.find((candidate) => candidate.id === tabID);
+    if (!workspace || !tab || !workspace.actions.includes("rename_tab") || this.#actionRunning) return;
+    this.#closeMenu();
+    const herdr = this.#shownHerdr();
+    this.#openRename(tab.label, "tab", tab.manual_name, returnFocus,
+      (name) => ({ herdr, action: "rename_tab", workspace_id: workspace.id, tab_id: tab.id, name }));
+  }
+
+  // Rename space and Rename tab start from the name a person gave it; a blank
+  // name returns it to the automatic name.
+  #openRename(
+    label: string,
+    word: "space" | "tab",
+    manualName: string | undefined,
+    returnFocus: HTMLElement,
+    request: (name: string) => RenameSpaceRequest | RenameTabRequest,
+  ): void {
     if (this.#actionRunning) return;
     this.#returnFocus = returnFocus;
     const form = element(this.#document, "form", "home-action-form");
     const field = element(this.#document, "label", "home-action-field");
     field.append(element(this.#document, "span", undefined, "Name"));
     const name = element(this.#document, "input");
-    name.name = "space_name";
-    name.value = workspace.manual_name ?? "";
+    name.name = `${word}_name`;
+    name.value = manualName ?? "";
     name.autocomplete = "off";
     field.append(name);
     const help = element(this.#document, "p", "home-action-help", "Leave the name blank to use the automatic name.");
-    const actions = this.#formActions("Rename space", () => this.#closeActionLayer());
+    const actions = this.#formActions(`Rename ${word}`, () => this.#closeActionLayer());
     form.append(field, help, actions.container);
     form.addEventListener("submit", (event) => {
       event.preventDefault();
-      void this.#submitAction({ herdr, action: "rename_space", workspace_id: workspace.id, name: name.value });
+      void this.#submitAction(request(name.value));
     });
-    this.#showActionLayer(`Rename ${workspace.label}`, [form], () => this.#closeActionLayer(), name);
+    this.#showActionLayer(`Rename ${label}`, [form], () => this.#closeActionLayer(), name);
   }
 
   // New tab adds a tab at the end of the space and opens its terminal. While
@@ -2295,7 +2368,7 @@ export class HomeView {
     }
   }
 
-  #chooseWorkspaceAction(workspaceID: string, action: WorkspaceAction, returnFocus: HTMLElement): void {
+  #chooseWorkspaceAction(workspaceID: string, action: SpaceMenuAction, returnFocus: HTMLElement): void {
     const workspace = this.#workspaceValues.get(workspaceID);
     if (!workspace || !workspace.actions.includes(action) || this.#actionRunning) return;
     this.#closeMenu();
@@ -2468,6 +2541,7 @@ export class HomeView {
       close_group: "Closing workspace",
       delete_checkout: "Deleting checkout",
       rename_space: "Renaming space",
+      rename_tab: "Renaming tab",
       new_tab: "Creating tab",
     };
     return headings[action];
@@ -2481,6 +2555,7 @@ export class HomeView {
       close_group: ["Workspace closed", "Linked checkout folders and branches remain. Home will update when it is ready."],
       delete_checkout: ["Checkout deleted", "The Git branch remains. Home will update when it is ready."],
       rename_space: ["Space renamed", "The new name is ready on Home."],
+      rename_tab: ["Tab renamed", "The new name is ready on Home."],
     };
     this.#showResult(copy[action][0], copy[action][1]);
   }
@@ -2490,8 +2565,8 @@ export class HomeView {
       ? "Result unknown. Check Home before starting another worktree."
       : action === "create_space"
         ? "Result unknown. Check Home before starting another space."
-        : action === "rename_space"
-          ? "Result unknown. Check Home before renaming this space again."
+        : action === "rename_space" || action === "rename_tab"
+          ? `Result unknown. Check Home before renaming this ${action === "rename_space" ? "space" : "tab"} again.`
           : "Result unknown. Check Home before trying this action again.";
     this.#showResult("Result unknown", message);
   }
@@ -2663,6 +2738,8 @@ export class HomeView {
       if (!this.#renderedTabRows.has(key)) {
         this.#tabItems.delete(key);
         this.#tabPickerRows.delete(key);
+        this.#tabMenus.delete(key);
+        if (this.#openMenuKey === `tab:${key}`) this.#openMenuKey = undefined;
       }
     }
     for (const key of this.#rows.keys()) {
