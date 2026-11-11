@@ -164,33 +164,42 @@ func TestCoreRenameSpaceSendsTheNameOrEmptyForAutomatic(t *testing.T) {
 	}
 }
 
-// Rename tab names the exact tab; the app refuses one it no longer has.
+// Rename tab names the exact tab of the exact space, from a fresh read; the
+// app refuses one it no longer has.
 func TestCoreRenameTabSendsTheExactTabAndNameOrEmptyForItsNumber(t *testing.T) {
 	core := newFakeCore(t)
 	app := &fakeApp{open: true, reply: `{"ok":true}`}
 	refresh := &countingHomeRefresher{}
 	handler := coreAppHandler(core, app, nil, refresh)
-	rename := func(tab, name string) *httptest.ResponseRecorder {
+	renameIn := func(space, tab, name string) *httptest.ResponseRecorder {
 		return performSideActionRequest(t, handler, "/api/workspace-actions",
-			`{"herdr":"core","action":"rename_tab","workspace_id":"`+coreAlpha+`","tab_id":"`+tab+`","name":"`+name+`"}`)
+			`{"herdr":"core","action":"rename_tab","workspace_id":"`+space+`","tab_id":"`+tab+`","name":"`+name+`"}`)
 	}
+	rename := func(tab, name string) *httptest.ResponseRecorder { return renameIn(coreAlpha, tab, name) }
 	assertOutcome(t, rename(coreSecond, "fix <b>login</b> 🐑"), http.StatusOK, "succeeded", "")
 	assertOutcome(t, rename(coreAlphaTab, "  "), http.StatusOK, "succeeded", "")
 	assertOutcome(t, rename(herdr.OtherTerminalsID, "x"), http.StatusConflict, "refused", "not_applicable")
 	assertOutcome(t, rename("", "x"), http.StatusBadRequest, "refused", "invalid_request")
 	assertOutcome(t, performSideActionRequest(t, handler, "/api/workspace-actions",
 		`{"herdr":"core","action":"rename_tab","workspace_id":"`+coreAlpha+`","name":"x"}`), http.StatusBadRequest, "refused", "invalid_request")
+	// A tab that isn't in that space now, or a space that doesn't list its
+	// tabs, is refused before the app is asked.
+	assertOutcome(t, rename("tbgone", "x"), http.StatusNotFound, "refused", "not_found")
+	assertOutcome(t, rename(coreRepoTab, "x"), http.StatusNotFound, "refused", "not_found")
+	assertOutcome(t, renameIn("spgone", coreSecond, "x"), http.StatusNotFound, "refused", "not_found")
+	assertOutcome(t, renameIn(coreRepo, coreRepoTab, "x"), http.StatusConflict, "refused", "not_applicable")
 
-	app.err = &herdr.APIError{Code: "app_refused", Message: `no tab "tbgone"`}
-	response := rename("tbgone", "x")
+	// The tab closed after the read: the app's refusal is passed on.
+	app.err = &herdr.APIError{Code: "app_refused", Message: `no tab "` + coreSecond + `"`}
+	response := rename(coreSecond, "x")
 	assertOutcome(t, response, http.StatusUnprocessableEntity, "refused", "herdr_refused")
-	if !strings.Contains(response.Body.String(), `no tab \"tbgone\"`) {
+	if !strings.Contains(response.Body.String(), `no tab \"`+coreSecond+`\"`) {
 		t.Fatalf("refusal = %s", response.Body.String())
 	}
 	want := []string{
 		`tab.rename {"id":"` + coreSecond + `","name":"fix \u003cb\u003elogin\u003c/b\u003e 🐑"}`,
 		`tab.rename {"id":"` + coreAlphaTab + `","name":""}`,
-		`tab.rename {"id":"tbgone","name":"x"}`,
+		`tab.rename {"id":"` + coreSecond + `","name":"x"}`,
 	}
 	if got := app.sent(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("commands = %q, want %q", got, want)

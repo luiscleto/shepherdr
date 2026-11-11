@@ -1032,6 +1032,15 @@ h3 {
   overflow-wrap: anywhere;
 }
 
+/* A Rename sheet's title holds an untrusted name: two lines at most, so the field stays in view. */
+.home-action-title-name {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
 .home-action-copy,
 .home-action-help,
 .checkout-path-line {

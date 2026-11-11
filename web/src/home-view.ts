@@ -1045,8 +1045,12 @@ export class HomeView {
   }
 
   #tabActionRow(workspace: Workspace, tab: Tab, primary: HTMLElement, managementAvailable: boolean): HTMLElement {
-    if (!managementAvailable || !workspace.actions.includes("rename_tab")) return primary;
     const key = tabRowKey(workspace.id, tab.id);
+    if (!managementAvailable || !workspace.actions.includes("rename_tab")) {
+      // Its only item went, so the menu doesn't come back open by itself.
+      if (this.#openMenuKey === `tab:${key}`) this.#openMenuKey = undefined;
+      return primary;
+    }
     let nodes = this.#tabMenus.get(key);
     if (!nodes) {
       nodes = this.#actionMenu(`tab:${key}`);
@@ -2065,7 +2069,7 @@ export class HomeView {
       event.preventDefault();
       void this.#submitAction(request(name.value));
     });
-    this.#showActionLayer(`Rename ${label}`, [form], () => this.#closeActionLayer(), name);
+    this.#showActionLayer(`Rename ${label}`, [form], () => this.#closeActionLayer(), name, "home-action-title home-action-title-name");
   }
 
   // New tab adds a tab at the end of the space and opens its terminal. While
@@ -2515,7 +2519,8 @@ export class HomeView {
     this.#renderAgain();
     const creates = request.action === "create_space" || request.action === "new_tab";
     if (response.outcome === "refused") {
-      this.#showRefusal(response, request.herdr, undefined, creates ? appClosedCreate : undefined);
+      const notFound = request.action === "rename_tab" ? "This tab is no longer here." : undefined;
+      this.#showRefusal(response, request.herdr, notFound, creates ? appClosedCreate : undefined);
     } else if (request.action === "new_tab") {
       // The new tab's terminal opens, as after New terminal.
       if (response.outcome === "succeeded" && response.terminal) {
@@ -2620,8 +2625,9 @@ export class HomeView {
     content: readonly Node[],
     cancel: (() => void) | undefined,
     initialFocus: HTMLElement | undefined,
+    titleClass = "home-action-title",
   ): void {
-    const title = element(this.#document, "h2", "home-action-title", heading);
+    const title = element(this.#document, "h2", titleClass, heading);
     title.id = "home-action-title";
     this.#actionPanel.setAttribute("aria-labelledby", title.id);
     reconcileChildren(this.#actionPanel, [title, ...content]);

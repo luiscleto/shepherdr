@@ -1794,6 +1794,7 @@ test("Herdr Core renames a tab from its row's menu, starting from the name it wa
     { outcome: "succeeded" },
     { outcome: "unknown" },
     { outcome: "refused", reason: "herdr_refused", detail: 'no tab "tb-two"' },
+    { outcome: "refused", reason: "not_found" },
   ];
   const { app } = makeView(window, {
     herdr: "core",
@@ -1822,6 +1823,7 @@ test("Herdr Core renames a tab from its row's menu, starting from the name it wa
     requiredElement<HTMLFormElement>(panel, ".home-action-form")
       .dispatchEvent(new window.Event("submit", { bubbles: true, cancelable: true }));
     await settle();
+    assert.equal(requiredElement(panel, ".home-action-title").className, "home-action-title");
     results.push([
       requiredElement(panel, ".home-action-title").textContent,
       requiredElement(panel, ".home-action-copy").textContent,
@@ -1832,6 +1834,8 @@ test("Herdr Core renames a tab from its row's menu, starting from the name it wa
 
   await rename(split, "", (panel, input) => {
     assert.equal(requiredElement(panel, ".home-action-title").textContent, "Rename fix <i>login</i> 🐑");
+    // The untrusted name is held to two lines; result titles aren't.
+    assert.equal(requiredElement(panel, ".home-action-title").className, "home-action-title home-action-title-name");
     assert.equal(panel.querySelectorAll("i, b, img").length, 0);
     assert.equal(input.value, "fix <i>login</i> 🐑");
     assert.equal(requiredElement(panel, ".home-action-help").textContent, "Leave the name blank to use the automatic name.");
@@ -1843,15 +1847,18 @@ test("Herdr Core renames a tab from its row's menu, starting from the name it wa
     assert.equal(input.value, "");
   });
   await rename(single, "x");
+  await rename(single, "y");
   assert.deepEqual(requests.map((request) => JSON.stringify(request)), [
     '{"herdr":"core","action":"rename_tab","workspace_id":"sp-core","tab_id":"tb-main","name":""}',
     '{"herdr":"core","action":"rename_tab","workspace_id":"sp-core","tab_id":"tb-two","name":"<b>review</b>"}',
     '{"herdr":"core","action":"rename_tab","workspace_id":"sp-core","tab_id":"tb-two","name":"x"}',
+    '{"herdr":"core","action":"rename_tab","workspace_id":"sp-core","tab_id":"tb-two","name":"y"}',
   ]);
   assert.deepEqual(results, [
     "Tab renamed | The new name is ready on Home. | ",
     "Result unknown | Result unknown. Check Home before renaming this tab again. | ",
     'Action not completed | Herdr refused this action. | no tab "tb-two"',
+    "Action not completed | This tab is no longer here. | ",
   ]);
   window.close();
 });
@@ -1865,5 +1872,26 @@ test("Herdr Core offers no Rename tab while the app window is closed", () => {
   );
   assert.deepEqual(menuItemTexts(menuTrigger(app, "Actions for 2")), ["New terminal", "Close terminal"]);
   assert.equal(Array.from(app.querySelectorAll('[role="menuitem"]'), (item) => item.textContent).includes("Rename tab"), false);
+  window.close();
+});
+
+test("Herdr Core doesn't reopen a split tab's menu by itself when Rename tab comes back", () => {
+  const window = new Window({ url: "http://localhost/" });
+  const { app, view } = makeView(window, { herdr: "core" }, coreRenameTabHome());
+  const render = (home: Home) => view.render({
+    actionsAvailable: true, herdr: "core", mode: "all", reachability: "current", state: state(home), suggestedFolders: [],
+  });
+  const label = "Actions for fix <i>login</i> 🐑";
+  menuTrigger(app, label).click();
+  assert.equal(menuTrigger(app, label).getAttribute("aria-expanded"), "true");
+  // The window closes: the menu goes with its only item, then comes back closed.
+  const closed = coreRenameTabHome();
+  closed.app_window = "closed";
+  closed.workspaces[0].actions = ["new_tab", "close_workspace"];
+  render(closed);
+  assert.equal(Array.from(app.querySelectorAll(".workspace-menu-trigger"), (node) => node.getAttribute("aria-label")).includes(label), false);
+  render(coreRenameTabHome());
+  assert.equal(menuTrigger(app, label).getAttribute("aria-expanded"), "false");
+  assert.equal(app.querySelectorAll('.workspace-menu-popover:not([hidden])').length, 0);
   window.close();
 });

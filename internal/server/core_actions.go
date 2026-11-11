@@ -571,11 +571,12 @@ func (c *coreActionCoordinator) runRenameSpace(writer http.ResponseWriter, reque
 		writeRefusal(writer, http.StatusConflict, "not_applicable", "")
 		return
 	}
-	c.renameInApp(writer, request, "space.rename", workspaceID, name)
+	c.renameInApp(writer, request, "space.rename", workspaceID, name, nil)
 }
 
 // runRenameTab names a tab in the app window; an empty name returns it to its
-// number. The app refuses an id it no longer has, so nothing else is renamed.
+// number. A fresh read must still show the tab in that space, offering Rename
+// tab, and the app refuses an id it no longer has.
 func (c *coreActionCoordinator) runRenameTab(writer http.ResponseWriter, request *http.Request, fields map[string]json.RawMessage) {
 	keys := []string{"action", "workspace_id", "tab_id", "name"}
 	if !requireObjectKeys(writer, fields, keys, keys) {
@@ -592,12 +593,29 @@ func (c *coreActionCoordinator) runRenameTab(writer http.ResponseWriter, request
 		writeRefusal(writer, http.StatusConflict, "not_applicable", "")
 		return
 	}
-	c.renameInApp(writer, request, "tab.rename", tabID, name)
+	c.renameInApp(writer, request, "tab.rename", tabID, name, func() bool {
+		current, err := c.view(context.Background(), herdr.AppWindowOpen)
+		if err != nil {
+			writeRefusal(writer, http.StatusServiceUnavailable, "herdr_unavailable", err.Error())
+			return false
+		}
+		workspace, found := findCoreWorkspace(current.home, workspaceID)
+		if !found || !slices.ContainsFunc(workspace.Tabs, func(tab herdr.Tab) bool { return tab.ID == tabID }) {
+			writeRefusal(writer, http.StatusNotFound, "not_found", "")
+			return false
+		}
+		if !slices.Contains(workspace.Actions, herdr.WorkspaceActionRenameTab) {
+			writeRefusal(writer, http.StatusConflict, "not_applicable", "")
+			return false
+		}
+		return true
+	})
 }
 
-// renameInApp sends command with the exact id while the window is open. A
-// blank name is sent empty, for the app's own name.
-func (c *coreActionCoordinator) renameInApp(writer http.ResponseWriter, request *http.Request, command, id, name string) {
+// renameInApp sends command with the exact id while the window is open, once
+// target, if given, confirms it. A blank name is sent empty, for the app's
+// own name.
+func (c *coreActionCoordinator) renameInApp(writer http.ResponseWriter, request *http.Request, command, id, name string, target func() bool) {
 	if strings.TrimSpace(name) == "" {
 		name = ""
 	}
@@ -605,6 +623,9 @@ func (c *coreActionCoordinator) renameInApp(writer http.ResponseWriter, request 
 		return
 	}
 	defer c.release()
+	if target != nil && !target() {
+		return
+	}
 	var renamed struct {
 		OK bool `json:"ok"`
 	}

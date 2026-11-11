@@ -179,9 +179,11 @@ The core read becomes the existing internal `Snapshot` / `Home` contract, so Hom
 |---|---|
 | Workspace (shown as a **space**) `id` | document space `id` |
 | Workspace `label` | space `name` if not empty. Otherwise the part before the first `" / "` in the `where` label of the space's first live terminal (in tree order). Otherwise the basename of the space `folder` (`~` for the home folder). A basename can't contain `/`, so the split is safe for unnamed spaces. |
+| Workspace `manual_name` | space `name` if not empty, else not set; Rename space starts from it |
 | Workspace `number`, order | document order, starting at 1 |
 | Tab `id`, order | document tab `id` and order |
 | Tab `label` | tab `name` if not empty, else its position (`"1"`, `"2"`, …), matching the app |
+| Tab `manual_name` | tab `name` if not empty, else not set; Rename tab starts from it |
 | Tab `current` | always false (focus is app-private) |
 | Terminal order in a tab | depth-first over `root`, `block` nodes with `content.terminal` |
 | Terminal `pane_id` | core address, e.g. `t7` |
@@ -234,7 +236,7 @@ Shown with the Herdr app (wave 3b; `herdr-app do`, see section 4b), while the wi
 - **New space**: `space.new` with the folder (`~` expanded by Shepherdr) and the optional label as its name;
 - **New terminal**: `pane.split` beside or below an exact terminal that has a pane;
 - **Rename space**: `space.rename`;
-- **Rename tab** (requested 2026-11-10), on each tab's row in a space that lists its tabs: `tab.rename {id, name}` with the exact tab id, an empty name for its number. The app refuses an id it no longer has, so nothing else is renamed;
+- **Rename tab** (requested 2026-11-10), on each tab's row in a space that lists its tabs: `tab.rename {id, name}` with the exact tab id, an empty name for its number. A fresh complete read must still show the tab in that space, offering Rename tab ("This tab is no longer here." otherwise), and the app refuses an id it no longer has, so nothing else is renamed;
 - **New tab** (requested 2026-11-10), in a space the document has, on this machine, from a fresh complete read: `tab.new {space}` with no `folder` or `name`, so the app uses its own new tab's folder (the focused pane's current folder in the space's selected tab, else the space's folder) and number. If that folder is gone, the app starts the tab in the home folder, as its own new tab does (validated 2026-11-10). The app inserts the tab after the space's selected tab and shows it in the window, so Shepherdr then sends `tab.move {id, index}` with the index after the document's tabs, which puts it last (decided by the human 2026-11-10). If the move fails, the tab stays where the app put it and still opens: no retry, no undo. Then, as after a split, Shepherdr waits for the published Home to show the new terminal in the new tab and opens it.
 
 While the window is closed (wave 3c, `docs/herdr-core-closed-create-plan.md`), with a warning on the sheet:
