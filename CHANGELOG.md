@@ -4,6 +4,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-11
+
 ### Added
 
 - **New tab** in each Herdr app space's menu adds a tab at the end of the space and opens its terminal. With the Herdr app window open, the window shows the new tab's space. It works while the Herdr app is closed too; the app adds the tab when it next opens, and its place among the space's tabs may change then.
@@ -12,6 +14,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 ### Fixed
 
 - **Shared files** keeps naming the agent that shared a file, as in "delta · claude", after that agent exits and its terminal stays open.
+- On **Shared files** filtered to one terminal, **Delete all shown** names the terminal the same way as the bar above it.
 
 ### Compatibility
 
@@ -245,7 +248,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Works with Herdr 0.8.0 through 0.8.2. Older versions do not start; newer versions start with a warning that they have not been tested.
 - macOS downloads are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/luiscleto/shepherdr/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/luiscleto/shepherdr/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/luiscleto/shepherdr/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/luiscleto/shepherdr/compare/v0.6.1...v0.7.0
