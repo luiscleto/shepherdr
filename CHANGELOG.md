@@ -14,7 +14,6 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 ### Fixed
 
 - **Shared files** keeps naming the agent that shared a file, as in "delta · claude", after that agent exits and its terminal stays open.
-- On **Shared files** filtered to one terminal, **Delete all shown** names the terminal the same way as the bar above it.
 
 ### Compatibility
 
