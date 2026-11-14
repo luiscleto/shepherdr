@@ -4,6 +4,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-14
+
 ### Fixed
 
 - **Reader** starts a full-screen program, such as vim or less, on its own line instead of joining its first line to the last line of the screen underneath.
@@ -259,7 +261,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Works with Herdr 0.8.0 through 0.8.2. Older versions do not start; newer versions start with a warning that they have not been tested.
 - macOS downloads are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/luiscleto/shepherdr/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/luiscleto/shepherdr/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/luiscleto/shepherdr/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/luiscleto/shepherdr/compare/v0.7.0...v0.7.1
