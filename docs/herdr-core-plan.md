@@ -133,8 +133,8 @@ Each Herdr has its own badge state; Home shows the state of the Herdr it is show
 |---|---|---|
 | Socket missing or refused | **Herdr is not running** | as today |
 | hello generation ≠ 1, or a required method or feature missing | **Cannot use this Herdr** | "This Herdr Core can't serve Shepherdr: it doesn't offer <method>." |
-| Core version < 0.1.15 | **Cannot use this Herdr** | "Herdr Core <v> is older than the supported range; Shepherdr supports Herdr Core 0.1.15 through 0.1.20." |
-| Core version > 0.1.20 | **Live** + the existing best-effort warning in the log | as for the TUI |
+| Core version < 0.1.15 | **Cannot use this Herdr** | "Herdr Core <v> is older than the supported range; Shepherdr supports Herdr Core 0.1.15 through 0.1.21." |
+| Core version > 0.1.21 | **Live** + the existing best-effort warning in the log | as for the TUI |
 | `herdr-app` document present but not the expected shape (section 3.1) | **Cannot use this Herdr** | "The Herdr app's layout could not be read." |
 | Live, then the socket drops | **Reconnecting**, then **Offline** after 45 s | unchanged loop |
 
@@ -152,7 +152,7 @@ Liveness: core's 15 s `heartbeat` on the event connection counts as liveness, li
 - `terminal.run` is used only for three labelled runs while the Herdr app window is closed: **New space** and **New terminal** (wave 3c, `docs/herdr-core-closed-create-plan.md`), and **New tab** (requested 2026-11-10). Each is `{cwd, labels: {herdr.space, herdr.tab, herdr.seen: "0"}, keep: true}`, with no `argv`, `name`, `env` or caller. Stale-id rule: a labelled run for a space or tab the app has closed brings it back, so New terminal and New tab take their space (and New terminal its tab) from a fresh complete read just before the run (while the window is closed only the app writes the document, so it can't change), and New space and New tab use new ids that aren't in that read.
 - `terminal.label` writes only `herdr.seen` on the exact terminal a Terminal page shows while it is in view, and `herdr.pinned` for **Pin** and **Unpin**; `events.subscribe {terminal}` follows the terminal a page shows meanwhile (section 1, the `herdr.seen` and `herdr.pinned` labels). Neither is required by the gate: without them nothing is marked, and **Pin** is refused.
 - Never used: `terminal.read` (it scrolls full-screen apps), `terminal.send`, `doc.set`, `terminal.put`, `machine.*`, `server.*`, `exec`/`file.*`, and `terminal.run` for anything else.
-- Validated range: 0.1.15 through 0.1.20 (0.1.16 added 2026-11-01, 0.1.17 on 2026-11-03, 0.1.18 on 2026-11-04, 0.1.19 on 2026-11-08 and 0.1.20 on 2026-11-10, each after its parity run). Newer runs best effort with a warning. Add each version to the range only after the real acceptance below.
+- Validated range: 0.1.15 through 0.1.21 (0.1.16 added 2026-11-01, 0.1.17 on 2026-11-03, 0.1.18 on 2026-11-04, 0.1.19 on 2026-11-08, 0.1.20 on 2026-11-10 and 0.1.21 on 2026-11-14, each after its parity run). Newer runs best effort with a warning. Add each version to the range only after the real acceptance below.
 
 ---
 
