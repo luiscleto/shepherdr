@@ -12,6 +12,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 - Support Herdr Core 0.1.21.
 
+### Security
+
+- Shepherdr is built with Go 1.27.4, which fixes a crash in Go's web server that a crafted request could trigger.
+
 ## [0.8.0] - 2026-11-11
 
 ### Added
