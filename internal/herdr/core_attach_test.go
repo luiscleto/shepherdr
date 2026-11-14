@@ -208,7 +208,8 @@ func TestReaderTextStartsTheAlternateScreenOnItsOwnLine(t *testing.T) {
 	for _, test := range []struct{ paint, want string }{
 		{reset + "primary 0199\r\nprimary 0200\x1b[40;1H\x1b[0m\x1b[?1049h\x1b[!p\x1b[HALT 0001", reset + "primary 0199\r\nprimary 0200\x1b[40;1H\x1b[0m\n\x1b[!p\x1b[HALT 0001"},
 		{reset + "\x1b[?1049h\x1b[?1h\x1b[9G\x1bH\x1b[HALT 0001", reset + "\x1b[?1049h\x1b[?1h\x1b[9G\x1bH\x1b[HALT 0001"},
-		{reset + "$ less\r\n  \x1b[2;1H\x1b[?1049h\x1b[!p\x1b[HALT 0001", reset + "$ less\r\n  \x1b[2;1H\x1b[?1049h\x1b[!p\x1b[HALT 0001"},
+		{reset + "$ less\r\n\x1b[44m  \x1b[0m\x1b[2;3H\x1b[?1049h\x1b[!p\x1b[HALT 0001", reset + "$ less\r\n\x1b[44m  \x1b[0m\x1b[2;3H\n\x1b[!p\x1b[HALT 0001"},
+		{reset + "$ less\r\n\x1b[2;1H\x1b[?1049h\x1b[!p\x1b[HALT 0001", reset + "$ less\r\n\x1b[2;1H\x1b[?1049h\x1b[!p\x1b[HALT 0001"},
 	} {
 		if got := string(CoreReaderANSI([]byte(test.paint))); got != test.want {
 			t.Errorf("Reader text = %q, want %q", got, test.want)

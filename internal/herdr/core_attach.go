@@ -498,7 +498,7 @@ func CoreReaderANSI(paint []byte) []byte {
 	text := corePaintClear.ReplaceAll(corePaintOSC.ReplaceAll(paint, nil), []byte("$1"))
 	text = corePaintCharset.ReplaceAll(text, nil)
 	if before, after, found := bytes.Cut(text, corePaintAlt); found {
-		shown := bytes.TrimRight(corePaintControl.ReplaceAll(before, nil), " ")
+		shown := corePaintControl.ReplaceAll(before, nil)
 		if len(shown) > 0 && shown[len(shown)-1] != '\n' {
 			return slices.Concat(before, []byte("\n"), after)
 		}
