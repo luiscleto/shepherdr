@@ -8,13 +8,13 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 - **Reader** starts a full-screen program, such as vim or less, on its own line instead of joining its first line to the last line of the screen underneath.
 
-### Compatibility
-
-- Support Herdr Core 0.1.21.
-
 ### Security
 
 - Shepherdr is built with Go 1.27.4, which fixes a crash in Go's web server that a crafted request could trigger.
+
+### Compatibility
+
+- Support Herdr Core 0.1.21.
 
 ## [0.8.0] - 2026-11-11
 
