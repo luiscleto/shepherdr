@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"regexp"
+	"slices"
 	"sync"
 	"time"
 )
@@ -480,6 +481,8 @@ var (
 	corePaintOSC     = regexp.MustCompile("\x1b\\][^\x07\x1b]*(?:\x07|\x1b\\\\)")
 	corePaintClear   = regexp.MustCompile("(\n?)\n*\x1b\\[H\x1b\\[2J")
 	corePaintCharset = regexp.MustCompile("\x1b[()*+].")
+	corePaintControl = regexp.MustCompile("\x1b\\[[0-?]*[ -/]*[@-~]|\x1b.|[\x00-\x09\x0b-\x1f\x7f]")
+	corePaintAlt     = []byte("\x1b[?1049h")
 )
 
 // CoreReaderANSI turns a first paint into Reader's history text. The paint is
@@ -488,8 +491,17 @@ var (
 // a clear, then the screen. Reader shows history and screen as one list, so
 // the push-up and the clears go, keeping the one line break that ends the
 // last history line. Titles, status reports and character set choices are
-// not output and go too.
+// not output and go too. A paint on the alternate screen may first hold the
+// hidden primary screen, whose last row has no line break before the
+// program's first row, so the switch to the alternate screen becomes one.
 func CoreReaderANSI(paint []byte) []byte {
 	text := corePaintClear.ReplaceAll(corePaintOSC.ReplaceAll(paint, nil), []byte("$1"))
-	return corePaintCharset.ReplaceAll(text, nil)
+	text = corePaintCharset.ReplaceAll(text, nil)
+	if before, after, found := bytes.Cut(text, corePaintAlt); found {
+		shown := bytes.TrimRight(corePaintControl.ReplaceAll(before, nil), " ")
+		if len(shown) > 0 && shown[len(shown)-1] != '\n' {
+			return slices.Concat(before, []byte("\n"), after)
+		}
+	}
+	return text
 }

@@ -4,6 +4,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reader** starts a full-screen program, such as vim or less, on its own line instead of joining its first line to the last line of the screen underneath.
+
 ### Compatibility
 
 - Support Herdr Core 0.1.21.

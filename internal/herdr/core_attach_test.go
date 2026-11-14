@@ -200,6 +200,22 @@ func TestReaderTextDropsCharacterSetChoices(t *testing.T) {
 	}
 }
 
+// Core 0.1.21 paints a terminal on the alternate screen after the hidden
+// primary screen, with no line break between their rows. Older cores paint
+// only the alternate screen, and Reader keeps it as it was.
+func TestReaderTextStartsTheAlternateScreenOnItsOwnLine(t *testing.T) {
+	const reset = "\x18\x1b[!p\x1b[?2004l\x1b[?1049l\x1b[?1047l\x1b[?47l"
+	for _, test := range []struct{ paint, want string }{
+		{reset + "primary 0199\r\nprimary 0200\x1b[40;1H\x1b[0m\x1b[?1049h\x1b[!p\x1b[HALT 0001", reset + "primary 0199\r\nprimary 0200\x1b[40;1H\x1b[0m\n\x1b[!p\x1b[HALT 0001"},
+		{reset + "\x1b[?1049h\x1b[?1h\x1b[9G\x1bH\x1b[HALT 0001", reset + "\x1b[?1049h\x1b[?1h\x1b[9G\x1bH\x1b[HALT 0001"},
+		{reset + "$ less\r\n  \x1b[2;1H\x1b[?1049h\x1b[!p\x1b[HALT 0001", reset + "$ less\r\n  \x1b[2;1H\x1b[?1049h\x1b[!p\x1b[HALT 0001"},
+	} {
+		if got := string(CoreReaderANSI([]byte(test.paint))); got != test.want {
+			t.Errorf("Reader text = %q, want %q", got, test.want)
+		}
+	}
+}
+
 // Core answers a program's colour queries from the viewer in use. Only a
 // controlling attach reports the browser's colours; an observer never does.
 func TestControlAttachReportsTheBrowserColours(t *testing.T) {
