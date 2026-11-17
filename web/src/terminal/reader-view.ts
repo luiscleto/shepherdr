@@ -89,7 +89,8 @@ export class ReaderView {
   #alternateScreen = false;
   // A full-screen program found by a visit's first read shows the banner
   // without an upward attempt, so its older shell output needn't be scrolled.
-  // It stays while the program holds the screen, even as the program redraws.
+  // It stays while the program holds the screen, even as the program redraws;
+  // once it is gone, later banners in the visit follow the usual rules.
   #openingHint: "first-read" | "shown" | undefined;
   #historyHintRequested = false;
   #historyHintDismissed = false;
@@ -861,6 +862,7 @@ export class ReaderView {
 
   #setHistoryHint(visible: boolean): void {
     if (visible) this.#historyMessage.textContent = readerHistoryHint(this.#alternateScreen);
+    else if (this.#openingHint === "shown") this.#openingHint = undefined;
     this.#historyHint.hidden = !visible || this.#historyHintDismissed || !this.#visible;
   }
 
