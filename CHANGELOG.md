@@ -4,6 +4,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-11-17
+
 ### Changed
 
 - **Reader** shows "This program keeps its own history. Scroll it in Terminal." as soon as it opens on a Herdr app terminal running a full-screen program, such as Codex, vim or less, so you don't have to scroll through older shell output first. If the program starts while you're reading, it replaces "More history may be available in Terminal." when you scroll to the top.
@@ -274,7 +276,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Works with Herdr 0.8.0 through 0.8.2. Older versions do not start; newer versions start with a warning that they have not been tested.
 - macOS downloads are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.8.2...HEAD
+[0.8.2]: https://github.com/luiscleto/shepherdr/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/luiscleto/shepherdr/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/luiscleto/shepherdr/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/luiscleto/shepherdr/compare/v0.7.1...v0.7.2
