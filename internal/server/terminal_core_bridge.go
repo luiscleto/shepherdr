@@ -89,6 +89,7 @@ func (bridge *CoreTerminalBridge) productionRead(writer http.ResponseWriter, req
 	writer.Header().Set("Content-Type", "application/json")
 	response := terminalReadResponse{
 		ANSI: string(herdr.CoreReaderANSI(paint)), Cols: cols, Generation: lease.target.generation, Rows: rows, TerminalID: lease.target.terminal,
+		AlternateScreen: herdr.CoreAlternateScreen(paint),
 	}
 	if err := json.NewEncoder(writer).Encode(response); err != nil {
 		bridge.logger.Debug("terminal reader response closed", "pane", settings.pane, "error", err)

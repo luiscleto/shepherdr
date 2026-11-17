@@ -87,6 +87,8 @@ type terminalReadResponse struct {
 	Generation uint64 `json:"generation"`
 	Rows       int    `json:"rows"`
 	TerminalID string `json:"terminal_id"`
+	// AlternateScreen is set when a full-screen program holds the terminal.
+	AlternateScreen bool `json:"alternate_screen,omitempty"`
 }
 
 func (bridge *TerminalBridge) productionRead(writer http.ResponseWriter, request *http.Request) {

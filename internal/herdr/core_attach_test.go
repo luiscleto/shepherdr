@@ -217,6 +217,26 @@ func TestReaderTextStartsTheAlternateScreenOnItsOwnLine(t *testing.T) {
 	}
 }
 
+// Every paint resets to the primary screen. Core 0.1.21 switches to the
+// alternate screen after the hidden primary screen, older cores right after
+// the reset; a terminal back on the primary screen has only the reset.
+func TestFirstPaintTellsAFullScreenProgram(t *testing.T) {
+	const reset = "\x18\x1b[!p\x1b[?2004l\x1b[?1049l\x1b[?1047l\x1b[?47l"
+	for _, test := range []struct {
+		paint string
+		want  bool
+	}{
+		{reset + "primary 0200\x1b[40;1H\x1b[0m\x1b[?1049h\x1b[!p\x1b[HALT 0001\x1b[?9001l", true},
+		{reset + "\x1b[?1049h\x1b[?1h\x1b[9G\x1bH\x1b[HALT 0001\x1b[?9001l", true},
+		{reset + "primary 0200\r\nsh-5.3$ \x1b[?9001l", false},
+		{"", false},
+	} {
+		if got := CoreAlternateScreen([]byte(test.paint)); got != test.want {
+			t.Errorf("CoreAlternateScreen(%q) = %v, want %v", test.paint, got, test.want)
+		}
+	}
+}
+
 // Core answers a program's colour queries from the viewer in use. Only a
 // controlling attach reports the browser's colours; an observer never does.
 func TestControlAttachReportsTheBrowserColours(t *testing.T) {

@@ -3,6 +3,7 @@ import type { TerminalDimensions } from "./adapter";
 import type { ReaderActionAvailability } from "./reader-availability";
 
 interface ReaderSnapshot extends TerminalDimensions {
+  alternate_screen?: boolean;
   ansi: string;
   generation?: number;
   terminal_id?: string;
@@ -29,6 +30,12 @@ interface ReaderOptions {
 const historyPageLines = 500;
 const maximumHistoryLines = 20_000;
 const liveRefreshDelayMilliseconds = 150;
+
+// readerHistoryHint is the banner's sentence. A full-screen program keeps its
+// own history, which only the program can scroll.
+export function readerHistoryHint(alternateScreen: boolean): string {
+  return alternateScreen ? "This program keeps its own history. Scroll it in Terminal." : "More history may be available in Terminal.";
+}
 
 export function readerAtLatest(scrollHeight: number, scrollTop: number, clientHeight: number): boolean {
   return scrollHeight - scrollTop - clientHeight < 32;
@@ -78,6 +85,8 @@ export class ReaderView {
   #historyLines = historyPageLines;
   #historyRefreshPending = false;
   #historyHint: HTMLDivElement;
+  #historyMessage: HTMLSpanElement;
+  #alternateScreen = false;
   #historyHintRequested = false;
   #historyHintDismissed = false;
   #host: HTMLElement;
@@ -134,7 +143,8 @@ export class ReaderView {
     this.#historyHint.hidden = true;
     const historyMessage = document.createElement("span");
     historyMessage.setAttribute("role", "status");
-    historyMessage.textContent = "More history may be available in Terminal.";
+    historyMessage.textContent = readerHistoryHint(false);
+    this.#historyMessage = historyMessage;
     const openTerminal = document.createElement("button");
     openTerminal.type = "button";
     openTerminal.textContent = "Open Terminal";
@@ -338,6 +348,7 @@ export class ReaderView {
     this.#historyRefreshPending = false;
     this.#lastANSI = "";
     this.#generation = undefined;
+    this.#alternateScreen = false;
     this.#setNewOutput(false);
     this.#historyStop = undefined;
     this.#historyHintRequested = false;
@@ -388,6 +399,7 @@ export class ReaderView {
       if (!this.#visible) { this.#setNewOutput(true); return; }
       if (this.#abort !== abort || this.#pane !== pane || !this.#validSnapshot(snapshot)) throw new Error("invalid terminal history response");
       this.#dimensions = { cols: snapshot.cols, rows: snapshot.rows };
+      this.#alternateScreen = snapshot.alternate_screen === true;
       if (snapshot.ansi !== this.#lastANSI) {
         // Changed output needs fresh exhaustion evidence on the next attempt.
         if (this.#historyStop === "unchanged") this.#historyStop = undefined;
@@ -840,6 +852,7 @@ export class ReaderView {
   }
 
   #setHistoryHint(visible: boolean): void {
+    if (visible) this.#historyMessage.textContent = readerHistoryHint(this.#alternateScreen);
     this.#historyHint.hidden = !visible || this.#historyHintDismissed || !this.#visible;
   }
 

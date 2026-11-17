@@ -483,7 +483,17 @@ var (
 	corePaintCharset = regexp.MustCompile("\x1b[()*+].")
 	corePaintControl = regexp.MustCompile("\x1b\\[[0-?]*[ -/]*[@-~]|\x1b.|[\x00-\x09\x0b-\x1f\x7f]")
 	corePaintAlt     = []byte("\x1b[?1049h")
+	corePaintPrimary = []byte("\x1b[?1049l")
 )
+
+// CoreAlternateScreen reports whether a first paint leaves the terminal on
+// the alternate screen, where a full-screen program keeps its own history.
+// Core rebuilds the paint from the terminal's state: every paint resets to
+// the primary screen and switches to the alternate screen only for a
+// terminal on it, so the last switch decides.
+func CoreAlternateScreen(paint []byte) bool {
+	return bytes.LastIndex(paint, corePaintAlt) > bytes.LastIndex(paint, corePaintPrimary)
+}
 
 // CoreReaderANSI turns a first paint into Reader's history text. The paint is
 // rebuilt from screen cells, so its clears come only from its own layout: a

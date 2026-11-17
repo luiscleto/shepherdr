@@ -112,6 +112,43 @@ test("Reader history banner requires upward intent, reuses a confirmed result, a
   assert.equal(hint.hidden, true, "a new pane has no confirmed no-growth result");
 });
 
+test("Reader's history banner says a full-screen program keeps its own history", async (t) => {
+  let reader: ReaderView;
+  const { host, browser } = withReaderBrowser(t, () => reader?.destroy());
+  let read = { ansi: "less screen", alternate_screen: true };
+  let opens = 0;
+  const sent: string[] = [];
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    sent.push(String(url).split("?")[0]);
+    return new Response(JSON.stringify({ ...read, cols: 80, generation: 1, rows: 24, terminal_id: "term-1" }), { status: 200 });
+  });
+  reader = new ReaderView(host, { onLog() {}, onStatus() {}, onSubmit: () => true, onOpenTerminal() { opens++; } }, { endpoint: "/api/terminal/read" });
+  const hint = host.querySelector<HTMLElement>(".reader-history-banner")!;
+  const scroll = host.querySelector<HTMLElement>(".reader-scroll")!;
+  const upward = async () => {
+    scroll.dispatchEvent(new browser.WheelEvent("wheel", { deltaY: -10 }) as unknown as Event);
+    await new Promise(resolve => setTimeout(resolve, 0));
+  };
+  const banner = () => hint.hidden ? "hidden" : hint.querySelector("span")?.textContent;
+  await reader.open("pane-1", "term-1");
+  assert.equal(banner(), "hidden", "a full-screen program alone never shows it");
+  await upward();
+  assert.equal(banner(), "This program keeps its own history. Scroll it in Terminal.");
+  hint.querySelector<HTMLButtonElement>("button")!.click();
+  assert.equal(opens, 1);
+  read = { ansi: "less screen\n$ ", alternate_screen: false };
+  await reader.refresh(false, false);
+  assert.equal(banner(), "hidden", "leaving the program is new output");
+  await upward();
+  assert.equal(banner(), "More history may be available in Terminal.");
+  hint.querySelector<HTMLButtonElement>("button[aria-label='Dismiss history hint']")!.click();
+  read = { ansi: "less again", alternate_screen: true };
+  await reader.refresh(false, false);
+  await upward();
+  assert.equal(banner(), "hidden", "dismissal lasts for the visit");
+  assert.equal(JSON.stringify([...new Set(sent)]), JSON.stringify(["/api/terminal/read"]), "Reader only reads; it sends nothing to the program");
+});
+
 test("Reader history banner qualifies an in-flight older result, but not failures or selection drags", async (t) => {
   let reader: ReaderView;
   const { host, browser } = withReaderBrowser(t, () => reader?.destroy());
