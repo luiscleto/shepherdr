@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { initialTerminalWheelState, localScrollMovesArea, localScrollRows, personInputFilter, terminalWheelRows, touchScrollsArea } from "./terminal/adapter";
+import { initialTerminalWheelState, localScrollMovesArea, localScrollRows, personInputFilter, programTakesWheel, terminalWheelRows, touchScrollsArea } from "./terminal/adapter";
 
 test("desktop wheel and trackpad deltas become bounded terminal history rows", () => {
   const initial = initialTerminalWheelState();
@@ -60,6 +60,14 @@ test("a core terminal's area and scrollback scroll as one page", () => {
   // At the latest output in an area that fits, a swipe stays the terminal's
   // and is cancelled, so it never bounces or pans the page.
   assert.equal(localScrollMovesArea(false, 0, 2_000, 2_000, false), false);
+});
+
+test("only a controlled full-screen program with wheel reporting takes a core terminal's wheel", () => {
+  const modes = ["none", "x10", "vt200", "drag", "any"] as const;
+  const takes = (screen: "normal" | "alternate", controlling: boolean) => modes.map(mode => programTakesWheel(screen, mode, controlling)).join(",");
+  assert.equal(takes("normal", true), "false,false,false,false,false");
+  assert.equal(takes("alternate", true), "false,false,true,true,true");
+  assert.equal(takes("alternate", false), "false,false,false,false,false");
 });
 
 test("a swipe scrolls the terminal area only along an axis the terminal overflows", () => {

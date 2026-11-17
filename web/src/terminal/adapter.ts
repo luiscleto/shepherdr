@@ -87,6 +87,19 @@ export function localScrollRows(
   return { lines: Math.max(-maximumScrollLines, Math.min(maximumScrollLines, lines)), remainder: rows - lines };
 }
 
+// A full-screen program keeps its own history. On a core terminal, when the
+// program is on the alternate screen and its mouse reporting includes the
+// wheel (X10 reports presses only), a wheel or vertical swipe goes to it as
+// wheel reports while this page controls the terminal. Otherwise the page
+// scrolls its own scrollback and the program gets nothing.
+export function programTakesWheel(
+  screen: "normal" | "alternate",
+  mouse: "none" | "x10" | "vt200" | "drag" | "any",
+  controlling: boolean,
+): boolean {
+  return controlling && screen === "alternate" && mouse !== "none" && mouse !== "x10";
+}
+
 // A core terminal's area, when the terminal is bigger than it, and its
 // scrollback read as one page: moving up scrolls the area to its top, then
 // the scrollback; moving down scrolls the scrollback back to the latest

@@ -6,6 +6,7 @@ import {
   initialTerminalWheelState,
   localScrollMovesArea,
   localScrollRows,
+  programTakesWheel,
   terminalWheelRows,
   touchScrollsArea,
   type TerminalAdapterEvents,
@@ -20,6 +21,7 @@ export class XTermAdapter {
   #terminal: Terminal | undefined;
   #wheelState: TerminalWheelState = initialTerminalWheelState();
   #localRemainder = 0;
+  #wheelReport = false;
   #writing = false;
   #events: TerminalAdapterEvents | undefined;
   #host: HTMLElement | undefined;
@@ -30,8 +32,9 @@ export class XTermAdapter {
   #pasteCleanup: (() => void) | undefined;
   #destroyed = false;
 
-  // localScroll: the wheel and swipes scroll this page's own scrollback and
-  // never reach the program, for Herdr Core, which has no scroll command.
+  // localScroll: for Herdr Core, which has no scroll command, the wheel and
+  // swipes scroll this page's own scrollback, unless a full-screen program
+  // takes them as wheel reports (programTakesWheel).
   constructor(private readonly scrollback = 10_000, private readonly localScroll = false) {}
 
   async mount(host: HTMLElement, events: TerminalAdapterEvents): Promise<void> {
@@ -105,11 +108,27 @@ export class XTermAdapter {
     host.addEventListener("paste", paste, true);
     this.#pasteCleanup = () => host.removeEventListener("paste", paste, true);
     terminal.onData(events.onData);
+    // xterm sends a mouse report in the old encoding (no ?1006h) as binary.
+    // Only a wheel report goes on, through the same input as typing, and
+    // only as plain ASCII: past column or row 95 its bytes aren't text, so
+    // it is dropped, as some terminals drop reports they can't encode.
+    terminal.onBinary((data) => {
+      if (this.#wheelReport && /^[\x00-\x7f]+$/.test(data)) events.onData(data);
+    });
     terminal.attachCustomWheelEventHandler((event) => {
-      // A core terminal's wheel is handled before xterm sees it, below.
-      // Never xterm's own path: without scrollback, as in the alternate
-      // screen, it would type arrow keys into the program.
-      if (this.localScroll) return false;
+      // A core terminal's wheel is handled before xterm sees it, below, and
+      // reaches xterm only for a program that takes it; xterm then sends the
+      // wheel report in the encoding the program asked for. Never xterm's
+      // other path: without scrollback, as in the alternate screen, it would
+      // type arrow keys into the program.
+      if (this.localScroll) {
+        const takes = !event.ctrlKey && this.#programTakesWheel();
+        if (takes) {
+          this.#wheelReport = true;
+          queueMicrotask(() => { this.#wheelReport = false; });
+        }
+        return takes;
+      }
       if (!events.onScroll || event.ctrlKey || event.deltaY === 0) return true;
       const screen = terminal.element?.querySelector<HTMLElement>(".xterm-screen");
       const bounds = screen?.getBoundingClientRect();
@@ -135,7 +154,7 @@ export class XTermAdapter {
     // xterm's viewport scrolls its scrollback before any custom wheel
     // handler runs, so a core terminal takes the wheel here first.
     const wheel = (event: WheelEvent): void => {
-      if (event.ctrlKey || event.deltaY === 0) return;
+      if (event.ctrlKey || event.deltaY === 0 || this.#programTakesWheel()) return;
       event.preventDefault();
       event.stopPropagation();
       const bounds = terminal.element?.querySelector(".xterm-screen")?.getBoundingClientRect();
@@ -167,7 +186,7 @@ export class XTermAdapter {
         if (dx === 0 && dy === 0) return;
         const buffer = terminal.buffer.active;
         touch.area = this.localScroll && Math.abs(dy) >= Math.abs(dx)
-          ? localScrollMovesArea(dy > 0, host.scrollTop, buffer.viewportY, buffer.baseY, host.scrollHeight > host.clientHeight + 1)
+          ? !this.#programTakesWheel() && localScrollMovesArea(dy > 0, host.scrollTop, buffer.viewportY, buffer.baseY, host.scrollHeight > host.clientHeight + 1)
           : touchScrollsArea(dx, dy, host.scrollWidth > host.clientWidth + 1, host.scrollHeight > host.clientHeight + 1);
       }
       if (touch.area) {
@@ -180,7 +199,8 @@ export class XTermAdapter {
       event.preventDefault();
       event.stopImmediatePropagation();
       if (!lines) return;
-      if (this.localScroll) terminal.scrollLines(Math.max(-1000, Math.min(1000, lines)));
+      if (this.#programTakesWheel()) this.#sendWheel(Math.max(-1000, Math.min(1000, lines)), touch.x, point.clientY);
+      else if (this.localScroll) terminal.scrollLines(Math.max(-1000, Math.min(1000, lines)));
       else events.onScroll?.({
         direction: lines < 0 ? "up" : "down", lines: Math.min(1000, Math.abs(lines)), modifiers: 0,
         column: Math.max(0, Math.min(terminal.cols - 1, Math.floor((touch.x - bounds.left) * terminal.cols / bounds.width))),
@@ -203,6 +223,25 @@ export class XTermAdapter {
     this.#resizeObserver = new ResizeObserver(() => this.fit());
     this.#resizeObserver.observe(host);
     this.fit();
+  }
+
+  #programTakesWheel(): boolean {
+    const terminal = this.#terminal;
+    return this.localScroll && terminal !== undefined &&
+      programTakesWheel(terminal.buffer.active.type, terminal.modes.mouseTrackingMode, this.#inputEnabled);
+  }
+
+  // A swipe sends one wheel report for each row the finger moves, as Termux
+  // does; Codex then moves one row per report, as a plain terminal's history
+  // would. Each report takes xterm's own wheel path, so it is encoded as the
+  // program asked and sent as a real wheel's report is.
+  #sendWheel(reports: number, x: number, y: number): void {
+    const screen = this.#terminal?.element?.querySelector(".xterm-screen");
+    for (let step = 0; screen && step < Math.abs(reports); step += 1) {
+      screen.dispatchEvent(new WheelEvent("wheel", {
+        bubbles: true, cancelable: true, clientX: x, clientY: y, deltaMode: WheelEvent.DOM_DELTA_LINE, deltaY: Math.sign(reports),
+      }));
+    }
   }
 
   fit(): void {
@@ -272,6 +311,7 @@ export class XTermAdapter {
     this.#events = undefined;
     this.#wheelState = initialTerminalWheelState();
     this.#localRemainder = 0;
+    this.#wheelReport = false;
   }
 
   #drainOutput(): void {

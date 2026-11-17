@@ -180,6 +180,69 @@ test("the terminal counts a grapheme cluster as one character, as Herdr does", a
   assert.equal(terminal?.unicode.activeVersion, "15-graphemes");
 });
 
+test("a core terminal's wheel and swipes reach only a controlled full-screen program that asked for wheel reports", async t => {
+  const browser = new Window({ url: "http://localhost/" });
+  const globals = globalThis as Record<string, unknown>;
+  const originals = { document: globals.document, window: globals.window, ResizeObserver: globals.ResizeObserver, WheelEvent: globals.WheelEvent };
+  Object.defineProperty(browser.document, "fonts", { value: { load: async () => [] } });
+  // Only geometry is stubbed: xterm measures an 8×16 cell from these sizes.
+  Object.defineProperty(browser.HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 256 });
+  Object.defineProperty(browser.HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 16 });
+  // happy-dom's WheelEvent drops the pointer's position and Ctrl, which a browser keeps.
+  class PointedWheelEvent extends browser.WheelEvent {
+    constructor(type: string, init: WheelEventInit = {}) {
+      super(type, init);
+      Object.defineProperties(this, { clientX: { value: init.clientX ?? 0 }, clientY: { value: init.clientY ?? 0 }, ctrlKey: { value: init.ctrlKey ?? false } });
+    }
+  }
+  Object.assign(globals, { document: browser.document, window: browser, WheelEvent: PointedWheelEvent, ResizeObserver: class { observe() {} disconnect() {} } });
+  const adapter = new XTermAdapter(10_000, true);
+  t.after(() => {
+    adapter.destroy();
+    Object.assign(globals, originals);
+    browser.close();
+  });
+  const host = browser.document.createElement("div");
+  browser.document.body.append(host);
+  const sent: string[] = [];
+  await adapter.mount(host, { onData: (data: string) => sent.push(data), onResize() {} });
+  const screen = host.querySelector<HTMLElement>(".xterm-screen")!;
+  screen.style.padding = "0px";
+  Object.defineProperty(screen, "getBoundingClientRect", { value: () => ({ left: 0, top: 0, width: 640, height: 384, right: 640, bottom: 384, x: 0, y: 0 }) });
+  const output = async (text: string) => {
+    adapter.write(new TextEncoder().encode(text));
+    await new Promise(resolve => setTimeout(resolve, 20));
+  };
+  const wheel = (deltaY: number, ctrlKey = false) => screen.dispatchEvent(new PointedWheelEvent("wheel", {
+    bubbles: true, cancelable: true, deltaMode: 1, deltaY, clientX: 20, clientY: 40, ctrlKey,
+  }));
+  const scroll = () => {
+    sent.length = 0;
+    wheel(-1); wheel(1);
+    // A finger moving up three rows asks for later output, as a wheel down.
+    const touch = (type: string, clientY: number) => screen.dispatchEvent(new browser.TouchEvent(type, {
+      bubbles: true, cancelable: true, touches: type === "touchend" ? [] : [{ clientX: 20, clientY } as Touch],
+    }));
+    touch("touchstart", 200); touch("touchmove", 152); touch("touchend", 152);
+    return JSON.stringify(sent);
+  };
+  await output(Array.from({ length: 60 }, (_, line) => `history ${line}`).join("\r\n"));
+  assert.equal(scroll(), "[]");
+  await output("\x1b[?1000h\x1b[?1006h");
+  assert.equal(scroll(), "[]", "the normal screen keeps local scrolling with mouse reporting on");
+  await output("\x1b[?1000l\x1b[?1006l\x1b[?1049h");
+  assert.equal(scroll(), "[]", "never arrow keys on the alternate screen without mouse reporting");
+  await output("\x1b[?1002h\x1b[?1006h");
+  assert.equal(scroll(), JSON.stringify(["\x1b[<64;3;3M", "\x1b[<65;3;3M", "\x1b[<65;3;10M", "\x1b[<65;3;10M", "\x1b[<65;3;10M"]));
+  sent.length = 0;
+  wheel(-1, true);
+  assert.equal(JSON.stringify(sent), "[]", "Ctrl and the wheel is never a wheel report");
+  await output("\x1b[?1006l");
+  assert.equal(scroll(), JSON.stringify(["\x1b[M`##", "\x1b[Ma##", "\x1b[Ma#*", "\x1b[Ma#*", "\x1b[Ma#*"]));
+  adapter.setInputEnabled(false);
+  assert.equal(scroll(), "[]", "an observing page sends nothing");
+});
+
 function pageBrowser(t: test.TestContext, mobile: boolean, savedShortcuts?: string, herdr: "tui" | "core" = "tui", options: Record<string, unknown> = {}) {
   const browser = new Window({ url: "http://localhost/" });
   if (savedShortcuts !== undefined) browser.localStorage.setItem("shepherdr.terminal.shortcuts", savedShortcuts);
@@ -245,7 +308,8 @@ test("a Herdr Core terminal opens controlling, releases to observing without Tak
   const shortcuts = Array.from(host.querySelectorAll(".terminal-saved-shortcuts button")).map(button => button.textContent).join(",");
   assert.equal(shortcuts, "Esc,Enter,A");
   assert.equal(host.textContent?.includes("Take over"), false);
-  // Herdr Core has no scroll command: the page scrolls its own scrollback.
+  // Herdr Core has no scroll command: the page scrolls its own scrollback,
+  // or a full-screen program gets wheel reports as input (tested above).
   assert.equal(events().onScroll, undefined);
   control.click();
   await tick();
