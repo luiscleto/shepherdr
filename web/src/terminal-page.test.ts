@@ -310,10 +310,13 @@ test("when a core terminal shrinks, xterm's input box follows the cursor back in
   // area 1600 px tall.
   adapter.receiveDimensions({ cols: 40, rows: 40 }, true);
   assert.equal(place(), "312px 624px");
-  // A box already inside the terminal is left where xterm put it.
+  // A box already inside the terminal is left where it is, even away from
+  // the cursor's cell (16px 16px), as during an IME composition.
   await output("\x1b[2;3H");
+  box.style.left = "40px";
+  box.style.top = "80px";
   adapter.receiveDimensions({ cols: 30, rows: 30 }, true);
-  assert.equal(place(), "16px 16px");
+  assert.equal(place(), "40px 80px");
 });
 
 function pageBrowser(t: test.TestContext, mobile: boolean, savedShortcuts?: string, herdr: "tui" | "core" = "tui", options: Record<string, unknown> = {}) {
