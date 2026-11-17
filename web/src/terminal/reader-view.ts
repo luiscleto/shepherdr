@@ -87,6 +87,10 @@ export class ReaderView {
   #historyHint: HTMLDivElement;
   #historyMessage: HTMLSpanElement;
   #alternateScreen = false;
+  // A full-screen program found by a visit's first read shows the banner
+  // without an upward attempt, so its older shell output needn't be scrolled.
+  // It stays while the program holds the screen, even as the program redraws.
+  #openingHint: "first-read" | "shown" | undefined;
   #historyHintRequested = false;
   #historyHintDismissed = false;
   #host: HTMLElement;
@@ -349,6 +353,7 @@ export class ReaderView {
     this.#lastANSI = "";
     this.#generation = undefined;
     this.#alternateScreen = false;
+    this.#openingHint = "first-read";
     this.#setNewOutput(false);
     this.#historyStop = undefined;
     this.#historyHintRequested = false;
@@ -400,11 +405,14 @@ export class ReaderView {
       if (this.#abort !== abort || this.#pane !== pane || !this.#validSnapshot(snapshot)) throw new Error("invalid terminal history response");
       this.#dimensions = { cols: snapshot.cols, rows: snapshot.rows };
       this.#alternateScreen = snapshot.alternate_screen === true;
+      const firstRead = this.#openingHint === "first-read";
+      if (firstRead || !this.#alternateScreen) this.#openingHint = this.#alternateScreen && this.#events.onOpenTerminal ? "shown" : undefined;
       if (snapshot.ansi !== this.#lastANSI) {
         // Changed output needs fresh exhaustion evidence on the next attempt.
         if (this.#historyStop === "unchanged") this.#historyStop = undefined;
-        this.#setHistoryHint(false);
+        if (this.#openingHint !== "shown") this.#setHistoryHint(false);
       }
+      if (firstRead && this.#openingHint === "shown") this.#setHistoryHint(true);
       if (preserveTop && snapshot.ansi === this.#lastANSI) {
         this.#historyStop = "unchanged";
         if (this.#historyHintRequested && this.#scroll.scrollTop <= 160 && !this.#hasSelection()) this.#setHistoryHint(true);

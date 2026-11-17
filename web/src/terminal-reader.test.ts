@@ -112,10 +112,10 @@ test("Reader history banner requires upward intent, reuses a confirmed result, a
   assert.equal(hint.hidden, true, "a new pane has no confirmed no-growth result");
 });
 
-test("Reader's history banner says a full-screen program keeps its own history", async (t) => {
+test("Reader's history banner says a full-screen program keeps its own history, at once when a visit opens on one", async (t) => {
   let reader: ReaderView;
   const { host, browser } = withReaderBrowser(t, () => reader?.destroy());
-  let read = { ansi: "less screen", alternate_screen: true };
+  let read = { ansi: "shell history\nless screen", alternate_screen: true };
   let opens = 0;
   const sent: string[] = [];
   t.mock.method(globalThis, "fetch", async (url: string) => {
@@ -130,22 +130,41 @@ test("Reader's history banner says a full-screen program keeps its own history",
     await new Promise(resolve => setTimeout(resolve, 0));
   };
   const banner = () => hint.hidden ? "hidden" : hint.querySelector("span")?.textContent;
+  const dismiss = () => hint.querySelector<HTMLButtonElement>("button[aria-label='Dismiss history hint']")!.click();
   await reader.open("pane-1", "term-1");
-  assert.equal(banner(), "hidden", "a full-screen program alone never shows it");
-  await upward();
-  assert.equal(banner(), "This program keeps its own history. Scroll it in Terminal.");
+  assert.equal(banner(), "This program keeps its own history. Scroll it in Terminal.", "the first read of a visit shows it without an upward attempt");
   hint.querySelector<HTMLButtonElement>("button")!.click();
   assert.equal(opens, 1);
+  dismiss();
+  await reader.refresh(false, false);
+  await upward();
+  assert.equal(banner(), "hidden", "dismissal lasts for the visit");
+
+  await reader.open("pane-1", "term-1");
+  assert.equal(banner(), "This program keeps its own history. Scroll it in Terminal.", "a new visit shows it again");
+  read = { ansi: "less redrawn at the new size", alternate_screen: true };
+  await reader.refresh(false, false);
+  assert.equal(banner(), "This program keeps its own history. Scroll it in Terminal.", "it stays while the program redraws");
   read = { ansi: "less screen\n$ ", alternate_screen: false };
   await reader.refresh(false, false);
   assert.equal(banner(), "hidden", "leaving the program is new output");
   await upward();
   assert.equal(banner(), "More history may be available in Terminal.");
-  hint.querySelector<HTMLButtonElement>("button[aria-label='Dismiss history hint']")!.click();
-  read = { ansi: "less again", alternate_screen: true };
+
+  await reader.open("pane-1", "term-1");
+  assert.equal(banner(), "hidden", "a plain shell keeps the upward rule");
+  read = { ansi: "less started later", alternate_screen: true };
   await reader.refresh(false, false);
+  assert.equal(banner(), "hidden", "a program started later in the visit waits for an upward attempt");
   await upward();
-  assert.equal(banner(), "hidden", "dismissal lasts for the visit");
+  assert.equal(banner(), "This program keeps its own history. Scroll it in Terminal.");
+
+  reader.setPresentation(false);
+  await reader.open("pane-1", "term-1");
+  assert.equal(banner(), "hidden", "the full terminal never shows it");
+  reader.setPresentation(true);
+  await reader.refresh(false, false);
+  assert.equal(banner(), "This program keeps its own history. Scroll it in Terminal.", "Reader's first read of the visit happens when Reader shows");
   assert.equal(JSON.stringify([...new Set(sent)]), JSON.stringify(["/api/terminal/read"]), "Reader only reads; it sends nothing to the program");
 });
 
