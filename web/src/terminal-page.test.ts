@@ -209,7 +209,11 @@ async function coreAdapter(t: test.TestContext) {
   await adapter.mount(host, { onData: (data: string) => sent.push(data), onResize() {} });
   const screen = host.querySelector<HTMLElement>(".xterm-screen")!;
   screen.style.padding = "0px";
-  Object.defineProperty(screen, "getBoundingClientRect", { value: () => ({ left: 0, top: 0, width: 640, height: 384, right: 640, bottom: 384, x: 0, y: 0 }) });
+  // The screen is as big as the terminal's 8×16 cells, 640×384 at 80×24.
+  Object.defineProperty(screen, "getBoundingClientRect", { value: () => {
+    const { cols, rows } = adapter.dimensions();
+    return { left: 0, top: 0, width: cols * 8, height: rows * 16, right: cols * 8, bottom: rows * 16, x: 0, y: 0 };
+  } });
   return {
     adapter, host, sent,
     output: async (text: string) => {
@@ -291,6 +295,25 @@ test("an oversized core terminal's area pans to its edge before a full-screen pr
   assert.equal(step(drag(152, 200)), "400 false []");
   top = 0;
   assert.equal(step(drag(152, 200)), `0 true ${JSON.stringify(Array(3).fill("\x1b[<64;3;13M"))}`);
+});
+
+test("when a core terminal shrinks, xterm's input box follows the cursor back inside it", async t => {
+  const { adapter, host, output } = await coreAdapter(t);
+  const box = host.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")!;
+  const place = () => `${box.style.left} ${box.style.top}`;
+  // Another viewer made the terminal 100 rows; a program left the cursor
+  // on its last row.
+  adapter.receiveDimensions({ cols: 80, rows: 100 }, true);
+  await output("\x1b[100;71H");
+  assert.equal(place(), "560px 1584px");
+  // The size comes back and the cursor stays still: the box would keep the
+  // area 1600 px tall.
+  adapter.receiveDimensions({ cols: 40, rows: 40 }, true);
+  assert.equal(place(), "312px 624px");
+  // A box already inside the terminal is left where xterm put it.
+  await output("\x1b[2;3H");
+  adapter.receiveDimensions({ cols: 30, rows: 30 }, true);
+  assert.equal(place(), "16px 16px");
 });
 
 function pageBrowser(t: test.TestContext, mobile: boolean, savedShortcuts?: string, herdr: "tui" | "core" = "tui", options: Record<string, unknown> = {}) {

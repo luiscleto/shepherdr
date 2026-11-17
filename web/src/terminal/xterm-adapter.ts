@@ -233,6 +233,19 @@ export class XTermAdapter {
       host.removeEventListener("touchend", end, true);
       host.removeEventListener("touchcancel", end, true);
     };
+    // xterm moves its hidden input box to the cursor only when the cursor
+    // moves. When the terminal shrinks under a still cursor, the box would
+    // stay past the last row or column and keep the area scrollable into
+    // blank space, so it follows the cursor here.
+    terminal.onResize(({ cols, rows }) => {
+      const box = terminal.textarea;
+      const bounds = terminal.element?.querySelector(".xterm-screen")?.getBoundingClientRect();
+      if (!box || !bounds) return;
+      const rowHeight = parseFloat(box.style.height), columnWidth = bounds.width / cols;
+      const cursor = terminal.buffer.active;
+      if (rowHeight > 0 && parseFloat(box.style.top) > (rows - 1) * rowHeight) box.style.top = `${cursor.cursorY * rowHeight}px`;
+      if (columnWidth > 0 && parseFloat(box.style.left) > (cols - 1) * columnWidth) box.style.left = `${Math.min(cursor.cursorX, cols - 1) * columnWidth}px`;
+    });
     this.#resizeObserver = new ResizeObserver(() => this.fit());
     this.#resizeObserver.observe(host);
     this.fit();
