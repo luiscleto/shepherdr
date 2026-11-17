@@ -6,7 +6,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ### Fixed
 
-- In the full terminal for a Herdr app terminal, a full-screen program such as Codex, or vim with the mouse on, now scrolls its own history when you scroll or swipe while you control the terminal. Other scrolling still stays in the page and never sends keys to the program.
+- In the full terminal for a Herdr app terminal, a full-screen program such as Codex, or less run with --mouse, now scrolls its own history when you scroll or swipe while you control the terminal. Other scrolling still stays in the page and never sends keys to the program.
 
 ## [0.8.1] - 2026-11-14
 

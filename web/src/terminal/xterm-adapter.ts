@@ -6,6 +6,7 @@ import {
   initialTerminalWheelState,
   localScrollMovesArea,
   localScrollRows,
+  programScrollMovesArea,
   programTakesWheel,
   terminalWheelRows,
   touchScrollsArea,
@@ -22,6 +23,7 @@ export class XTermAdapter {
   #wheelState: TerminalWheelState = initialTerminalWheelState();
   #localRemainder = 0;
   #wheelReport = false;
+  #swipeReports = false;
   #writing = false;
   #events: TerminalAdapterEvents | undefined;
   #host: HTMLElement | undefined;
@@ -151,17 +153,29 @@ export class XTermAdapter {
       if (accepted) event.preventDefault();
       return !accepted;
     });
+    // Whether moving up (toward older output) or down scrolls the area, when
+    // the terminal is bigger than it, before the scrollback or the program.
+    const movesArea = (up: boolean): boolean => {
+      const overflows = host.scrollHeight > host.clientHeight + 1;
+      if (this.#programTakesWheel()) {
+        return programScrollMovesArea(up, host.scrollTop, host.scrollHeight - host.clientHeight - host.scrollTop, overflows);
+      }
+      const buffer = terminal.buffer.active;
+      return localScrollMovesArea(up, host.scrollTop, buffer.viewportY, buffer.baseY, overflows);
+    };
     // xterm's viewport scrolls its scrollback before any custom wheel
-    // handler runs, so a core terminal takes the wheel here first.
+    // handler runs, so a core terminal takes the wheel here first. A wheel
+    // a program takes, and a swipe's own reports, go on to xterm.
     const wheel = (event: WheelEvent): void => {
-      if (event.ctrlKey || event.deltaY === 0 || this.#programTakesWheel()) return;
+      if (event.ctrlKey || event.deltaY === 0 || this.#swipeReports) return;
+      const area = movesArea(event.deltaY < 0);
+      if (!area && this.#programTakesWheel()) return;
       event.preventDefault();
       event.stopPropagation();
       const bounds = terminal.element?.querySelector(".xterm-screen")?.getBoundingClientRect();
       if (!bounds || bounds.height <= 0) return;
       const rowHeight = bounds.height / terminal.rows;
-      const buffer = terminal.buffer.active;
-      if (localScrollMovesArea(event.deltaY < 0, host.scrollTop, buffer.viewportY, buffer.baseY, host.scrollHeight > host.clientHeight + 1)) {
+      if (area) {
         host.scrollBy({ top: event.deltaMode === 1 ? event.deltaY * rowHeight : event.deltaMode === 2 ? event.deltaY * host.clientHeight : event.deltaY });
         return;
       }
@@ -184,9 +198,8 @@ export class XTermAdapter {
       if (touch.area === undefined) {
         const dx = point.clientX - touch.x, dy = point.clientY - touch.y;
         if (dx === 0 && dy === 0) return;
-        const buffer = terminal.buffer.active;
         touch.area = this.localScroll && Math.abs(dy) >= Math.abs(dx)
-          ? !this.#programTakesWheel() && localScrollMovesArea(dy > 0, host.scrollTop, buffer.viewportY, buffer.baseY, host.scrollHeight > host.clientHeight + 1)
+          ? movesArea(dy > 0)
           : touchScrollsArea(dx, dy, host.scrollWidth > host.clientWidth + 1, host.scrollHeight > host.clientHeight + 1);
       }
       if (touch.area) {
@@ -237,10 +250,15 @@ export class XTermAdapter {
   // program asked and sent as a real wheel's report is.
   #sendWheel(reports: number, x: number, y: number): void {
     const screen = this.#terminal?.element?.querySelector(".xterm-screen");
-    for (let step = 0; screen && step < Math.abs(reports); step += 1) {
-      screen.dispatchEvent(new WheelEvent("wheel", {
-        bubbles: true, cancelable: true, clientX: x, clientY: y, deltaMode: WheelEvent.DOM_DELTA_LINE, deltaY: Math.sign(reports),
-      }));
+    this.#swipeReports = true;
+    try {
+      for (let step = 0; screen && step < Math.abs(reports); step += 1) {
+        screen.dispatchEvent(new WheelEvent("wheel", {
+          bubbles: true, cancelable: true, clientX: x, clientY: y, deltaMode: WheelEvent.DOM_DELTA_LINE, deltaY: Math.sign(reports),
+        }));
+      }
+    } finally {
+      this.#swipeReports = false;
     }
   }
 

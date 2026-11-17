@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { initialTerminalWheelState, localScrollMovesArea, localScrollRows, personInputFilter, programTakesWheel, terminalWheelRows, touchScrollsArea } from "./terminal/adapter";
+import { initialTerminalWheelState, localScrollMovesArea, localScrollRows, personInputFilter, programScrollMovesArea, programTakesWheel, terminalWheelRows, touchScrollsArea } from "./terminal/adapter";
 
 test("desktop wheel and trackpad deltas become bounded terminal history rows", () => {
   const initial = initialTerminalWheelState();
@@ -68,6 +68,18 @@ test("only a controlled full-screen program with wheel reporting takes a core te
   assert.equal(takes("normal", true), "false,false,false,false,false");
   assert.equal(takes("alternate", true), "false,false,true,true,true");
   assert.equal(takes("alternate", false), "false,false,false,false,false");
+});
+
+test("an oversized area pans to its edge before a full-screen program gets wheel reports", () => {
+  // Toward older output: the area to its top, then the program.
+  assert.equal(programScrollMovesArea(true, 40, 360, true), true);
+  assert.equal(programScrollMovesArea(true, 0, 400, true), false);
+  // Toward newer output: the area to its bottom, then the program.
+  assert.equal(programScrollMovesArea(false, 40, 360, true), true);
+  assert.equal(programScrollMovesArea(false, 399.67, 0.33, true), false);
+  // An area that fits never moves, so a swipe is cancelled and goes to the program.
+  assert.equal(programScrollMovesArea(true, 0, 0, false), false);
+  assert.equal(programScrollMovesArea(false, 0, 0, false), false);
 });
 
 test("a swipe scrolls the terminal area only along an axis the terminal overflows", () => {

@@ -180,12 +180,13 @@ test("the terminal counts a grapheme cluster as one character, as Herdr does", a
   assert.equal(terminal?.unicode.activeVersion, "15-graphemes");
 });
 
-test("a core terminal's wheel and swipes reach only a controlled full-screen program that asked for wheel reports", async t => {
+// The real adapter and xterm for a core terminal; only geometry is stubbed.
+async function coreAdapter(t: test.TestContext) {
   const browser = new Window({ url: "http://localhost/" });
   const globals = globalThis as Record<string, unknown>;
   const originals = { document: globals.document, window: globals.window, ResizeObserver: globals.ResizeObserver, WheelEvent: globals.WheelEvent };
   Object.defineProperty(browser.document, "fonts", { value: { load: async () => [] } });
-  // Only geometry is stubbed: xterm measures an 8×16 cell from these sizes.
+  // xterm measures an 8×16 cell from these sizes.
   Object.defineProperty(browser.HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 256 });
   Object.defineProperty(browser.HTMLElement.prototype, "offsetHeight", { configurable: true, get: () => 16 });
   // happy-dom's WheelEvent drops the pointer's position and Ctrl, which a browser keeps.
@@ -209,21 +210,35 @@ test("a core terminal's wheel and swipes reach only a controlled full-screen pro
   const screen = host.querySelector<HTMLElement>(".xterm-screen")!;
   screen.style.padding = "0px";
   Object.defineProperty(screen, "getBoundingClientRect", { value: () => ({ left: 0, top: 0, width: 640, height: 384, right: 640, bottom: 384, x: 0, y: 0 }) });
-  const output = async (text: string) => {
-    adapter.write(new TextEncoder().encode(text));
-    await new Promise(resolve => setTimeout(resolve, 20));
+  return {
+    adapter, host, sent,
+    output: async (text: string) => {
+      adapter.write(new TextEncoder().encode(text));
+      await new Promise(resolve => setTimeout(resolve, 20));
+    },
+    wheel: (deltaY: number, ctrlKey = false) => screen.dispatchEvent(new PointedWheelEvent("wheel", {
+      bubbles: true, cancelable: true, deltaMode: 1, deltaY, clientX: 20, clientY: 40, ctrlKey,
+    })),
+    // Returns whether the page cancelled the drag; an area it pans is not.
+    swipe: (from: number, to: number) => {
+      const touch = (type: string, clientY: number) => screen.dispatchEvent(new browser.TouchEvent(type, {
+        bubbles: true, cancelable: true, touches: type === "touchend" ? [] : [{ clientX: 20, clientY } as Touch],
+      }));
+      touch("touchstart", from);
+      const cancelled = !touch("touchmove", to);
+      touch("touchend", to);
+      return cancelled;
+    },
   };
-  const wheel = (deltaY: number, ctrlKey = false) => screen.dispatchEvent(new PointedWheelEvent("wheel", {
-    bubbles: true, cancelable: true, deltaMode: 1, deltaY, clientX: 20, clientY: 40, ctrlKey,
-  }));
+}
+
+test("a core terminal's wheel and swipes reach only a controlled full-screen program that asked for wheel reports", async t => {
+  const { adapter, sent, output, wheel, swipe } = await coreAdapter(t);
   const scroll = () => {
     sent.length = 0;
     wheel(-1); wheel(1);
     // A finger moving up three rows asks for later output, as a wheel down.
-    const touch = (type: string, clientY: number) => screen.dispatchEvent(new browser.TouchEvent(type, {
-      bubbles: true, cancelable: true, touches: type === "touchend" ? [] : [{ clientX: 20, clientY } as Touch],
-    }));
-    touch("touchstart", 200); touch("touchmove", 152); touch("touchend", 152);
+    swipe(200, 152);
     return JSON.stringify(sent);
   };
   await output(Array.from({ length: 60 }, (_, line) => `history ${line}`).join("\r\n"));
@@ -241,6 +256,41 @@ test("a core terminal's wheel and swipes reach only a controlled full-screen pro
   assert.equal(scroll(), JSON.stringify(["\x1b[M`##", "\x1b[Ma##", "\x1b[Ma#*", "\x1b[Ma#*", "\x1b[Ma#*"]));
   adapter.setInputEnabled(false);
   assert.equal(scroll(), "[]", "an observing page sends nothing");
+});
+
+test("an oversized core terminal's area pans to its edge before a full-screen program gets wheel reports", async t => {
+  const { host, sent, output, wheel, swipe } = await coreAdapter(t);
+  // The terminal is 400 px taller than its area, as when the app window sized it.
+  let top = 0;
+  Object.defineProperties(host, {
+    clientHeight: { value: 400 }, scrollHeight: { value: 800 },
+    scrollTop: { get: () => top, set: (value: number) => { top = value; } },
+    scrollBy: { value: ({ top: by = 0 }: ScrollToOptions) => { top = Math.max(0, Math.min(400, top + by)); } },
+  });
+  await output("\x1b[?1049h\x1b[?1002h\x1b[?1006h");
+  const step = (move: () => unknown) => {
+    sent.length = 0;
+    const cancelled = move();
+    return `${top}${typeof cancelled === "string" ? ` ${cancelled}` : ""} ${JSON.stringify(sent)}`;
+  };
+  const drag = (from: number, to: number) => () => String(swipe(from, to));
+  // Toward newer output: the area to its bottom first, then wheel reports.
+  assert.equal(step(() => { wheel(1); }), "16 []");
+  top = 390;
+  assert.equal(step(() => { wheel(1); }), "400 []");
+  assert.equal(step(() => { wheel(1); }), `400 ${JSON.stringify(["\x1b[<65;3;3M"])}`);
+  // Toward older output: the area to its top first, then wheel reports.
+  assert.equal(step(() => { wheel(-1); }), "384 []");
+  top = 0;
+  assert.equal(step(() => { wheel(-1); }), `0 ${JSON.stringify(["\x1b[<64;3;3M"])}`);
+  // A swipe that pans the area is left to the browser; at the edge it is
+  // cancelled and becomes wheel reports.
+  assert.equal(step(drag(200, 152)), "0 false []");
+  top = 400;
+  assert.equal(step(drag(200, 152)), `400 true ${JSON.stringify(Array(3).fill("\x1b[<65;3;10M"))}`);
+  assert.equal(step(drag(152, 200)), "400 false []");
+  top = 0;
+  assert.equal(step(drag(152, 200)), `0 true ${JSON.stringify(Array(3).fill("\x1b[<64;3;13M"))}`);
 });
 
 function pageBrowser(t: test.TestContext, mobile: boolean, savedShortcuts?: string, herdr: "tui" | "core" = "tui", options: Record<string, unknown> = {}) {

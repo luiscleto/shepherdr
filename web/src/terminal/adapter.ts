@@ -100,6 +100,15 @@ export function programTakesWheel(
   return controlling && screen === "alternate" && mouse !== "none" && mouse !== "x10";
 }
 
+// While a full-screen program takes the wheel, a core terminal's area, when
+// the terminal is bigger than it, and the program read as one page: moving
+// toward older output scrolls the area to its top first, and moving toward
+// newer output scrolls it to its bottom first; then the program gets wheel
+// reports. An area that doesn't overflow never moves.
+export function programScrollMovesArea(up: boolean, areaTop: number, areaBelow: number, overflows: boolean): boolean {
+  return overflows && (up ? areaTop > 0 : areaBelow > 1);
+}
+
 // A core terminal's area, when the terminal is bigger than it, and its
 // scrollback read as one page: moving up scrolls the area to its top, then
 // the scrollback; moving down scrolls the scrollback back to the latest
