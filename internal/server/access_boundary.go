@@ -102,7 +102,8 @@ func (s *Server) accessBoundary(next http.Handler) http.Handler {
 		}
 		token, err := request.Cookie(sessionCookieName)
 		if err != nil {
-			deleteSessionCookie(writer)
+			// No deletion: a browser may leave the Strict cookie off a
+			// top-level navigation, and deleting here would sign it out.
 			writeAccessError(writer, http.StatusUnauthorized, "Sign in again.")
 			return
 		}

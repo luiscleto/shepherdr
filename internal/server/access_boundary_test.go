@@ -448,6 +448,37 @@ func TestProtectedInvalidationClosesHomeAndTerminalSocketsAndCollectsChildren(t 
 	}
 }
 
+func TestProtectedRefusalDeletesOnlyAPresentedCookie(t *testing.T) {
+	application, manager, store, token := newProtectedTestServer(t, nil)
+	defer manager.Close()
+	defer store.Close()
+	handler := application.Handler()
+
+	for _, path := range []string{"/api/devices", "/api/shared/0123456789abcdef0123456789abcdef"} {
+		for name, presented := range map[string]string{"no cookie": "", "unknown token": "not-a-session"} {
+			t.Run(name+" "+path, func(t *testing.T) {
+				response := serveProtected(handler, http.MethodGet, path, "", presented, false)
+				if response.Code != http.StatusUnauthorized || response.Body.String() != "{\"error\":\"Sign in again.\"}\n" {
+					t.Fatalf("response=%d body=%q", response.Code, response.Body.String())
+				}
+				deletions := response.Result().Cookies()
+				if presented == "" {
+					if len(deletions) != 0 {
+						t.Fatalf("cookieless refusal set %+v", deletions)
+					}
+					return
+				}
+				if len(deletions) != 1 || deletions[0].Name != sessionCookieName || deletions[0].Value != "" || deletions[0].MaxAge != -1 {
+					t.Fatalf("presented-token refusal set %+v", deletions)
+				}
+			})
+		}
+	}
+	if response := serveProtected(handler, http.MethodGet, "/api/devices", "", token, false); response.Code != http.StatusOK {
+		t.Fatalf("session after refusals returned %d", response.Code)
+	}
+}
+
 func TestAccessCookiesAreHostOnlyStrictAndUseIssuanceLifetime(t *testing.T) {
 	created := time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)
 	expires := created.Add(365 * 24 * time.Hour)

@@ -4,6 +4,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Fixed
+
+- Opening a shared PDF on a phone no longer signs you out of Shepherdr.
+
 ## [0.8.2] - 2026-11-17
 
 ### Changed
