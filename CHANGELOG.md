@@ -4,6 +4,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-11-22
+
 ### Fixed
 
 - Opening a shared PDF on a phone no longer signs you out of Shepherdr.
@@ -281,7 +283,8 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 - Works with Herdr 0.8.0 through 0.8.2. Older versions do not start; newer versions start with a warning that they have not been tested.
 - macOS downloads are unsigned and not notarized, so macOS may show a system warning before the first run.
 
-[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/luiscleto/shepherdr/compare/v0.8.3...HEAD
+[0.8.3]: https://github.com/luiscleto/shepherdr/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/luiscleto/shepherdr/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/luiscleto/shepherdr/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/luiscleto/shepherdr/compare/v0.7.2...v0.8.0
