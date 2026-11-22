@@ -251,7 +251,7 @@ test("a PDF shows a card whose Download downloads the file", () => {
     files: [...files(), file("e", { kind: "pdf", name: "report.pdf", tag: "PDF" })],
     route: { file: pdf },
   });
-  assert.equal(host.querySelector(".viewer-doc p")?.textContent, "The PDF downloads and opens in your phone's or computer's PDF viewer.");
+  assert.equal(host.querySelector(".viewer-doc p")?.textContent, "Download the PDF to open it in your phone's or computer's PDF viewer.");
   assert.deepEqual(texts(host, ".viewer-doc button"), ["Download"]);
   const clicked: string[] = [];
   window.HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {

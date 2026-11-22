@@ -695,7 +695,7 @@ export class SharedPage {
     const card = element(document, "div", "viewer-doc");
     card.append(element(document, "div", "doc-glyph", file.tag), element(document, "h2", undefined, file.name));
     const note = file.kind === "pdf"
-      ? "The PDF downloads and opens in your phone's or computer's PDF viewer."
+      ? "Download the PDF to open it in your phone's or computer's PDF viewer."
       : "Shepherdr doesn't show this kind of file. Download it to open it.";
     card.append(
       element(document, "p", undefined, note),

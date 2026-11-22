@@ -454,22 +454,52 @@ func TestProtectedRefusalDeletesOnlyAPresentedCookie(t *testing.T) {
 	defer store.Close()
 	handler := application.Handler()
 
-	for _, path := range []string{"/api/devices", "/api/shared/0123456789abcdef0123456789abcdef"} {
-		for name, presented := range map[string]string{"no cookie": "", "unknown token": "not-a-session"} {
-			t.Run(name+" "+path, func(t *testing.T) {
-				response := serveProtected(handler, http.MethodGet, path, "", presented, false)
+	routes := map[string]func() *http.Request{
+		"GET devices": func() *http.Request {
+			return httptest.NewRequest(http.MethodGet, "https://shepherdr.private/api/devices", nil)
+		},
+		"GET shared file": func() *http.Request {
+			return httptest.NewRequest(http.MethodGet, "https://shepherdr.private/api/shared/0123456789abcdef0123456789abcdef", nil)
+		},
+		"POST revoke": func() *http.Request {
+			request := httptest.NewRequest(http.MethodPost, "https://shepherdr.private/api/devices/revoke", strings.NewReader("{}"))
+			request.Header.Set("Origin", "https://shepherdr.private")
+			request.Header.Set("Content-Type", "application/json")
+			return request
+		},
+		"WebSocket home": func() *http.Request {
+			request := httptest.NewRequest(http.MethodGet, "https://shepherdr.private/api/home", nil)
+			request.Header.Set("Connection", "Upgrade")
+			request.Header.Set("Upgrade", "websocket")
+			request.Header.Set("Origin", "https://shepherdr.private")
+			return request
+		},
+	}
+	// Every presented value, even an empty one, is deleted; no cookie is not.
+	cookies := []struct {
+		name, header string
+	}{{"no cookie", ""}, {"empty value", sessionCookieName + "="}, {"unknown token", sessionCookieName + "=not-a-session"}}
+	for route, build := range routes {
+		for _, cookie := range cookies {
+			t.Run(cookie.name+" "+route, func(t *testing.T) {
+				request := build()
+				if cookie.header != "" {
+					request.Header.Set("Cookie", cookie.header)
+				}
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, request)
 				if response.Code != http.StatusUnauthorized || response.Body.String() != "{\"error\":\"Sign in again.\"}\n" {
 					t.Fatalf("response=%d body=%q", response.Code, response.Body.String())
 				}
 				deletions := response.Result().Cookies()
-				if presented == "" {
+				if cookie.header == "" {
 					if len(deletions) != 0 {
 						t.Fatalf("cookieless refusal set %+v", deletions)
 					}
 					return
 				}
 				if len(deletions) != 1 || deletions[0].Name != sessionCookieName || deletions[0].Value != "" || deletions[0].MaxAge != -1 {
-					t.Fatalf("presented-token refusal set %+v", deletions)
+					t.Fatalf("presented-cookie refusal set %+v", deletions)
 				}
 			})
 		}
