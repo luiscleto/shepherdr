@@ -7,6 +7,7 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 ### Fixed
 
 - Opening a shared PDF on a phone no longer signs you out of Shepherdr.
+- Shared PDFs now download and open in your phone's or computer's PDF viewer, instead of opening a new tab that could say "Sign in again." on a phone.
 
 ## [0.8.2] - 2026-11-17
 

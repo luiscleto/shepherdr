@@ -245,6 +245,22 @@ test("the viewer shows a file's actions and closes when it is deleted", () => {
   window.close();
 });
 
+test("a PDF shows a card whose Download downloads the file", () => {
+  const pdf = "e".repeat(32);
+  const { host, window } = page({
+    files: [...files(), file("e", { kind: "pdf", name: "report.pdf", tag: "PDF" })],
+    route: { file: pdf },
+  });
+  assert.equal(host.querySelector(".viewer-doc p")?.textContent, "The PDF downloads and opens in your phone's or computer's PDF viewer.");
+  assert.deepEqual(texts(host, ".viewer-doc button"), ["Download"]);
+  const clicked: string[] = [];
+  window.HTMLAnchorElement.prototype.click = function (this: HTMLAnchorElement) {
+    clicked.push(`${this.getAttribute("href")} ${this.hasAttribute("download")}`);
+  };
+  host.querySelector<HTMLButtonElement>(".viewer-doc button")?.click();
+  assert.deepEqual(clicked, [`/api/shared/${pdf}?download=1 true`]);
+});
+
 test("an address with a file waits for the list, then opens that file", () => {
   const id = "a".repeat(32);
   const { calls, host, view, window, full } = page({ files: undefined, route: { file: id } });
