@@ -214,9 +214,16 @@ esac
 	}
 	write("version", "0.1.17")
 	if _, err := NewAppClient(context.Background(), client.path, logger); err != nil {
+		t.Fatalf("validated app: %v", err)
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("validated apps logged %q", logs.String())
+	}
+	write("version", "0.1.18")
+	if _, err := NewAppClient(context.Background(), client.path, logger); err != nil {
 		t.Fatalf("newer app: %v", err)
 	}
-	if !strings.Contains(logs.String(), "Herdr app 0.1.17 is newer than the validated Herdr app 0.1.10 through 0.1.16; continuing best-effort") {
+	if !strings.Contains(logs.String(), "Herdr app 0.1.18 is newer than the validated Herdr app 0.1.10 through 0.1.17; continuing best-effort") {
 		t.Fatalf("newer app logged %q", logs.String())
 	}
 	write("version", "0.1.9")
