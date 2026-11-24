@@ -7,7 +7,7 @@ toolchain go1.27.4
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/go-webauthn/webauthn v0.17.4
-	github.com/gorilla/websocket v1.5.3
+	github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4
 	github.com/mdp/qrterminal/v3 v3.2.1
 	golang.org/x/mod v0.42.0
 	golang.org/x/sys v0.49.0
@@ -25,5 +25,6 @@ require (
 	github.com/tinylib/msgp v1.6.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/term v0.47.0 // indirect
 )

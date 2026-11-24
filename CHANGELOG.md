@@ -8,6 +8,10 @@ All notable changes to Shepherdr are recorded here. The format follows [Keep a C
 
 - On a phone or tablet, emoji, suggestions and dictation from your keyboard now reach the program in the full terminal. If you use a screen reader there, turn on **Screen reader support in the full terminal** in Settings.
 
+### Security
+
+- Shepherdr uses a newer version of its WebSocket library, which fixes a weakness flagged in it.
+
 ### Compatibility
 
 - Support Herdr Core 0.1.22 and the Herdr app 0.1.18.
