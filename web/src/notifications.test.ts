@@ -85,14 +85,15 @@ async function settle(): Promise<void> {
   for (let index = 0; index < 8; index++) await Promise.resolve();
 }
 
-function notificationView() {
+function notificationView(touch = false) {
   const window = new Window({ url: "https://shepherdr.example/" });
   const root = window.document.createElement("div");
   window.document.body.append(root);
   const api = new FakeAPI();
   const platform = new FakePlatform();
-  const controller = new NotificationsController(root, api, platform);
-  return { api, controller, platform, root, window };
+  const storage = window.localStorage as unknown as Storage;
+  const controller = new NotificationsController(root, api, platform, { touch: () => touch, storage: () => storage });
+  return { api, controller, platform, root, storage, window };
 }
 
 function buttonWithText(root: ParentNode, text: string): HTMLButtonElement {
@@ -287,6 +288,34 @@ test("Devices is reached inside Settings only when sign-in is protected", async 
   assert.equal(closed, 1);
   assert.equal(window.document.activeElement === settingsAction, true);
   assert.equal(root.querySelector(".notification-panel") === null, true);
+});
+
+test("only touch devices offer screen reader support in the full terminal, off by default and kept in this browser", async () => {
+  const desktop = notificationView(false);
+  await desktop.controller.init();
+  desktop.controller.openSettings();
+  await settle();
+  assert.equal(desktop.root.querySelector(".settings-terminal") === null, true);
+
+  const phone = notificationView(true);
+  await phone.controller.init();
+  phone.controller.openSettings();
+  await settle();
+  const label = phone.root.querySelector(".settings-terminal label")?.textContent;
+  assert.equal(label, "Screen reader support in the full terminal");
+  const input = () => phone.root.querySelector<HTMLInputElement>(".settings-terminal input[type=checkbox]")!;
+  assert.equal(input().checked, false);
+  assert.equal(input().getAttribute("aria-describedby"), "settings-terminal-hint");
+  assert.equal(phone.root.querySelector("#settings-terminal-hint")?.textContent?.includes("Applies only to this browser."), true);
+
+  input().click();
+  assert.equal(phone.storage.getItem("shepherdr.terminal.screen-reader"), "on");
+  buttonWithText(phone.root, "Close").click();
+  phone.controller.openSettings();
+  await settle();
+  assert.equal(input().checked, true);
+  input().click();
+  assert.equal(phone.storage.getItem("shepherdr.terminal.screen-reader"), null);
 });
 
 test("denied permission shows browser guidance without subscribing", async () => {

@@ -1,4 +1,7 @@
 import { agentNote } from "./agent-note";
+import { terminalReaderForDevice } from "./terminal/device";
+import { readTerminalScreenReader, saveTerminalScreenReader } from "./terminal/screen-reader";
+
 export interface NotificationEvents {
   blocked: boolean;
   done: boolean;
@@ -164,11 +167,17 @@ class BrowserNotificationPlatform implements NotificationPlatform {
   }
 }
 
+export interface TerminalSettingsBrowser {
+  touch(): boolean;
+  storage(): Storage;
+}
+
 export class NotificationsController {
   readonly #api: NotificationAPI;
   readonly #document: Document;
   readonly #platform: NotificationPlatform;
   readonly #root: HTMLElement;
+  readonly #browser: TerminalSettingsBrowser;
 
   #config: NotificationConfig | undefined;
   #busy = false;
@@ -191,8 +200,10 @@ export class NotificationsController {
     root: HTMLElement,
     api: NotificationAPI = new BrowserNotificationAPI(),
     platform: NotificationPlatform = new BrowserNotificationPlatform(),
+    browser: TerminalSettingsBrowser = { touch: () => terminalReaderForDevice(), storage: () => window.localStorage },
   ) {
     this.#root = root;
+    this.#browser = browser;
     this.#document = root.ownerDocument;
     this.#api = api;
     this.#platform = platform;
@@ -535,6 +546,7 @@ export class NotificationsController {
       panel.append(devicesSection);
     }
 
+    if (this.#browser.touch()) panel.append(this.#terminalScreenReaderSection());
     panel.append(this.#agentsSection());
 
     layer.append(panel);
@@ -554,6 +566,28 @@ export class NotificationsController {
     } else {
       panel.focus({ preventScroll: true });
     }
+  }
+
+  // terminalScreenReaderSection is shown only on touch devices, where the full
+  // terminal leaves screen-reader support off unless this browser turns it on.
+  #terminalScreenReaderSection(): HTMLElement {
+    const section = element(this.#document, "section", "settings-section settings-terminal");
+    const field = element(this.#document, "label", "settings-choice");
+    const input = element(this.#document, "input");
+    input.type = "checkbox";
+    input.checked = readTerminalScreenReader(this.#browser.storage);
+    input.setAttribute("aria-describedby", "settings-terminal-hint");
+    input.addEventListener("change", () => saveTerminalScreenReader(input.checked, this.#browser.storage));
+    field.append(input, element(this.#document, "span", undefined, "Screen reader support in the full terminal"));
+    const hint = element(
+      this.#document,
+      "p",
+      "notification-scope settings-choice-hint",
+      "Helps screen readers. While it's on, emoji, suggestions or dictation from some phone keyboards may not reach the terminal. Applies only to this browser.",
+    );
+    hint.id = "settings-terminal-hint";
+    section.append(field, hint);
+    return section;
   }
 
   // agentsSection shows the note agents need to find `shepherdr share`, to

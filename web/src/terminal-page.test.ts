@@ -9,10 +9,10 @@ import type { TerminalAdapterEvents } from "./terminal/adapter";
 // Browsers have no Node Buffer. The grapheme addon decodes its tables through
 // Buffer when it exists and misreads Node's pooled bytes, which can loop forever.
 const bundle = await build({
-  stdin: { contents: 'export { closeTerminalWhileCached, TerminalPage } from "./terminal-page"; export { XTermAdapter } from "./terminal/xterm-adapter"; export { Terminal } from "@xterm/xterm";', resolveDir: `${process.cwd()}/src` },
+  stdin: { contents: 'export { closeTerminalWhileCached, TerminalPage } from "./terminal-page"; export { XTermAdapter } from "./terminal/xterm-adapter"; export { saveTerminalScreenReader } from "./terminal/screen-reader"; export { Terminal } from "@xterm/xterm";', resolveDir: `${process.cwd()}/src` },
   bundle: true, format: "esm", write: false, define: { Buffer: "undefined" },
 });
-const { closeTerminalWhileCached, Terminal, TerminalPage, XTermAdapter } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString("base64")}`);
+const { closeTerminalWhileCached, saveTerminalScreenReader, Terminal, TerminalPage, XTermAdapter } = await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString("base64")}`);
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 // Node's own async work, such as reading a file or a reply's body, can take
@@ -178,6 +178,43 @@ test("the terminal counts a grapheme cluster as one character, as Herdr does", a
   await adapter.mount(host, { onData() {}, onResize() {} });
   assert.equal(terminal?.options.allowProposedApi, true);
   assert.equal(terminal?.unicode.activeVersion, "15-graphemes");
+});
+
+test("the full terminal keeps screen-reader support on desktop and follows Settings on a touch device", async t => {
+  const browser = new Window({ url: "http://localhost/" });
+  const globals = globalThis as Record<string, unknown>;
+  const originals = { document: globals.document, window: globals.window, ResizeObserver: globals.ResizeObserver };
+  Object.defineProperty(browser.document, "fonts", { value: { load: async () => [] } });
+  globals.document = browser.document;
+  globals.window = browser;
+  globals.ResizeObserver = class { observe() {} disconnect() {} };
+  t.mock.method(Terminal.prototype, "open", () => {});
+  const terminals: Array<{ options: { screenReaderMode: boolean } }> = [];
+  const loadAddon = Terminal.prototype.loadAddon;
+  t.mock.method(Terminal.prototype, "loadAddon", function (this: { options: { screenReaderMode: boolean } }, addon: unknown) {
+    if (!terminals.includes(this)) terminals.push(this);
+    return loadAddon.call(this, addon);
+  });
+  const desktop = new XTermAdapter();
+  const touch = new XTermAdapter(10_000, false, true);
+  t.after(() => {
+    desktop.destroy();
+    touch.destroy();
+    browser.localStorage.clear();
+    Object.assign(globals, originals);
+    browser.close();
+  });
+  for (const adapter of [desktop, touch]) {
+    const host = browser.document.createElement("div");
+    browser.document.body.append(host);
+    await adapter.mount(host, { onData() {}, onResize() {} });
+  }
+  const modes = () => terminals.map(terminal => terminal.options.screenReaderMode).join(",");
+  assert.equal(modes(), "true,false");
+  saveTerminalScreenReader(true);
+  assert.equal(modes(), "true,true");
+  saveTerminalScreenReader(false);
+  assert.equal(modes(), "true,false");
 });
 
 // The real adapter and xterm for a core terminal; only geometry is stubbed.

@@ -139,7 +139,7 @@ export class TerminalPage {
     // unused gutter. Herdr Core has no scroll command, so a core terminal
     // keeps local scrollback everywhere, filled with core's history.
     const core = target.herdr === "core";
-    this.#xterm = new XTermAdapter(this.#mobile && !core ? 0 : 10_000, core);
+    this.#xterm = new XTermAdapter(this.#mobile && !core ? 0 : 10_000, core, this.#mobile);
     this.#readerVisible = this.#mobile && (readTerminalView() ?? "reader") === "reader";
     const header = element("header", "terminal-header");
     const title = element("div", "terminal-title");

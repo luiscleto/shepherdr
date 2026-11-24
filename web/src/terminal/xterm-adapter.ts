@@ -2,6 +2,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { Terminal } from "@xterm/xterm";
 import { terminalPaste } from "../terminal-input";
+import { fullTerminalScreenReader, onTerminalScreenReaderChange } from "./screen-reader";
 import {
   initialTerminalWheelState,
   localScrollMovesArea,
@@ -32,12 +33,18 @@ export class XTermAdapter {
   #inputEnabled = true;
   #touchCleanup: (() => void) | undefined;
   #pasteCleanup: (() => void) | undefined;
+  #screenReaderCleanup: (() => void) | undefined;
   #destroyed = false;
 
   // localScroll: for Herdr Core, which has no scroll command, the wheel and
   // swipes scroll this page's own scrollback, unless a full-screen program
-  // takes them as wheel reports (programTakesWheel).
-  constructor(private readonly scrollback = 10_000, private readonly localScroll = false) {}
+  // takes them as wheel reports (programTakesWheel). touch: the page is on a
+  // touch device, where screen-reader support follows Settings.
+  constructor(
+    private readonly scrollback = 10_000,
+    private readonly localScroll = false,
+    private readonly touch = false,
+  ) {}
 
   async mount(host: HTMLElement, events: TerminalAdapterEvents): Promise<void> {
     if (this.#destroyed) return;
@@ -60,7 +67,7 @@ export class XTermAdapter {
       // activation; the page asks before anything opens.
       linkHandler: { allowNonHttpProtocols: false, activate: (_event, uri) => this.#events?.onLink?.(uri) },
       minimumContrastRatio: 4.5,
-      screenReaderMode: true,
+      screenReaderMode: fullTerminalScreenReader(this.touch),
       scrollback: this.scrollback,
       // A controlling Herdr Core attach reports this background, foreground
       // and cursor (internal/herdr/core_attach.go); keep them the same.
@@ -98,6 +105,9 @@ export class XTermAdapter {
     this.#fit = fit;
     this.#host = host;
     this.#events = events;
+    this.#screenReaderCleanup = onTerminalScreenReaderChange(() => {
+      terminal.options.screenReaderMode = fullTerminalScreenReader(this.touch);
+    });
     // Rendered frames do not carry application input modes. Herdr 0.9 unwraps
     // a complete paste and applies the real application's current paste mode.
     const paste = (event: ClipboardEvent): void => {
@@ -331,6 +341,7 @@ export class XTermAdapter {
   destroy(): void {
     this.#destroyed = true;
     this.#pasteCleanup?.();
+    this.#screenReaderCleanup?.();
     this.#touchCleanup?.();
     this.#resizeObserver?.disconnect();
     this.#outputQueue = [];

@@ -1546,6 +1546,28 @@ button.terminal-row:hover {
   color: var(--accent);
 }
 
+.settings-choice {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0 0;
+  font-weight: 750;
+}
+
+.settings-choice input {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.settings-choice-hint {
+  margin: 0.25rem 0 0;
+  padding: 0 0 0.9rem 2rem;
+}
+
 .notification-scope,
 .notification-feedback {
   color: var(--ink-muted);
