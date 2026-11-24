@@ -38,10 +38,19 @@ test("turning the setting on restores screen-reader support on touch, stored in 
   saveTerminalScreenReader(false, () => first);
 });
 
-test("without storage the full terminal keeps its default for the device", () => {
+test("without storage the choice still applies for this visit, and a later stored choice replaces it", () => {
   const broken = (): Storage => { throw new Error("blocked"); };
-  saveTerminalScreenReader(true, broken);
   assert.equal(readTerminalScreenReader(broken), false);
   assert.equal(fullTerminalScreenReader(true, broken), false);
+  saveTerminalScreenReader(true, broken);
+  assert.equal(readTerminalScreenReader(broken), true);
+  assert.equal(fullTerminalScreenReader(true, broken), true);
+  saveTerminalScreenReader(false, broken);
+  assert.equal(fullTerminalScreenReader(true, broken), false);
   assert.equal(fullTerminalScreenReader(false, broken), true);
+
+  const working = new Window().localStorage;
+  saveTerminalScreenReader(true, broken);
+  saveTerminalScreenReader(false, () => working);
+  assert.equal(fullTerminalScreenReader(true, () => working), false);
 });

@@ -6,7 +6,11 @@ const preferenceKey = "shepherdr.terminal.screen-reader";
 
 const listeners = new Set<() => void>();
 
+// A choice this browser couldn't store still applies for this visit.
+let unsaved: boolean | undefined;
+
 export function readTerminalScreenReader(storage: () => Storage = () => window.localStorage): boolean {
+  if (unsaved !== undefined) return unsaved;
   try {
     return storage().getItem(preferenceKey) === "on";
   } catch {
@@ -18,8 +22,9 @@ export function saveTerminalScreenReader(on: boolean, storage: () => Storage = (
   try {
     if (on) storage().setItem(preferenceKey, "on");
     else storage().removeItem(preferenceKey);
+    unsaved = undefined;
   } catch {
-    // Without storage the full terminal keeps its default.
+    unsaved = on;
   }
   for (const listener of listeners) listener();
 }
